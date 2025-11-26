@@ -1,0 +1,848 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>API Reference - Veradigm FHIR MCP Server</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            background: #f5f5f5;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        
+        header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px 20px;
+            margin-bottom: 30px;
+            border-radius: 8px;
+        }
+        
+        header h1 {
+            font-size: 2em;
+            margin-bottom: 10px;
+        }
+        
+        .nav-link {
+            display: inline-block;
+            margin-top: 10px;
+            color: white;
+            text-decoration: underline;
+        }
+        
+        .card {
+            background: white;
+            padding: 30px;
+            border-radius: 8px;
+            margin-bottom: 30px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        
+        .card h2 {
+            color: #667eea;
+            margin-bottom: 20px;
+            padding-bottom: 10px;
+            border-bottom: 2px solid #667eea;
+        }
+        
+        .card h3 {
+            color: #764ba2;
+            margin-top: 25px;
+            margin-bottom: 15px;
+        }
+        
+        .tool {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 6px;
+            margin: 20px 0;
+            border-left: 4px solid #667eea;
+        }
+        
+        .tool-name {
+            font-size: 1.3em;
+            font-weight: bold;
+            color: #667eea;
+            margin-bottom: 10px;
+        }
+        
+        .tool-description {
+            margin-bottom: 15px;
+            color: #666;
+        }
+        
+        .param-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 15px 0;
+        }
+        
+        .param-table th, .param-table td {
+            padding: 10px;
+            text-align: left;
+            border-bottom: 1px solid #ddd;
+        }
+        
+        .param-table th {
+            background: #667eea;
+            color: white;
+        }
+        
+        .param-table tr:hover {
+            background: #f8f9fa;
+        }
+        
+        .code-block {
+            background: #1e1e1e;
+            color: #d4d4d4;
+            padding: 20px;
+            border-radius: 6px;
+            overflow-x: auto;
+            margin: 15px 0;
+            font-family: 'Courier New', monospace;
+            font-size: 0.9em;
+        }
+        
+        .code-block .keyword { color: #569cd6; }
+        .code-block .string { color: #ce9178; }
+        .code-block .number { color: #b5cea8; }
+        .code-block .comment { color: #6a9955; }
+        
+        .badge {
+            display: inline-block;
+            padding: 3px 8px;
+            border-radius: 4px;
+            font-size: 0.8em;
+            margin-left: 10px;
+        }
+        
+        .badge-required {
+            background: #f44336;
+            color: white;
+        }
+        
+        .badge-optional {
+            background: #ff9800;
+            color: white;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>📚 API Reference</h1>
+            <a href="index.html" class="nav-link">← Back to Documentation Index</a>
+        </header>
+        
+        <div class="card">
+            <h2>MCP Protocol</h2>
+            <p>The Veradigm FHIR MCP Server implements the Model Context Protocol 2.0 specification. All tools are accessed via MCP protocol messages.</p>
+            
+            <h3>Protocol Transport</h3>
+            <p>The server uses <strong>stdio</strong> transport for MCP communication. Tool calls are made via JSON-RPC 2.0 messages.</p>
+            
+            <h3>Request Format</h3>
+            <div class="code-block">
+<span class="keyword">{</span>
+  <span class="string">"jsonrpc"</span>: <span class="string">"2.0"</span>,
+  <span class="string">"method"</span>: <span class="string">"tools/call"</span>,
+  <span class="string">"params"</span>: <span class="keyword">{</span>
+    <span class="string">"name"</span>: <span class="string">"search_patient"</span>,
+    <span class="string">"arguments"</span>: <span class="keyword">{</span>
+      <span class="string">"name"</span>: <span class="string">"John Doe"</span>,
+      <span class="string">"birthDate"</span>: <span class="string">"1990-01-01"</span>
+    <span class="keyword">}</span>
+  <span class="keyword">}</span>,
+  <span class="string">"id"</span>: <span class="number">1</span>
+<span class="keyword">}</span></div>
+            
+            <h3>Response Format</h3>
+            <div class="code-block">
+<span class="keyword">{</span>
+  <span class="string">"jsonrpc"</span>: <span class="string">"2.0"</span>,
+  <span class="string">"id"</span>: <span class="number">1</span>,
+  <span class="string">"result"</span>: <span class="keyword">{</span>
+    <span class="string">"content"</span>: <span class="keyword">[</span>
+      <span class="keyword">{</span>
+        <span class="string">"type"</span>: <span class="string">"text"</span>,
+        <span class="string">"text"</span>: <span class="string">"{\"patients\": [...], \"total\": 1}"</span>
+      <span class="keyword">}</span>
+    <span class="keyword">]</span>
+  <span class="keyword">}</span>
+<span class="keyword">}</span></div>
+        </div>
+        
+        <div class="card">
+            <h2>Patient Tools</h2>
+            
+            <div class="tool">
+                <div class="tool-name">search_patient</div>
+                <div class="tool-description">Search for patients by various criteria including name, birth date, gender, phone, email, or MRN.</div>
+                
+                <h4>Parameters</h4>
+                <table class="param-table">
+                    <tr>
+                        <th>Parameter</th>
+                        <th>Type</th>
+                        <th>Required</th>
+                        <th>Description</th>
+                    </tr>
+                    <tr>
+                        <td>name</td>
+                        <td>string</td>
+                        <td><span class="badge badge-optional">Optional</span></td>
+                        <td>Full name to search for</td>
+                    </tr>
+                    <tr>
+                        <td>firstName</td>
+                        <td>string</td>
+                        <td><span class="badge badge-optional">Optional</span></td>
+                        <td>First name (if not using 'name')</td>
+                    </tr>
+                    <tr>
+                        <td>lastName</td>
+                        <td>string</td>
+                        <td><span class="badge badge-optional">Optional</span></td>
+                        <td>Last name (if not using 'name')</td>
+                    </tr>
+                    <tr>
+                        <td>birthDate</td>
+                        <td>string</td>
+                        <td><span class="badge badge-optional">Optional</span></td>
+                        <td>Birth date in YYYY-MM-DD format</td>
+                    </tr>
+                    <tr>
+                        <td>gender</td>
+                        <td>string</td>
+                        <td><span class="badge badge-optional">Optional</span></td>
+                        <td>Gender: male, female, other, unknown</td>
+                    </tr>
+                    <tr>
+                        <td>phone</td>
+                        <td>string</td>
+                        <td><span class="badge badge-optional">Optional</span></td>
+                        <td>Phone number</td>
+                    </tr>
+                    <tr>
+                        <td>email</td>
+                        <td>string</td>
+                        <td><span class="badge badge-optional">Optional</span></td>
+                        <td>Email address</td>
+                    </tr>
+                    <tr>
+                        <td>mrn</td>
+                        <td>string</td>
+                        <td><span class="badge badge-optional">Optional</span></td>
+                        <td>Medical Record Number</td>
+                    </tr>
+                    <tr>
+                        <td>limit</td>
+                        <td>number</td>
+                        <td><span class="badge badge-optional">Optional</span></td>
+                        <td>Maximum results (default: 20)</td>
+                    </tr>
+                </table>
+                
+                <h4>Response</h4>
+                <div class="code-block">
+<span class="keyword">{</span>
+  <span class="string">"patients"</span>: <span class="keyword">[</span>
+    <span class="keyword">{</span>
+      <span class="string">"id"</span>: <span class="string">"patient-123"</span>,
+      <span class="string">"name"</span>: <span class="string">"John Doe"</span>,
+      <span class="string">"firstName"</span>: <span class="string">"John"</span>,
+      <span class="string">"lastName"</span>: <span class="string">"Doe"</span>,
+      <span class="string">"birthDate"</span>: <span class="string">"1990-01-01"</span>,
+      <span class="string">"gender"</span>: <span class="string">"male"</span>,
+      <span class="string">"phone"</span>: <span class="string">"555-123-4567"</span>,
+      <span class="string">"email"</span>: <span class="string">"john.doe@email.com"</span>,
+      <span class="string">"mrn"</span>: <span class="string">"MRN123456"</span>,
+      <span class="string">"active"</span>: <span class="keyword">true</span>
+    <span class="keyword">}</span>
+  <span class="keyword">]</span>,
+  <span class="string">"total"</span>: <span class="number">1</span>,
+  <span class="string">"hasMore"</span>: <span class="keyword">false</span>
+<span class="keyword">}</span></div>
+            </div>
+            
+            <div class="tool">
+                <div class="tool-name">get_patient_details</div>
+                <div class="tool-description">Get detailed information for a specific patient by ID.</div>
+                
+                <h4>Parameters</h4>
+                <table class="param-table">
+                    <tr>
+                        <th>Parameter</th>
+                        <th>Type</th>
+                        <th>Required</th>
+                        <th>Description</th>
+                    </tr>
+                    <tr>
+                        <td>patientId</td>
+                        <td>string</td>
+                        <td><span class="badge badge-required">Required</span></td>
+                        <td>FHIR Patient resource ID</td>
+                    </tr>
+                </table>
+                
+                <h4>Response</h4>
+                <div class="code-block">
+<span class="keyword">{</span>
+  <span class="string">"id"</span>: <span class="string">"patient-123"</span>,
+  <span class="string">"name"</span>: <span class="string">"John Doe"</span>,
+  <span class="string">"firstName"</span>: <span class="string">"John"</span>,
+  <span class="string">"lastName"</span>: <span class="string">"Doe"</span>,
+  <span class="string">"birthDate"</span>: <span class="string">"1990-01-01"</span>,
+  <span class="string">"gender"</span>: <span class="string">"male"</span>,
+  <span class="string">"phone"</span>: <span class="string">"555-123-4567"</span>,
+  <span class="string">"email"</span>: <span class="string">"john.doe@email.com"</span>,
+  <span class="string">"address"</span>: <span class="string">"123 Main St, City, ST 12345"</span>,
+  <span class="string">"mrn"</span>: <span class="string">"MRN123456"</span>,
+  <span class="string">"active"</span>: <span class="keyword">true</span>
+<span class="keyword">}</span></div>
+            </div>
+            
+            <div class="tool">
+                <div class="tool-name">verify_patient_identity</div>
+                <div class="tool-description">Verify patient identity by matching provided information against patient records.</div>
+                
+                <h4>Parameters</h4>
+                <table class="param-table">
+                    <tr>
+                        <th>Parameter</th>
+                        <th>Type</th>
+                        <th>Required</th>
+                        <th>Description</th>
+                    </tr>
+                    <tr>
+                        <td>firstName</td>
+                        <td>string</td>
+                        <td><span class="badge badge-optional">Optional</span></td>
+                        <td>First name</td>
+                    </tr>
+                    <tr>
+                        <td>lastName</td>
+                        <td>string</td>
+                        <td><span class="badge badge-optional">Optional</span></td>
+                        <td>Last name</td>
+                    </tr>
+                    <tr>
+                        <td>birthDate</td>
+                        <td>string</td>
+                        <td><span class="badge badge-optional">Optional</span></td>
+                        <td>Birth date in YYYY-MM-DD format</td>
+                    </tr>
+                    <tr>
+                        <td>phone</td>
+                        <td>string</td>
+                        <td><span class="badge badge-optional">Optional</span></td>
+                        <td>Phone number</td>
+                    </tr>
+                    <tr>
+                        <td>email</td>
+                        <td>string</td>
+                        <td><span class="badge badge-optional">Optional</span></td>
+                        <td>Email address</td>
+                    </tr>
+                    <tr>
+                        <td>mrn</td>
+                        <td>string</td>
+                        <td><span class="badge badge-optional">Optional</span></td>
+                        <td>Medical Record Number</td>
+                    </tr>
+                </table>
+                <p><em>Note: At least one parameter is required.</em></p>
+                
+                <h4>Response</h4>
+                <div class="code-block">
+<span class="keyword">{</span>
+  <span class="string">"verified"</span>: <span class="keyword">true</span>,
+  <span class="string">"patient"</span>: <span class="keyword">{</span>
+    <span class="string">"id"</span>: <span class="string">"patient-123"</span>,
+    <span class="string">"name"</span>: <span class="string">"John Doe"</span>
+    <span class="comment">// ... full patient object</span>
+  <span class="keyword">}</span>,
+  <span class="string">"matchScore"</span>: <span class="number">1.0</span>,
+  <span class="string">"suggestions"</span>: <span class="keyword">[]</span>
+<span class="keyword">}</span></div>
+            </div>
+        </div>
+        
+        <div class="card">
+            <h2>Appointment Tools</h2>
+            
+            <div class="tool">
+                <div class="tool-name">get_upcoming_appointments</div>
+                <div class="tool-description">Get upcoming appointments for a patient.</div>
+                
+                <h4>Parameters</h4>
+                <table class="param-table">
+                    <tr>
+                        <th>Parameter</th>
+                        <th>Type</th>
+                        <th>Required</th>
+                        <th>Description</th>
+                    </tr>
+                    <tr>
+                        <td>patientId</td>
+                        <td>string</td>
+                        <td><span class="badge badge-required">Required</span></td>
+                        <td>Patient ID</td>
+                    </tr>
+                    <tr>
+                        <td>limit</td>
+                        <td>number</td>
+                        <td><span class="badge badge-optional">Optional</span></td>
+                        <td>Maximum results (default: 10)</td>
+                    </tr>
+                </table>
+            </div>
+            
+            <div class="tool">
+                <div class="tool-name">get_appointment_details</div>
+                <div class="tool-description">Get detailed information for a specific appointment.</div>
+                
+                <h4>Parameters</h4>
+                <table class="param-table">
+                    <tr>
+                        <th>Parameter</th>
+                        <th>Type</th>
+                        <th>Required</th>
+                        <th>Description</th>
+                    </tr>
+                    <tr>
+                        <td>appointmentId</td>
+                        <td>string</td>
+                        <td><span class="badge badge-required">Required</span></td>
+                        <td>Appointment ID</td>
+                    </tr>
+                </table>
+            </div>
+            
+            <div class="tool">
+                <div class="tool-name">check_appointment_status</div>
+                <div class="tool-description">Check the status of an appointment.</div>
+                
+                <h4>Parameters</h4>
+                <table class="param-table">
+                    <tr>
+                        <th>Parameter</th>
+                        <th>Type</th>
+                        <th>Required</th>
+                        <th>Description</th>
+                    </tr>
+                    <tr>
+                        <td>appointmentId</td>
+                        <td>string</td>
+                        <td><span class="badge badge-required">Required</span></td>
+                        <td>Appointment ID</td>
+                    </tr>
+                </table>
+            </div>
+            
+            <div class="tool">
+                <div class="tool-name">find_patient_next_appointment</div>
+                <div class="tool-description">Find the next scheduled appointment for a patient.</div>
+                
+                <h4>Parameters</h4>
+                <table class="param-table">
+                    <tr>
+                        <th>Parameter</th>
+                        <th>Type</th>
+                        <th>Required</th>
+                        <th>Description</th>
+                    </tr>
+                    <tr>
+                        <td>patientId</td>
+                        <td>string</td>
+                        <td><span class="badge badge-required">Required</span></td>
+                        <td>Patient ID</td>
+                    </tr>
+                </table>
+            </div>
+            
+            <div class="tool">
+                <div class="tool-name">get_appointments_by_date_range</div>
+                <div class="tool-description">Get appointments within a date range.</div>
+                
+                <h4>Parameters</h4>
+                <table class="param-table">
+                    <tr>
+                        <th>Parameter</th>
+                        <th>Type</th>
+                        <th>Required</th>
+                        <th>Description</th>
+                    </tr>
+                    <tr>
+                        <td>patientId</td>
+                        <td>string</td>
+                        <td><span class="badge badge-optional">Optional</span></td>
+                        <td>Patient ID (optional filter)</td>
+                    </tr>
+                    <tr>
+                        <td>startDate</td>
+                        <td>string</td>
+                        <td><span class="badge badge-required">Required</span></td>
+                        <td>Start date in YYYY-MM-DD format</td>
+                    </tr>
+                    <tr>
+                        <td>endDate</td>
+                        <td>string</td>
+                        <td><span class="badge badge-required">Required</span></td>
+                        <td>End date in YYYY-MM-DD format</td>
+                    </tr>
+                </table>
+            </div>
+        </div>
+        
+        <div class="card">
+            <h2>Medication Tools</h2>
+            
+            <div class="tool">
+                <div class="tool-name">get_patient_medications</div>
+                <div class="tool-description">Get all medications for a patient.</div>
+                
+                <h4>Parameters</h4>
+                <table class="param-table">
+                    <tr>
+                        <th>Parameter</th>
+                        <th>Type</th>
+                        <th>Required</th>
+                        <th>Description</th>
+                    </tr>
+                    <tr>
+                        <td>patientId</td>
+                        <td>string</td>
+                        <td><span class="badge badge-required">Required</span></td>
+                        <td>Patient ID</td>
+                    </tr>
+                    <tr>
+                        <td>status</td>
+                        <td>string</td>
+                        <td><span class="badge badge-optional">Optional</span></td>
+                        <td>Filter by status (active, completed, etc.)</td>
+                    </tr>
+                </table>
+            </div>
+            
+            <div class="tool">
+                <div class="tool-name">get_medication_requests</div>
+                <div class="tool-description">Get medication requests for a patient.</div>
+                
+                <h4>Parameters</h4>
+                <table class="param-table">
+                    <tr>
+                        <th>Parameter</th>
+                        <th>Type</th>
+                        <th>Required</th>
+                        <th>Description</th>
+                    </tr>
+                    <tr>
+                        <td>patientId</td>
+                        <td>string</td>
+                        <td><span class="badge badge-required">Required</span></td>
+                        <td>Patient ID</td>
+                    </tr>
+                </table>
+            </div>
+            
+            <div class="tool">
+                <div class="tool-name">check_refill_status</div>
+                <div class="tool-description">Check refill status for medications.</div>
+                
+                <h4>Parameters</h4>
+                <table class="param-table">
+                    <tr>
+                        <th>Parameter</th>
+                        <th>Type</th>
+                        <th>Required</th>
+                        <th>Description</th>
+                    </tr>
+                    <tr>
+                        <td>patientId</td>
+                        <td>string</td>
+                        <td><span class="badge badge-required">Required</span></td>
+                        <td>Patient ID</td>
+                    </tr>
+                    <tr>
+                        <td>medicationId</td>
+                        <td>string</td>
+                        <td><span class="badge badge-optional">Optional</span></td>
+                        <td>Specific medication ID (optional)</td>
+                    </tr>
+                </table>
+            </div>
+            
+            <div class="tool">
+                <div class="tool-name">get_medication_statements</div>
+                <div class="tool-description">Get medication statements for a patient.</div>
+                
+                <h4>Parameters</h4>
+                <table class="param-table">
+                    <tr>
+                        <th>Parameter</th>
+                        <th>Type</th>
+                        <th>Required</th>
+                        <th>Description</th>
+                    </tr>
+                    <tr>
+                        <td>patientId</td>
+                        <td>string</td>
+                        <td><span class="badge badge-required">Required</span></td>
+                        <td>Patient ID</td>
+                    </tr>
+                </table>
+            </div>
+        </div>
+        
+        <div class="card">
+            <h2>Provider Tools</h2>
+            
+            <div class="tool">
+                <div class="tool-name">search_providers</div>
+                <div class="tool-description">Search for healthcare providers.</div>
+                
+                <h4>Parameters</h4>
+                <table class="param-table">
+                    <tr>
+                        <th>Parameter</th>
+                        <th>Type</th>
+                        <th>Required</th>
+                        <th>Description</th>
+                    </tr>
+                    <tr>
+                        <td>name</td>
+                        <td>string</td>
+                        <td><span class="badge badge-optional">Optional</span></td>
+                        <td>Provider name</td>
+                    </tr>
+                    <tr>
+                        <td>specialty</td>
+                        <td>string</td>
+                        <td><span class="badge badge-optional">Optional</span></td>
+                        <td>Medical specialty</td>
+                    </tr>
+                </table>
+            </div>
+            
+            <div class="tool">
+                <div class="tool-name">get_provider_details</div>
+                <div class="tool-description">Get detailed information for a provider.</div>
+                
+                <h4>Parameters</h4>
+                <table class="param-table">
+                    <tr>
+                        <th>Parameter</th>
+                        <th>Type</th>
+                        <th>Required</th>
+                        <th>Description</th>
+                    </tr>
+                    <tr>
+                        <td>providerId</td>
+                        <td>string</td>
+                        <td><span class="badge badge-required">Required</span></td>
+                        <td>Provider ID</td>
+                    </tr>
+                </table>
+            </div>
+            
+            <div class="tool">
+                <div class="tool-name">search_locations</div>
+                <div class="tool-description">Search for healthcare locations.</div>
+                
+                <h4>Parameters</h4>
+                <table class="param-table">
+                    <tr>
+                        <th>Parameter</th>
+                        <th>Type</th>
+                        <th>Required</th>
+                        <th>Description</th>
+                    </tr>
+                    <tr>
+                        <td>name</td>
+                        <td>string</td>
+                        <td><span class="badge badge-optional">Optional</span></td>
+                        <td>Location name</td>
+                    </tr>
+                </table>
+            </div>
+            
+            <div class="tool">
+                <div class="tool-name">get_location_details</div>
+                <div class="tool-description">Get detailed information for a location.</div>
+                
+                <h4>Parameters</h4>
+                <table class="param-table">
+                    <tr>
+                        <th>Parameter</th>
+                        <th>Type</th>
+                        <th>Required</th>
+                        <th>Description</th>
+                    </tr>
+                    <tr>
+                        <td>locationId</td>
+                        <td>string</td>
+                        <td><span class="badge badge-required">Required</span></td>
+                        <td>Location ID</td>
+                    </tr>
+                </table>
+            </div>
+        </div>
+        
+        <div class="card">
+            <h2>Clinical Tools</h2>
+            
+            <div class="tool">
+                <div class="tool-name">get_patient_conditions</div>
+                <div class="tool-description">Get patient conditions (diagnoses).</div>
+                
+                <h4>Parameters</h4>
+                <table class="param-table">
+                    <tr>
+                        <th>Parameter</th>
+                        <th>Type</th>
+                        <th>Required</th>
+                        <th>Description</th>
+                    </tr>
+                    <tr>
+                        <td>patientId</td>
+                        <td>string</td>
+                        <td><span class="badge badge-required">Required</span></td>
+                        <td>Patient ID</td>
+                    </tr>
+                </table>
+            </div>
+            
+            <div class="tool">
+                <div class="tool-name">get_allergies</div>
+                <div class="tool-description">Get patient allergies.</div>
+                
+                <h4>Parameters</h4>
+                <table class="param-table">
+                    <tr>
+                        <th>Parameter</th>
+                        <th>Type</th>
+                        <th>Required</th>
+                        <th>Description</th>
+                    </tr>
+                    <tr>
+                        <td>patientId</td>
+                        <td>string</td>
+                        <td><span class="badge badge-required">Required</span></td>
+                        <td>Patient ID</td>
+                    </tr>
+                </table>
+            </div>
+            
+            <div class="tool">
+                <div class="tool-name">get_recent_observations</div>
+                <div class="tool-description">Get recent observations (vitals, lab results).</div>
+                
+                <h4>Parameters</h4>
+                <table class="param-table">
+                    <tr>
+                        <th>Parameter</th>
+                        <th>Type</th>
+                        <th>Required</th>
+                        <th>Description</th>
+                    </tr>
+                    <tr>
+                        <td>patientId</td>
+                        <td>string</td>
+                        <td><span class="badge badge-required">Required</span></td>
+                        <td>Patient ID</td>
+                    </tr>
+                    <tr>
+                        <td>limit</td>
+                        <td>number</td>
+                        <td><span class="badge badge-optional">Optional</span></td>
+                        <td>Maximum results (default: 20)</td>
+                    </tr>
+                </table>
+            </div>
+            
+            <div class="tool">
+                <div class="tool-name">get_patient_procedures</div>
+                <div class="tool-description">Get patient procedures.</div>
+                
+                <h4>Parameters</h4>
+                <table class="param-table">
+                    <tr>
+                        <th>Parameter</th>
+                        <th>Type</th>
+                        <th>Required</th>
+                        <th>Description</th>
+                    </tr>
+                    <tr>
+                        <td>patientId</td>
+                        <td>string</td>
+                        <td><span class="badge badge-required">Required</span></td>
+                        <td>Patient ID</td>
+                    </tr>
+                </table>
+            </div>
+            
+            <div class="tool">
+                <div class="tool-name">get_patient_coverage</div>
+                <div class="tool-description">Get patient insurance coverage.</div>
+                
+                <h4>Parameters</h4>
+                <table class="param-table">
+                    <tr>
+                        <th>Parameter</th>
+                        <th>Type</th>
+                        <th>Required</th>
+                        <th>Description</th>
+                    </tr>
+                    <tr>
+                        <td>patientId</td>
+                        <td>string</td>
+                        <td><span class="badge badge-required">Required</span></td>
+                        <td>Patient ID</td>
+                    </tr>
+                </table>
+            </div>
+        </div>
+        
+        <div class="card">
+            <h2>Error Responses</h2>
+            <p>All tools return structured error responses when errors occur:</p>
+            
+            <div class="code-block">
+<span class="keyword">{</span>
+  <span class="string">"error"</span>: <span class="string">"VALIDATION_ERROR"</span>,
+  <span class="string">"message"</span>: <span class="string">"Patient ID is required"</span>,
+  <span class="string">"details"</span>: <span class="string">"Additional error details"</span>,
+  <span class="string">"timestamp"</span>: <span class="string">"2024-01-01T12:00:00Z"</span>
+<span class="keyword">}</span></div>
+            
+            <h3>Error Types</h3>
+            <ul>
+                <li><strong>VALIDATION_ERROR:</strong> Invalid input parameters</li>
+                <li><strong>AUTHENTICATION_ERROR:</strong> OAuth token issues</li>
+                <li><strong>NOT_FOUND_ERROR:</strong> Resource not found</li>
+                <li><strong>PERMISSION_ERROR:</strong> Insufficient permissions (403)</li>
+                <li><strong>FHIR_API_ERROR:</strong> FHIR API errors</li>
+                <li><strong>NETWORK_ERROR:</strong> Network connectivity issues</li>
+                <li><strong>UNKNOWN_ERROR:</strong> Unexpected errors</li>
+            </ul>
+        </div>
+    </div>
+</body>
+</html>
+
+

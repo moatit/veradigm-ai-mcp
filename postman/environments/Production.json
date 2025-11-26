@@ -1,0 +1,86 @@
+{
+  "id": "production-environment",
+  "name": "Veradigm FHIR Production",
+  "values": [
+    {
+      "key": "FHIR_BASE_URL",
+      "value": "https://your-production-fhir-url.com/FHIR",
+      "enabled": true
+    },
+    {
+      "key": "TOKEN_URL",
+      "value": "https://your-production-token-url.com/oauth2/token",
+      "enabled": true
+    },
+    {
+      "key": "AUTH_URL",
+      "value": "https://your-production-auth-url.com/oauth2/authorize",
+      "enabled": true
+    },
+    {
+      "key": "CLIENT_ID",
+      "value": "your_production_client_id_here",
+      "enabled": true
+    },
+    {
+      "key": "CLIENT_SECRET",
+      "value": "your_production_client_secret_here",
+      "enabled": true
+    },
+    {
+      "key": "patient_name",
+      "value": "Smith",
+      "enabled": true
+    },
+    {
+      "key": "patient_birthdate",
+      "value": "1990-01-01",
+      "enabled": true
+    },
+    {
+      "key": "patient_id",
+      "value": "",
+      "enabled": true
+    },
+    {
+      "key": "appointment_id",
+      "value": "",
+      "enabled": true
+    },
+    {
+      "key": "practitioner_name",
+      "value": "Dr. Smith",
+      "enabled": true
+    },
+    {
+      "key": "location_name",
+      "value": "Hospital",
+      "enabled": true
+    },
+    {
+      "key": "start_date",
+      "value": "2024-01-01",
+      "enabled": true
+    },
+    {
+      "key": "end_date",
+      "value": "2024-12-31",
+      "enabled": true
+    },
+    {
+      "key": "access_token",
+      "value": "",
+      "enabled": true
+    },
+    {
+      "key": "token_expiry",
+      "value": "",
+      "enabled": true
+    }
+  ],
+  "_postman_variable_scope": "environment"
+}
+
+
+
+

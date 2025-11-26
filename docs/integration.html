@@ -1,0 +1,484 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Integration Guide - Veradigm FHIR MCP Server</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            background: #f5f5f5;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        
+        header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px 20px;
+            margin-bottom: 30px;
+            border-radius: 8px;
+        }
+        
+        header h1 {
+            font-size: 2em;
+            margin-bottom: 10px;
+        }
+        
+        .nav-link {
+            display: inline-block;
+            margin-top: 10px;
+            color: white;
+            text-decoration: underline;
+        }
+        
+        .card {
+            background: white;
+            padding: 30px;
+            border-radius: 8px;
+            margin-bottom: 30px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        
+        .card h2 {
+            color: #667eea;
+            margin-bottom: 20px;
+            padding-bottom: 10px;
+            border-bottom: 2px solid #667eea;
+        }
+        
+        .card h3 {
+            color: #764ba2;
+            margin-top: 25px;
+            margin-bottom: 15px;
+        }
+        
+        .code-block {
+            background: #1e1e1e;
+            color: #d4d4d4;
+            padding: 20px;
+            border-radius: 6px;
+            overflow-x: auto;
+            margin: 15px 0;
+            font-family: 'Courier New', monospace;
+            font-size: 0.9em;
+        }
+        
+        .code-block .keyword { color: #569cd6; }
+        .code-block .string { color: #ce9178; }
+        .code-block .comment { color: #6a9955; }
+        
+        .diagram-container {
+            background: #f8f9fa;
+            padding: 30px;
+            border-radius: 8px;
+            margin: 20px 0;
+            overflow-x: auto;
+        }
+        
+        .info {
+            background: #d1ecf1;
+            border-left: 4px solid #17a2b8;
+            padding: 15px;
+            margin: 15px 0;
+            border-radius: 4px;
+        }
+        
+        .step {
+            background: #f8f9fa;
+            padding: 20px;
+            border-left: 4px solid #667eea;
+            margin: 15px 0;
+            border-radius: 4px;
+        }
+        
+        .step-number {
+            display: inline-block;
+            background: #667eea;
+            color: white;
+            width: 30px;
+            height: 30px;
+            border-radius: 50%;
+            text-align: center;
+            line-height: 30px;
+            font-weight: bold;
+            margin-right: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🔌 Integration Guide</h1>
+            <a href="index.html" class="nav-link">← Back to Documentation Index</a>
+        </header>
+        
+        <div class="card">
+            <h2>Integration with RetellAI</h2>
+            <p>The Veradigm FHIR MCP Server is designed to integrate seamlessly with RetellAI voice agents for healthcare call handling.</p>
+            
+            <h3>Integration Architecture</h3>
+            <div class="diagram-container">
+                <svg width="900" height="400" viewBox="0 0 900 400" xmlns="http://www.w3.org/2000/svg">
+                    <!-- Phone Call -->
+                    <rect x="50" y="50" width="150" height="100" fill="#667eea" stroke="#333" stroke-width="2" rx="10"/>
+                    <text x="125" y="85" text-anchor="middle" fill="white" font-size="14" font-weight="bold">Phone Call</text>
+                    <text x="125" y="105" text-anchor="middle" fill="white" font-size="12">Patient calls</text>
+                    <text x="125" y="125" text-anchor="middle" fill="white" font-size="12">clinic</text>
+                    
+                    <!-- RetellAI -->
+                    <rect x="250" y="50" width="200" height="100" fill="#4caf50" stroke="#333" stroke-width="2" rx="10"/>
+                    <text x="350" y="85" text-anchor="middle" fill="white" font-size="14" font-weight="bold">RetellAI</text>
+                    <text x="350" y="105" text-anchor="middle" fill="white" font-size="12">Voice Agent</text>
+                    <text x="350" y="125" text-anchor="middle" fill="white" font-size="12">Speech Recognition</text>
+                    
+                    <!-- MCP Server -->
+                    <rect x="500" y="50" width="200" height="100" fill="#764ba2" stroke="#333" stroke-width="2" rx="10"/>
+                    <text x="600" y="85" text-anchor="middle" fill="white" font-size="14" font-weight="bold">MCP Server</text>
+                    <text x="600" y="105" text-anchor="middle" fill="white" font-size="12">Veradigm FHIR</text>
+                    <text x="600" y="125" text-anchor="middle" fill="white" font-size="12">Tool Execution</text>
+                    
+                    <!-- Veradigm FHIR -->
+                    <rect x="750" y="50" width="100" height="100" fill="#ff9800" stroke="#333" stroke-width="2" rx="10"/>
+                    <text x="800" y="85" text-anchor="middle" fill="white" font-size="12" font-weight="bold">FHIR API</text>
+                    <text x="800" y="105" text-anchor="middle" fill="white" font-size="11">Patient Data</text>
+                    
+                    <!-- Flow 1 -->
+                    <line x1="200" y1="100" x2="250" y2="100" stroke="#333" stroke-width="2" marker-end="url(#arrowhead)"/>
+                    <text x="220" y="90" fill="#333" font-size="11">Voice Input</text>
+                    
+                    <!-- Flow 2 -->
+                    <line x1="450" y1="100" x2="500" y2="100" stroke="#333" stroke-width="2" marker-end="url(#arrowhead)"/>
+                    <text x="470" y="90" fill="#333" font-size="11">MCP Tool Call</text>
+                    
+                    <!-- Flow 3 -->
+                    <line x1="700" y1="100" x2="750" y2="100" stroke="#333" stroke-width="2" marker-end="url(#arrowhead)"/>
+                    <text x="720" y="90" fill="#333" font-size="11">FHIR Request</text>
+                    
+                    <!-- Response flow -->
+                    <line x1="750" y1="130" x2="700" y2="130" stroke="#333" stroke-width="2" marker-end="url(#arrowhead)" stroke-dasharray="5,5"/>
+                    <line x1="500" y1="130" x2="450" y2="130" stroke="#333" stroke-width="2" marker-end="url(#arrowhead)" stroke-dasharray="5,5"/>
+                    <line x1="250" y1="130" x2="200" y2="130" stroke="#333" stroke-width="2" marker-end="url(#arrowhead)" stroke-dasharray="5,5"/>
+                    
+                    <!-- Use Cases -->
+                    <rect x="50" y="200" width="800" height="150" fill="#f8f9fa" stroke="#333" stroke-width="2" rx="10"/>
+                    <text x="450" y="225" text-anchor="middle" fill="#333" font-size="16" font-weight="bold">Use Cases</text>
+                    
+                    <rect x="80" y="240" width="180" height="90" fill="#fff" stroke="#667eea" stroke-width="1" rx="5"/>
+                    <text x="170" y="260" text-anchor="middle" fill="#333" font-size="12" font-weight="bold">Patient Verification</text>
+                    <text x="170" y="280" text-anchor="middle" fill="#666" font-size="10">Search by name, DOB</text>
+                    <text x="170" y="295" text-anchor="middle" fill="#666" font-size="10">Verify identity</text>
+                    <text x="170" y="310" text-anchor="middle" fill="#666" font-size="10">Confirm appointment</text>
+                    
+                    <rect x="280" y="240" width="180" height="90" fill="#fff" stroke="#4caf50" stroke-width="1" rx="5"/>
+                    <text x="370" y="260" text-anchor="middle" fill="#333" font-size="12" font-weight="bold">Appointment Management</text>
+                    <text x="370" y="280" text-anchor="middle" fill="#666" font-size="10">Check upcoming</text>
+                    <text x="370" y="295" text-anchor="middle" fill="#666" font-size="10">Confirm attendance</text>
+                    <text x="370" y="310" text-anchor="middle" fill="#666" font-size="10">Reschedule requests</text>
+                    
+                    <rect x="510" y="240" width="180" height="90" fill="#fff" stroke="#ff9800" stroke-width="1" rx="5"/>
+                    <text x="600" y="260" text-anchor="middle" fill="#333" font-size="12" font-weight="bold">Medication Refills</text>
+                    <text x="600" y="280" text-anchor="middle" fill="#666" font-size="10">Check medications</text>
+                    <text x="600" y="295" text-anchor="middle" fill="#666" font-size="10">Refill status</text>
+                    <text x="600" y="310" text-anchor="middle" fill="#666" font-size="10">Request refills</text>
+                    
+                    <rect x="740" y="240" width="90" height="90" fill="#fff" stroke="#9c27b0" stroke-width="1" rx="5"/>
+                    <text x="785" y="260" text-anchor="middle" fill="#333" font-size="12" font-weight="bold">Call Routing</text>
+                    <text x="785" y="280" text-anchor="middle" fill="#666" font-size="10">Find provider</text>
+                    <text x="785" y="295" text-anchor="middle" fill="#666" font-size="10">Transfer call</text>
+                    
+                    <defs>
+                        <marker id="arrowhead" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto">
+                            <polygon points="0 0, 10 3, 0 6" fill="#333"/>
+                        </marker>
+                    </defs>
+                </svg>
+            </div>
+        </div>
+        
+        <div class="card">
+            <h2>RetellAI Configuration</h2>
+            
+            <div class="step">
+                <span class="step-number">1</span>
+                <strong>Configure MCP Server Connection</strong>
+                <p>In RetellAI, configure the MCP server connection:</p>
+                <div class="code-block">
+<span class="comment"># RetellAI MCP Configuration</span>
+{
+  <span class="string">"mcpServers"</span>: {
+    <span class="string">"veradigm-fhir"</span>: {
+      <span class="string">"command"</span>: <span class="string">"docker"</span>,
+      <span class="string">"args"</span>: [
+        <span class="string">"run"</span>,
+        <span class="string">"--rm"</span>,
+        <span class="string">"-i"</span>,
+        <span class="string">"-e"</span>, <span class="string">"CLIENT_ID=your-client-id"</span>,
+        <span class="string">"-e"</span>, <span class="string">"CLIENT_SECRET=your-client-secret"</span>,
+        <span class="string">"veradigm-fhir-mcp-server:latest"</span>
+      ]
+    }
+  }
+}</div>
+            </div>
+            
+            <div class="step">
+                <span class="step-number">2</span>
+                <strong>Configure Voice Agent Prompts</strong>
+                <p>Create prompts that instruct the AI to use MCP tools:</p>
+                <div class="code-block">
+<span class="comment"># Example RetellAI Prompt</span>
+You are a healthcare assistant for Idaho Kidney Institute. 
+When a patient calls:
+
+1. First, verify their identity using the search_patient tool with:
+   - Name (first and last)
+   - Date of birth
+   
+2. Once verified, you can:
+   - Check upcoming appointments using get_upcoming_appointments
+   - Confirm appointment attendance
+   - Check medication refills using get_patient_medications
+   - Transfer to appropriate provider using search_providers
+
+Always be professional, empathetic, and HIPAA-compliant.</div>
+            </div>
+            
+            <div class="step">
+                <span class="step-number">3</span>
+                <strong>Test Integration</strong>
+                <p>Test the integration with sample calls:</p>
+                <ul>
+                    <li>Patient verification call</li>
+                    <li>Appointment confirmation call</li>
+                    <li>Medication refill request</li>
+                    <li>Call transfer scenario</li>
+                </ul>
+            </div>
+        </div>
+        
+        <div class="card">
+            <h2>Example Integration Scenarios</h2>
+            
+            <h3>Scenario 1: Patient Verification</h3>
+            <div class="code-block">
+<span class="comment"># Call Flow</span>
+<span class="comment">1. Patient calls: "Hi, this is John Doe, I need to confirm my appointment"</span>
+<span class="comment">2. AI uses search_patient tool:</span>
+{
+  <span class="string">"name"</span>: <span class="string">"John Doe"</span>
+}
+
+<span class="comment">3. If multiple matches, ask for DOB:</span>
+<span class="comment">   "I found a few John Does. Can you please provide your date of birth?"</span>
+
+<span class="comment">4. Verify with DOB:</span>
+{
+  <span class="string">"name"</span>: <span class="string">"John Doe"</span>,
+  <span class="string">"birthDate"</span>: <span class="string">"1990-01-01"</span>
+}
+
+<span class="comment">5. Once verified, proceed with appointment check</span></div>
+            
+            <h3>Scenario 2: Appointment Confirmation</h3>
+            <div class="code-block">
+<span class="comment"># After patient verification</span>
+<span class="comment">1. AI uses get_upcoming_appointments:</span>
+{
+  <span class="string">"patientId"</span>: <span class="string">"patient-123"</span>,
+  <span class="string">"limit"</span>: <span class="number">5</span>
+}
+
+<span class="comment">2. AI responds with appointment details:</span>
+<span class="comment">   "You have an appointment on January 15th at 2:00 PM with Dr. Smith"</span>
+
+<span class="comment">3. Patient confirms: "Yes, I'll be there"</span>
+<span class="comment">   (Note: Confirmation requires write operations - Phase 2)</span></div>
+            
+            <h3>Scenario 3: Medication Refill Request</h3>
+            <div class="code-block">
+<span class="comment"># Patient requests refill</span>
+<span class="comment">1. AI uses get_patient_medications:</span>
+{
+  <span class="string">"patientId"</span>: <span class="string">"patient-123"</span>,
+  <span class="string">"status"</span>: <span class="string">"active"</span>
+}
+
+<span class="comment">2. AI lists medications:</span>
+<span class="comment">   "You have the following active medications:</span>
+<span class="comment">   - Lisinopril 10mg, daily</span>
+<span class="comment">   - Metformin 500mg, twice daily"</span>
+
+<span class="comment">3. Patient: "I need a refill for Lisinopril"</span>
+<span class="comment">4. AI uses check_refill_status to check eligibility</span>
+<span class="comment">5. AI confirms and creates refill request</span>
+<span class="comment">   (Note: Creating requests requires write operations - Phase 2)</span></div>
+            
+            <h3>Scenario 4: Call Transfer</h3>
+            <div class="code-block">
+<span class="comment"># Patient needs to speak with provider</span>
+<span class="comment">1. Patient: "I need to speak with Dr. Smith"</span>
+
+<span class="comment">2. AI uses search_providers:</span>
+{
+  <span class="string">"name"</span>: <span class="string">"Smith"</span>
+}
+
+<span class="comment">3. AI finds provider and gets details:</span>
+{
+  <span class="string">"providerId"</span>: <span class="string">"provider-456"</span>
+}
+
+<span class="comment">4. AI: "I'll transfer you to Dr. Smith now. Please hold."</span>
+<span class="comment">5. Transfer call to provider's extension</span></div>
+        </div>
+        
+        <div class="card">
+            <h2>MCP Protocol Integration</h2>
+            <p>The MCP server uses stdio transport and JSON-RPC 2.0 protocol.</p>
+            
+            <h3>Tool Discovery</h3>
+            <div class="code-block">
+<span class="comment"># Request: List available tools</span>
+{
+  <span class="string">"jsonrpc"</span>: <span class="string">"2.0"</span>,
+  <span class="string">"method"</span>: <span class="string">"tools/list"</span>,
+  <span class="string">"id"</span>: <span class="number">1</span>
+}
+
+<span class="comment"># Response: List of all 20+ tools</span>
+{
+  <span class="string">"jsonrpc"</span>: <span class="string">"2.0"</span>,
+  <span class="string">"id"</span>: <span class="number">1</span>,
+  <span class="string">"result"</span>: {
+    <span class="string">"tools"</span>: [
+      {
+        <span class="string">"name"</span>: <span class="string">"search_patient"</span>,
+        <span class="string">"description"</span>: <span class="string">"Search for patients..."</span>,
+        <span class="string">"inputSchema"</span>: { ... }
+      },
+      ...
+    ]
+  }
+}</div>
+            
+            <h3>Tool Execution</h3>
+            <div class="code-block">
+<span class="comment"># Request: Call a tool</span>
+{
+  <span class="string">"jsonrpc"</span>: <span class="string">"2.0"</span>,
+  <span class="string">"method"</span>: <span class="string">"tools/call"</span>,
+  <span class="string">"params"</span>: {
+    <span class="string">"name"</span>: <span class="string">"search_patient"</span>,
+    <span class="string">"arguments"</span>: {
+      <span class="string">"name"</span>: <span class="string">"John Doe"</span>,
+      <span class="string">"birthDate"</span>: <span class="string">"1990-01-01"</span>
+    }
+  },
+  <span class="string">"id"</span>: <span class="number">2</span>
+}
+
+<span class="comment"># Response: Tool result</span>
+{
+  <span class="string">"jsonrpc"</span>: <span class="string">"2.0"</span>,
+  <span class="string">"id"</span>: <span class="number">2</span>,
+  <span class="string">"result"</span>: {
+    <span class="string">"content"</span>: [
+      {
+        <span class="string">"type"</span>: <span class="string">"text"</span>,
+        <span class="string">"text"</span>: <span class="string">"{\"patients\": [...], \"total\": 1}"</span>
+      }
+    ]
+  }
+}</div>
+        </div>
+        
+        <div class="card">
+            <h2>Best Practices</h2>
+            
+            <h3>Error Handling</h3>
+            <ul>
+                <li>Always handle errors gracefully in voice responses</li>
+                <li>Provide fallback options when tools fail</li>
+                <li>Log errors for debugging and monitoring</li>
+            </ul>
+            
+            <h3>Patient Privacy (HIPAA)</h3>
+            <ul>
+                <li>Always verify patient identity before accessing data</li>
+                <li>Use minimum necessary data access</li>
+                <li>Log all data access for audit trails</li>
+                <li>Never store patient data in logs or cache</li>
+            </ul>
+            
+            <h3>Performance</h3>
+            <ul>
+                <li>Cache tokens to reduce authentication overhead</li>
+                <li>Use pagination for large result sets</li>
+                <li>Limit search results to reasonable sizes</li>
+                <li>Implement timeout handling for long-running operations</li>
+            </ul>
+            
+            <h3>Voice Agent Design</h3>
+            <ul>
+                <li>Use natural language in prompts</li>
+                <li>Guide users through verification step-by-step</li>
+                <li>Provide clear confirmation messages</li>
+                <li>Offer to transfer to human when needed</li>
+            </ul>
+        </div>
+        
+        <div class="card">
+            <h2>Testing Integration</h2>
+            
+            <h3>Local Testing</h3>
+            <div class="code-block">
+<span class="comment"># Start MCP server locally</span>
+npm run dev
+
+<span class="comment"># Use MCP Inspector to test tools</span>
+npx @modelcontextprotocol/inspector veradigm-fhir-mcp-server</div>
+            
+            <h3>Docker Testing</h3>
+            <div class="code-block">
+<span class="comment"># Run MCP server in Docker</span>
+docker run -it --rm \
+  -e CLIENT_ID=your-client-id \
+  -e CLIENT_SECRET=your-client-secret \
+  veradigm-fhir-mcp-server
+
+<span class="comment"># Test with MCP Inspector</span>
+npx @modelcontextprotocol/inspector docker run --rm -i veradigm-fhir-mcp-server</div>
+            
+            <h3>Integration Testing Checklist</h3>
+            <ul>
+                <li>✅ Patient search and verification</li>
+                <li>✅ Appointment queries</li>
+                <li>✅ Medication information retrieval</li>
+                <li>✅ Provider search</li>
+                <li>✅ Error handling and edge cases</li>
+                <li>✅ Authentication and token refresh</li>
+                <li>✅ Performance under load</li>
+            </ul>
+        </div>
+        
+        <div class="info">
+            <strong>📝 Note:</strong> This is Phase 1 (read-only operations). Phase 2 will add write operations for appointment rescheduling, prescription refill requests, and other update capabilities.
+        </div>
+    </div>
+</body>
+</html>
+
+

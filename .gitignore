@@ -1,0 +1,59 @@
+# Dependencies
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Environment variables
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+test-credentials.env
+
+# Test scripts with credentials
+test-auth.js
+test-cp00101-auth.js
+test-fhir-access.js
+
+# Configuration files with credentials
+IDAHO_KIDNEY_CONFIG.md
+CORRECT_FHIR_ENDPOINT_CONFIG.md
+OAUTH_ENDPOINTS_FOUND.md
+*.pdf
+
+# Build output
+dist/
+build/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+logs/
+*.log
+
+# Runtime data
+pids/
+*.pid
+*.seed
+*.pid.lock
+
+# Coverage directory used by tools like istanbul
+coverage/
+
+# Docker
+.dockerignore
+
+# Temporary files
+tmp/
+temp/
+

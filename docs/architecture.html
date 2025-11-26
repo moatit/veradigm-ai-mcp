@@ -1,0 +1,543 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>System Architecture - Veradigm FHIR MCP Server</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            background: #f5f5f5;
+        }
+        
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        
+        header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px 20px;
+            margin-bottom: 30px;
+            border-radius: 8px;
+        }
+        
+        header h1 {
+            font-size: 2em;
+            margin-bottom: 10px;
+        }
+        
+        .nav-link {
+            display: inline-block;
+            margin-top: 10px;
+            color: white;
+            text-decoration: underline;
+        }
+        
+        .card {
+            background: white;
+            padding: 30px;
+            border-radius: 8px;
+            margin-bottom: 30px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        
+        .card h2 {
+            color: #667eea;
+            margin-bottom: 20px;
+            padding-bottom: 10px;
+            border-bottom: 2px solid #667eea;
+        }
+        
+        .diagram-container {
+            background: #f8f9fa;
+            padding: 30px;
+            border-radius: 8px;
+            margin: 20px 0;
+            overflow-x: auto;
+        }
+        
+        svg {
+            display: block;
+            margin: 0 auto;
+        }
+        
+        .legend {
+            margin-top: 20px;
+            padding: 15px;
+            background: #f8f9fa;
+            border-radius: 6px;
+        }
+        
+        .legend-item {
+            display: inline-block;
+            margin-right: 20px;
+            margin-bottom: 10px;
+        }
+        
+        .legend-box {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            margin-right: 5px;
+            vertical-align: middle;
+            border: 1px solid #333;
+        }
+        
+        pre {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 6px;
+            overflow-x: auto;
+            border-left: 4px solid #667eea;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🏗️ System Architecture</h1>
+            <a href="index.html" class="nav-link">← Back to Documentation Index</a>
+        </header>
+        
+        <div class="card">
+            <h2>Architecture Overview</h2>
+            <p>The Veradigm FHIR MCP Server follows a modular, layered architecture designed for scalability, maintainability, and integration with AI voice agents.</p>
+            
+            <div class="diagram-container">
+                <svg width="1000" height="600" viewBox="0 0 1000 600" xmlns="http://www.w3.org/2000/svg">
+                    <!-- AI Voice Agent (RetellAI) -->
+                    <rect x="50" y="50" width="200" height="100" fill="#667eea" stroke="#333" stroke-width="2" rx="10"/>
+                    <text x="150" y="85" text-anchor="middle" fill="white" font-size="16" font-weight="bold">AI Voice Agent</text>
+                    <text x="150" y="105" text-anchor="middle" fill="white" font-size="12">(RetellAI)</text>
+                    <text x="150" y="125" text-anchor="middle" fill="white" font-size="12">MCP Client</text>
+                    
+                    <!-- MCP Server -->
+                    <rect x="350" y="50" width="300" height="500" fill="#f8f9fa" stroke="#333" stroke-width="2" rx="10"/>
+                    <text x="500" y="80" text-anchor="middle" fill="#333" font-size="18" font-weight="bold">MCP Server</text>
+                    
+                    <!-- MCP Server Components -->
+                    <rect x="370" y="110" width="260" height="80" fill="#e3f2fd" stroke="#667eea" stroke-width="2" rx="5"/>
+                    <text x="500" y="135" text-anchor="middle" fill="#333" font-size="14" font-weight="bold">MCP Protocol Handler</text>
+                    <text x="500" y="155" text-anchor="middle" fill="#666" font-size="12">ListToolsRequest</text>
+                    <text x="500" y="175" text-anchor="middle" fill="#666" font-size="12">CallToolRequest</text>
+                    
+                    <rect x="370" y="210" width="260" height="100" fill="#fff3e0" stroke="#ff9800" stroke-width="2" rx="5"/>
+                    <text x="500" y="235" text-anchor="middle" fill="#333" font-size="14" font-weight="bold">Tool Handlers</text>
+                    <text x="500" y="255" text-anchor="middle" fill="#666" font-size="11">PatientTools</text>
+                    <text x="500" y="270" text-anchor="middle" fill="#666" font-size="11">AppointmentTools</text>
+                    <text x="500" y="285" text-anchor="middle" fill="#666" font-size="11">MedicationTools</text>
+                    <text x="500" y="300" text-anchor="middle" fill="#666" font-size="11">ProviderTools, ClinicalTools</text>
+                    
+                    <rect x="370" y="330" width="260" height="80" fill="#e8f5e9" stroke="#4caf50" stroke-width="2" rx="5"/>
+                    <text x="500" y="355" text-anchor="middle" fill="#333" font-size="14" font-weight="bold">FHIR Service</text>
+                    <text x="500" y="375" text-anchor="middle" fill="#666" font-size="12">Search &amp; Get Resources</text>
+                    <text x="500" y="395" text-anchor="middle" fill="#666" font-size="12">Pagination Support</text>
+                    
+                    <rect x="370" y="430" width="260" height="80" fill="#fce4ec" stroke="#e91e63" stroke-width="2" rx="5"/>
+                    <text x="500" y="455" text-anchor="middle" fill="#333" font-size="14" font-weight="bold">Auth Service</text>
+                    <text x="500" y="475" text-anchor="middle" fill="#666" font-size="12">OAuth 2.0 Client Credentials</text>
+                    <text x="500" y="495" text-anchor="middle" fill="#666" font-size="12">Token Caching</text>
+                    
+                    <!-- Cache -->
+                    <rect x="370" y="530" width="120" height="20" fill="#fff9c4" stroke="#fbc02d" stroke-width="1" rx="3"/>
+                    <text x="430" y="543" text-anchor="middle" fill="#333" font-size="10">Token Cache</text>
+                    
+                    <!-- Veradigm FHIR API -->
+                    <rect x="750" y="50" width="200" height="100" fill="#764ba2" stroke="#333" stroke-width="2" rx="10"/>
+                    <text x="850" y="85" text-anchor="middle" fill="white" font-size="16" font-weight="bold">Veradigm</text>
+                    <text x="850" y="105" text-anchor="middle" fill="white" font-size="14">FHIR R4 API</text>
+                    <text x="850" y="125" text-anchor="middle" fill="white" font-size="12">CP00101</text>
+                    
+                    <!-- OAuth Server -->
+                    <rect x="750" y="200" width="200" height="80" fill="#9c27b0" stroke="#333" stroke-width="2" rx="10"/>
+                    <text x="850" y="230" text-anchor="middle" fill="white" font-size="14" font-weight="bold">OAuth 2.0</text>
+                    <text x="850" y="250" text-anchor="middle" fill="white" font-size="12">Token Endpoint</text>
+                    <text x="850" y="270" text-anchor="middle" fill="white" font-size="12">Authorization</text>
+                    
+                    <!-- Arrows -->
+                    <line x1="250" y1="100" x2="350" y2="150" stroke="#333" stroke-width="2" marker-end="url(#arrowhead)"/>
+                    <text x="280" y="120" fill="#333" font-size="11">MCP Protocol</text>
+                    
+                    <line x1="500" y1="380" x2="750" y2="100" stroke="#333" stroke-width="2" marker-end="url(#arrowhead)"/>
+                    <text x="600" y="230" fill="#333" font-size="11">FHIR Requests</text>
+                    
+                    <line x1="500" y1="470" x2="850" y2="280" stroke="#333" stroke-width="2" marker-end="url(#arrowhead)"/>
+                    <text x="640" y="370" fill="#333" font-size="11">OAuth Token</text>
+                    
+                    <line x1="850" y1="150" x2="500" y2="380" stroke="#333" stroke-width="2" marker-end="url(#arrowhead)" stroke-dasharray="5,5"/>
+                    <text x="700" y="260" fill="#333" font-size="11">FHIR Data</text>
+                    
+                    <line x1="850" y1="280" x2="500" y2="470" stroke="#333" stroke-width="2" marker-end="url(#arrowhead)" stroke-dasharray="5,5"/>
+                    <text x="700" y="370" fill="#333" font-size="11">Access Token</text>
+                    
+                    <!-- Arrow marker -->
+                    <defs>
+                        <marker id="arrowhead" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto">
+                            <polygon points="0 0, 10 3, 0 6" fill="#333"/>
+                        </marker>
+                    </defs>
+                </svg>
+            </div>
+            
+            <div class="legend">
+                <h3 style="margin-bottom: 15px;">Legend</h3>
+                <div class="legend-item">
+                    <span class="legend-box" style="background: #667eea;"></span>
+                    <span>External System (AI Voice Agent)</span>
+                </div>
+                <div class="legend-item">
+                    <span class="legend-box" style="background: #e3f2fd; border-color: #667eea;"></span>
+                    <span>MCP Protocol Handler</span>
+                </div>
+                <div class="legend-item">
+                    <span class="legend-box" style="background: #fff3e0; border-color: #ff9800;"></span>
+                    <span>Tool Handlers</span>
+                </div>
+                <div class="legend-item">
+                    <span class="legend-box" style="background: #e8f5e9; border-color: #4caf50;"></span>
+                    <span>FHIR Service</span>
+                </div>
+                <div class="legend-item">
+                    <span class="legend-box" style="background: #fce4ec; border-color: #e91e63;"></span>
+                    <span>Auth Service</span>
+                </div>
+                <div class="legend-item">
+                    <span class="legend-box" style="background: #764ba2;"></span>
+                    <span>Veradigm FHIR API</span>
+                </div>
+            </div>
+        </div>
+        
+        <div class="card">
+            <h2>Component Architecture</h2>
+            <p>Detailed breakdown of the MCP Server components and their relationships:</p>
+            
+            <div class="diagram-container">
+                <svg width="1000" height="700" viewBox="0 0 1000 700" xmlns="http://www.w3.org/2000/svg">
+                    <!-- Main Server -->
+                    <rect x="50" y="50" width="900" height="600" fill="#f8f9fa" stroke="#333" stroke-width="2" rx="10"/>
+                    <text x="500" y="80" text-anchor="middle" fill="#333" font-size="20" font-weight="bold">Veradigm FHIR MCP Server</text>
+                    
+                    <!-- Layer 1: Entry Point -->
+                    <rect x="80" y="110" width="840" height="80" fill="#e3f2fd" stroke="#667eea" stroke-width="2" rx="5"/>
+                    <text x="500" y="140" text-anchor="middle" fill="#333" font-size="16" font-weight="bold">Entry Point (index.ts)</text>
+                    <text x="500" y="160" text-anchor="middle" fill="#666" font-size="12">MCP Server Initialization, Tool Dispatch, Request Routing</text>
+                    <text x="500" y="175" text-anchor="middle" fill="#666" font-size="12">StdioServerTransport</text>
+                    
+                    <!-- Layer 2: Tools -->
+                    <rect x="80" y="210" width="840" height="120" fill="#fff3e0" stroke="#ff9800" stroke-width="2" rx="5"/>
+                    <text x="500" y="235" text-anchor="middle" fill="#333" font-size="16" font-weight="bold">Tool Layer</text>
+                    
+                    <rect x="100" y="250" width="150" height="60" fill="#fff" stroke="#ff9800" stroke-width="1" rx="3"/>
+                    <text x="175" y="270" text-anchor="middle" fill="#333" font-size="12" font-weight="bold">PatientTools</text>
+                    <text x="175" y="290" text-anchor="middle" fill="#666" font-size="10">3 tools</text>
+                    <text x="175" y="305" text-anchor="middle" fill="#666" font-size="10">search, details, verify</text>
+                    
+                    <rect x="270" y="250" width="150" height="60" fill="#fff" stroke="#ff9800" stroke-width="1" rx="3"/>
+                    <text x="345" y="270" text-anchor="middle" fill="#333" font-size="12" font-weight="bold">AppointmentTools</text>
+                    <text x="345" y="290" text-anchor="middle" fill="#666" font-size="10">5 tools</text>
+                    <text x="345" y="305" text-anchor="middle" fill="#666" font-size="10">upcoming, status, details</text>
+                    
+                    <rect x="440" y="250" width="150" height="60" fill="#fff" stroke="#ff9800" stroke-width="1" rx="3"/>
+                    <text x="515" y="270" text-anchor="middle" fill="#333" font-size="12" font-weight="bold">MedicationTools</text>
+                    <text x="515" y="290" text-anchor="middle" fill="#666" font-size="10">4 tools</text>
+                    <text x="515" y="305" text-anchor="middle" fill="#666" font-size="10">medications, requests</text>
+                    
+                    <rect x="610" y="250" width="150" height="60" fill="#fff" stroke="#ff9800" stroke-width="1" rx="3"/>
+                    <text x="685" y="270" text-anchor="middle" fill="#333" font-size="12" font-weight="bold">ProviderTools</text>
+                    <text x="685" y="290" text-anchor="middle" fill="#666" font-size="10">4 tools</text>
+                    <text x="685" y="305" text-anchor="middle" fill="#666" font-size="10">providers, locations</text>
+                    
+                    <rect x="780" y="250" width="120" height="60" fill="#fff" stroke="#ff9800" stroke-width="1" rx="3"/>
+                    <text x="840" y="270" text-anchor="middle" fill="#333" font-size="12" font-weight="bold">ClinicalTools</text>
+                    <text x="840" y="290" text-anchor="middle" fill="#666" font-size="10">5 tools</text>
+                    <text x="840" y="305" text-anchor="middle" fill="#666" font-size="10">conditions, allergies</text>
+                    
+                    <!-- Layer 3: Services -->
+                    <rect x="80" y="350" width="400" height="120" fill="#e8f5e9" stroke="#4caf50" stroke-width="2" rx="5"/>
+                    <text x="280" y="375" text-anchor="middle" fill="#333" font-size="16" font-weight="bold">Service Layer</text>
+                    
+                    <rect x="100" y="390" width="160" height="60" fill="#fff" stroke="#4caf50" stroke-width="1" rx="3"/>
+                    <text x="180" y="410" text-anchor="middle" fill="#333" font-size="12" font-weight="bold">FHIRService</text>
+                    <text x="180" y="425" text-anchor="middle" fill="#666" font-size="10">search(), getResource()</text>
+                    <text x="180" y="440" text-anchor="middle" fill="#666" font-size="10">Pagination, Error Handling</text>
+                    
+                    <rect x="280" y="390" width="160" height="60" fill="#fff" stroke="#4caf50" stroke-width="1" rx="3"/>
+                    <text x="360" y="410" text-anchor="middle" fill="#333" font-size="12" font-weight="bold">AuthService</text>
+                    <text x="360" y="425" text-anchor="middle" fill="#666" font-size="10">getAccessToken()</text>
+                    <text x="360" y="440" text-anchor="middle" fill="#666" font-size="10">Token Caching</text>
+                    
+                    <!-- Layer 4: Utilities -->
+                    <rect x="500" y="350" width="420" height="120" fill="#fce4ec" stroke="#e91e63" stroke-width="2" rx="5"/>
+                    <text x="710" y="375" text-anchor="middle" fill="#333" font-size="16" font-weight="bold">Utility Layer</text>
+                    
+                    <rect x="520" y="390" width="180" height="60" fill="#fff" stroke="#e91e63" stroke-width="1" rx="3"/>
+                    <text x="610" y="410" text-anchor="middle" fill="#333" font-size="12" font-weight="bold">FHIRParser</text>
+                    <text x="610" y="425" text-anchor="middle" fill="#666" font-size="10">parsePatient(), parseAppointment()</text>
+                    <text x="610" y="440" text-anchor="middle" fill="#666" font-size="10">FHIR → Structured Data</text>
+                    
+                    <rect x="720" y="390" width="180" height="60" fill="#fff" stroke="#e91e63" stroke-width="1" rx="3"/>
+                    <text x="810" y="410" text-anchor="middle" fill="#333" font-size="12" font-weight="bold">ErrorHandler</text>
+                    <text x="810" y="425" text-anchor="middle" fill="#666" font-size="10">handleUnknownError()</text>
+                    <text x="810" y="440" text-anchor="middle" fill="#666" font-size="10">Error Classification</text>
+                    
+                    <!-- Layer 5: Configuration -->
+                    <rect x="80" y="490" width="840" height="80" fill="#fff9c4" stroke="#fbc02d" stroke-width="2" rx="5"/>
+                    <text x="500" y="515" text-anchor="middle" fill="#333" font-size="16" font-weight="bold">Configuration Layer</text>
+                    
+                    <rect x="100" y="530" width="180" height="30" fill="#fff" stroke="#fbc02d" stroke-width="1" rx="3"/>
+                    <text x="190" y="548" text-anchor="middle" fill="#333" font-size="11">environment.ts</text>
+                    
+                    <rect x="300" y="530" width="180" height="30" fill="#fff" stroke="#fbc02d" stroke-width="1" rx="3"/>
+                    <text x="390" y="548" text-anchor="middle" fill="#333" font-size="11">fhir-endpoints.ts</text>
+                    
+                    <rect x="500" y="530" width="180" height="30" fill="#fff" stroke="#fbc02d" stroke-width="1" rx="3"/>
+                    <text x="590" y="548" text-anchor="middle" fill="#333" font-size="11">CacheService</text>
+                    
+                    <rect x="700" y="530" width="180" height="30" fill="#fff" stroke="#fbc02d" stroke-width="1" rx="3"/>
+                    <text x="790" y="548" text-anchor="middle" fill="#333" font-size="11">NodeCache</text>
+                    
+                    <!-- External Dependencies -->
+                    <rect x="80" y="590" width="840" height="50" fill="#e1bee7" stroke="#9c27b0" stroke-width="2" rx="5"/>
+                    <text x="500" y="610" text-anchor="middle" fill="#333" font-size="14" font-weight="bold">External Dependencies</text>
+                    <text x="500" y="630" text-anchor="middle" fill="#666" font-size="11">@modelcontextprotocol/sdk, axios, node-cache, dotenv</text>
+                    
+                    <!-- Arrows -->
+                    <line x1="500" y1="190" x2="500" y2="210" stroke="#333" stroke-width="2" marker-end="url(#arrowhead)"/>
+                    <line x1="500" y1="330" x2="500" y2="350" stroke="#333" stroke-width="2" marker-end="url(#arrowhead)"/>
+                    <line x1="500" y1="470" x2="500" y2="490" stroke="#333" stroke-width="2" marker-end="url(#arrowhead)"/>
+                    <line x1="500" y1="570" x2="500" y2="590" stroke="#333" stroke-width="2" marker-end="url(#arrowhead)"/>
+                    
+                    <!-- Arrow marker -->
+                    <defs>
+                        <marker id="arrowhead" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto">
+                            <polygon points="0 0, 10 3, 0 6" fill="#333"/>
+                        </marker>
+                    </defs>
+                </svg>
+            </div>
+        </div>
+        
+        <div class="card">
+            <h2>Data Flow Diagram</h2>
+            <p>How data flows through the system when a tool is called:</p>
+            
+            <div class="diagram-container">
+                <svg width="1000" height="500" viewBox="0 0 1000 500" xmlns="http://www.w3.org/2000/svg">
+                    <!-- Steps -->
+                    <rect x="50" y="50" width="150" height="100" fill="#667eea" stroke="#333" stroke-width="2" rx="10"/>
+                    <text x="125" y="80" text-anchor="middle" fill="white" font-size="14" font-weight="bold">1. AI Agent</text>
+                    <text x="125" y="100" text-anchor="middle" fill="white" font-size="12">Calls Tool</text>
+                    <text x="125" y="115" text-anchor="middle" fill="white" font-size="11">search_patient</text>
+                    <text x="125" y="135" text-anchor="middle" fill="white" font-size="11">(name, birthDate)</text>
+                    
+                    <rect x="250" y="50" width="150" height="100" fill="#e3f2fd" stroke="#667eea" stroke-width="2" rx="10"/>
+                    <text x="325" y="80" text-anchor="middle" fill="#333" font-size="14" font-weight="bold">2. MCP Server</text>
+                    <text x="325" y="100" text-anchor="middle" fill="#666" font-size="12">Routes Request</text>
+                    <text x="325" y="115" text-anchor="middle" fill="#666" font-size="11">to PatientTools</text>
+                    
+                    <rect x="450" y="50" width="150" height="100" fill="#fff3e0" stroke="#ff9800" stroke-width="2" rx="10"/>
+                    <text x="525" y="80" text-anchor="middle" fill="#333" font-size="14" font-weight="bold">3. Tool Handler</text>
+                    <text x="525" y="100" text-anchor="middle" fill="#666" font-size="12">Builds Search</text>
+                    <text x="525" y="115" text-anchor="middle" fill="#666" font-size="11">Parameters</text>
+                    
+                    <rect x="650" y="50" width="150" height="100" fill="#fce4ec" stroke="#e91e63" stroke-width="2" rx="10"/>
+                    <text x="725" y="80" text-anchor="middle" fill="#333" font-size="14" font-weight="bold">4. Auth Service</text>
+                    <text x="725" y="100" text-anchor="middle" fill="#666" font-size="12">Get Token</text>
+                    <text x="725" y="115" text-anchor="middle" fill="#666" font-size="11">(from cache or</text>
+                    <text x="725" y="130" text-anchor="middle" fill="#666" font-size="11">OAuth server)</text>
+                    
+                    <rect x="850" y="50" width="100" height="100" fill="#fff9c4" stroke="#fbc02d" stroke-width="2" rx="10"/>
+                    <text x="900" y="80" text-anchor="middle" fill="#333" font-size="14" font-weight="bold">5. Cache</text>
+                    <text x="900" y="100" text-anchor="middle" fill="#666" font-size="11">Check/Store</text>
+                    <text x="900" y="115" text-anchor="middle" fill="#666" font-size="11">Token</text>
+                    
+                    <!-- Second row -->
+                    <rect x="250" y="200" width="150" height="100" fill="#e8f5e9" stroke="#4caf50" stroke-width="2" rx="10"/>
+                    <text x="325" y="230" text-anchor="middle" fill="#333" font-size="14" font-weight="bold">6. FHIR Service</text>
+                    <text x="325" y="250" text-anchor="middle" fill="#666" font-size="12">Makes Request</text>
+                    <text x="325" y="265" text-anchor="middle" fill="#666" font-size="11">to Veradigm API</text>
+                    <text x="325" y="280" text-anchor="middle" fill="#666" font-size="11">with Bearer Token</text>
+                    
+                    <rect x="450" y="200" width="150" height="100" fill="#764ba2" stroke="#333" stroke-width="2" rx="10"/>
+                    <text x="525" y="230" text-anchor="middle" fill="white" font-size="14" font-weight="bold">7. Veradigm</text>
+                    <text x="525" y="250" text-anchor="middle" fill="white" font-size="12">FHIR API</text>
+                    <text x="525" y="265" text-anchor="middle" fill="white" font-size="11">Returns Bundle</text>
+                    <text x="525" y="280" text-anchor="middle" fill="white" font-size="11">with Patients</text>
+                    
+                    <rect x="650" y="200" width="150" height="100" fill="#fff3e0" stroke="#ff9800" stroke-width="2" rx="10"/>
+                    <text x="725" y="230" text-anchor="middle" fill="#333" font-size="14" font-weight="bold">8. FHIR Parser</text>
+                    <text x="725" y="250" text-anchor="middle" fill="#666" font-size="12">Parses Bundle</text>
+                    <text x="725" y="265" text-anchor="middle" fill="#666" font-size="11">to Structured</text>
+                    <text x="725" y="280" text-anchor="middle" fill="#666" font-size="11">Data Format</text>
+                    
+                    <rect x="250" y="350" width="150" height="100" fill="#e3f2fd" stroke="#667eea" stroke-width="2" rx="10"/>
+                    <text x="325" y="380" text-anchor="middle" fill="#333" font-size="14" font-weight="bold">9. Tool Handler</text>
+                    <text x="325" y="400" text-anchor="middle" fill="#666" font-size="12">Returns Result</text>
+                    <text x="325" y="415" text-anchor="middle" fill="#666" font-size="11">to MCP Server</text>
+                    
+                    <rect x="50" y="350" width="150" height="100" fill="#667eea" stroke="#333" stroke-width="2" rx="10"/>
+                    <text x="125" y="380" text-anchor="middle" fill="white" font-size="14" font-weight="bold">10. AI Agent</text>
+                    <text x="125" y="400" text-anchor="middle" fill="white" font-size="12">Receives</text>
+                    <text x="125" y="415" text-anchor="middle" fill="white" font-size="11">Structured Data</text>
+                    <text x="125" y="430" text-anchor="middle" fill="white" font-size="11">Response</text>
+                    
+                    <!-- Flow arrows -->
+                    <line x1="200" y1="100" x2="250" y2="100" stroke="#333" stroke-width="2" marker-end="url(#arrowhead)"/>
+                    <line x1="400" y1="100" x2="450" y2="100" stroke="#333" stroke-width="2" marker-end="url(#arrowhead)"/>
+                    <line x1="550" y1="100" x2="650" y2="150" stroke="#333" stroke-width="2" marker-end="url(#arrowhead)"/>
+                    <line x1="800" y1="100" x2="725" y2="150" stroke="#333" stroke-width="2" marker-end="url(#arrowhead)"/>
+                    
+                    <line x1="400" y1="150" x2="325" y2="200" stroke="#333" stroke-width="2" marker-end="url(#arrowhead)"/>
+                    <line x1="400" y1="250" x2="450" y2="250" stroke="#333" stroke-width="2" marker-end="url(#arrowhead)"/>
+                    <line x1="600" y1="250" x2="650" y2="250" stroke="#333" stroke-width="2" marker-end="url(#arrowhead)"/>
+                    
+                    <line x1="725" y1="300" x2="325" y2="350" stroke="#333" stroke-width="2" marker-end="url(#arrowhead)"/>
+                    <line x1="200" y1="400" x2="250" y2="400" stroke="#333" stroke-width="2" marker-end="url(#arrowhead)"/>
+                    
+                    <!-- Arrow marker -->
+                    <defs>
+                        <marker id="arrowhead" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto">
+                            <polygon points="0 0, 10 3, 0 6" fill="#333"/>
+                        </marker>
+                    </defs>
+                </svg>
+            </div>
+        </div>
+        
+        <div class="card">
+            <h2>Authentication Flow</h2>
+            <p>OAuth 2.0 Client Credentials flow with token caching:</p>
+            
+            <div class="diagram-container">
+                <svg width="900" height="400" viewBox="0 0 900 400" xmlns="http://www.w3.org/2000/svg">
+                    <!-- MCP Server -->
+                    <rect x="50" y="50" width="200" height="300" fill="#e3f2fd" stroke="#667eea" stroke-width="2" rx="10"/>
+                    <text x="150" y="80" text-anchor="middle" fill="#333" font-size="16" font-weight="bold">MCP Server</text>
+                    
+                    <rect x="70" y="100" width="160" height="50" fill="#fff" stroke="#667eea" stroke-width="1" rx="5"/>
+                    <text x="150" y="125" text-anchor="middle" fill="#333" font-size="12" font-weight="bold">AuthService</text>
+                    <text x="150" y="140" text-anchor="middle" fill="#666" font-size="10">getAccessToken()</text>
+                    
+                    <rect x="70" y="170" width="160" height="50" fill="#fff" stroke="#667eea" stroke-width="1" rx="5"/>
+                    <text x="150" y="195" text-anchor="middle" fill="#333" font-size="12" font-weight="bold">Token Cache</text>
+                    <text x="150" y="210" text-anchor="middle" fill="#666" font-size="10">NodeCache</text>
+                    
+                    <rect x="70" y="240" width="160" height="50" fill="#fff" stroke="#667eea" stroke-width="1" rx="5"/>
+                    <text x="150" y="265" text-anchor="middle" fill="#333" font-size="12" font-weight="bold">FHIRService</text>
+                    <text x="150" y="280" text-anchor="middle" fill="#666" font-size="10">Uses Token</text>
+                    
+                    <rect x="70" y="310" width="160" height="30" fill="#fff9c4" stroke="#fbc02d" stroke-width="1" rx="3"/>
+                    <text x="150" y="330" text-anchor="middle" fill="#333" font-size="10">Cache TTL: 3600s</text>
+                    
+                    <!-- OAuth Server -->
+                    <rect x="350" y="50" width="200" height="300" fill="#764ba2" stroke="#333" stroke-width="2" rx="10"/>
+                    <text x="450" y="80" text-anchor="middle" fill="white" font-size="16" font-weight="bold">OAuth 2.0 Server</text>
+                    
+                    <rect x="370" y="100" width="160" height="80" fill="#9c27b0" stroke="#333" stroke-width="1" rx="5"/>
+                    <text x="450" y="125" text-anchor="middle" fill="white" font-size="12" font-weight="bold">Token Endpoint</text>
+                    <text x="450" y="145" text-anchor="middle" fill="white" font-size="10">/connect/token</text>
+                    <text x="450" y="160" text-anchor="middle" fill="white" font-size="10">Validates Credentials</text>
+                    <text x="450" y="175" text-anchor="middle" fill="white" font-size="10">Returns Access Token</text>
+                    
+                    <!-- Veradigm FHIR -->
+                    <rect x="650" y="50" width="200" height="300" fill="#4caf50" stroke="#333" stroke-width="2" rx="10"/>
+                    <text x="750" y="80" text-anchor="middle" fill="white" font-size="16" font-weight="bold">Veradigm FHIR API</text>
+                    
+                    <rect x="670" y="100" width="160" height="80" fill="#66bb6a" stroke="#333" stroke-width="1" rx="5"/>
+                    <text x="750" y="125" text-anchor="middle" fill="white" font-size="12" font-weight="bold">FHIR Resources</text>
+                    <text x="750" y="145" text-anchor="middle" fill="white" font-size="10">Validates Bearer Token</text>
+                    <text x="750" y="160" text-anchor="middle" fill="white" font-size="10">Returns FHIR Data</text>
+                    
+                    <!-- Flow 1: Token Request -->
+                    <line x1="250" y1="125" x2="370" y2="125" stroke="#333" stroke-width="2" marker-end="url(#arrowhead)"/>
+                    <text x="300" y="115" fill="#333" font-size="11" font-weight="bold">1. Request Token</text>
+                    <text x="300" y="105" fill="#666" font-size="9">client_id, client_secret</text>
+                    <text x="300" y="95" fill="#666" font-size="9">scope: system/*.read</text>
+                    
+                    <!-- Flow 2: Token Response -->
+                    <line x1="370" y1="155" x2="250" y2="195" stroke="#333" stroke-width="2" marker-end="url(#arrowhead)" stroke-dasharray="5,5"/>
+                    <text x="280" y="170" fill="#333" font-size="11" font-weight="bold">2. Access Token</text>
+                    <text x="280" y="180" fill="#666" font-size="9">expires_in: 3600</text>
+                    
+                    <!-- Flow 3: Cache Check -->
+                    <line x1="150" y1="170" x2="150" y2="240" stroke="#667eea" stroke-width="2" marker-end="url(#arrowhead)"/>
+                    <text x="170" y="205" fill="#667eea" font-size="10">3. Cache Token</text>
+                    
+                    <!-- Flow 4: Use Token -->
+                    <line x1="250" y1="265" x2="670" y2="145" stroke="#333" stroke-width="2" marker-end="url(#arrowhead)"/>
+                    <text x="430" y="200" fill="#333" font-size="11" font-weight="bold">4. FHIR Request</text>
+                    <text x="430" y="210" fill="#666" font-size="9">Authorization: Bearer {token}</text>
+                    
+                    <!-- Flow 5: FHIR Response -->
+                    <line x1="670" y1="155" x2="250" y2="280" stroke="#333" stroke-width="2" marker-end="url(#arrowhead)" stroke-dasharray="5,5"/>
+                    <text x="430" y="220" fill="#333" font-size="11" font-weight="bold">5. FHIR Data</text>
+                    
+                    <!-- Cached path -->
+                    <line x1="150" y1="240" x2="150" y2="100" stroke="#4caf50" stroke-width="2" stroke-dasharray="3,3"/>
+                    <text x="30" y="170" fill="#4caf50" font-size="10" font-weight="bold">Cached Path</text>
+                    <text x="30" y="180" fill="#666" font-size="9">(if token exists)</text>
+                    
+                    <!-- Arrow marker -->
+                    <defs>
+                        <marker id="arrowhead" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto">
+                            <polygon points="0 0, 10 3, 0 6" fill="#333"/>
+                        </marker>
+                    </defs>
+                </svg>
+            </div>
+            
+            <h3 style="margin-top: 20px;">Authentication Steps</h3>
+            <ol>
+                <li><strong>Token Request:</strong> AuthService requests access token from OAuth server using client credentials</li>
+                <li><strong>Token Response:</strong> OAuth server validates credentials and returns access token with expiration</li>
+                <li><strong>Token Caching:</strong> Token is cached in NodeCache with TTL matching token expiration</li>
+                <li><strong>FHIR Request:</strong> FHIRService uses cached token in Authorization header</li>
+                <li><strong>Token Refresh:</strong> If token expires or is missing, new token is automatically requested</li>
+            </ol>
+        </div>
+        
+        <div class="card">
+            <h2>File Structure</h2>
+            <pre><code>veradigm-fhir-mcp-server/
+├── src/
+│   ├── index.ts                 # MCP Server entry point
+│   ├── config/
+│   │   ├── environment.ts       # Environment configuration
+│   │   └── fhir-endpoints.ts    # FHIR endpoint definitions
+│   ├── services/
+│   │   ├── auth.service.ts      # OAuth 2.0 authentication
+│   │   ├── fhir.service.ts      # FHIR API client
+│   │   └── cache.service.ts     # Caching utility
+│   ├── tools/
+│   │   ├── patient.tools.ts    # Patient operations (3 tools)
+│   │   ├── appointment.tools.ts # Appointment operations (5 tools)
+│   │   ├── medication.tools.ts  # Medication operations (4 tools)
+│   │   ├── provider.tools.ts   # Provider operations (4 tools)
+│   │   └── clinical.tools.ts   # Clinical data (5 tools)
+│   └── utils/
+│       ├── fhir-parser.ts       # FHIR resource parsing
+│       └── error-handler.ts     # Error handling
+├── dist/                        # Compiled JavaScript
+├── docs/                        # Documentation
+├── postman/                     # Postman collection
+├── Dockerfile                   # Docker build
+├── docker-compose.yml           # Docker orchestration
+└── package.json                 # Dependencies</code></pre>
+        </div>
+    </div>
+</body>
+</html>
+
+

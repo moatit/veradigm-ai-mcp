@@ -1,0 +1,718 @@
+{
+  "info": {
+    "name": "Veradigm FHIR MCP Server",
+    "description": "Comprehensive collection for testing Veradigm FHIR API with OAuth 2.0 authentication",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "version": "1.0.0"
+  },
+  "auth": {
+    "type": "oauth2",
+    "oauth2": [
+      {
+        "key": "addTokenTo",
+        "value": "header",
+        "type": "string"
+      },
+      {
+        "key": "tokenName",
+        "value": "{{access_token}}",
+        "type": "string"
+      },
+      {
+        "key": "grant_type",
+        "value": "client_credentials",
+        "type": "string"
+      },
+      {
+        "key": "client_id",
+        "value": "{{CLIENT_ID}}",
+        "type": "string"
+      },
+      {
+        "key": "client_secret",
+        "value": "{{CLIENT_SECRET}}",
+        "type": "string"
+      },
+      {
+        "key": "access_token_url",
+        "value": "{{TOKEN_URL}}",
+        "type": "string"
+      },
+      {
+        "key": "scope",
+        "value": "system/*.read",
+        "type": "string"
+      }
+    ]
+  },
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "// Auto-refresh token if needed",
+          "const tokenExpiry = pm.environment.get('token_expiry');",
+          "const now = Date.now();",
+          "",
+          "if (!tokenExpiry || now >= parseInt(tokenExpiry)) {",
+          "    console.log('Token expired or missing, refreshing...');",
+          "    ",
+          "    const tokenRequest = {",
+          "        url: pm.environment.get('TOKEN_URL'),",
+          "        method: 'POST',",
+          "        header: {",
+          "            'Content-Type': 'application/x-www-form-urlencoded'",
+          "        },",
+          "        body: {",
+          "            mode: 'urlencoded',",
+          "            urlencoded: [",
+          "                { key: 'grant_type', value: 'client_credentials' },",
+          "                { key: 'client_id', value: pm.environment.get('CLIENT_ID') },",
+          "                { key: 'client_secret', value: pm.environment.get('CLIENT_SECRET') },",
+          "                { key: 'scope', value: 'system/*.read' }",
+          "            ]",
+          "        }",
+          "    };",
+          "    ",
+          "    pm.sendRequest(tokenRequest, (err, response) => {",
+          "        if (err) {",
+          "            console.error('Token request failed:', err);",
+          "            return;",
+          "        }",
+          "        ",
+          "        const tokenData = response.json();",
+          "        pm.environment.set('access_token', tokenData.access_token);",
+          "        pm.environment.set('token_expiry', now + (tokenData.expires_in * 1000));",
+          "        console.log('Token refreshed successfully');",
+          "    });",
+          "}"
+        ]
+      }
+    }
+  ],
+  "variable": [
+    {
+      "key": "FHIR_BASE_URL",
+      "value": "{{FHIR_BASE_URL}}",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "Authentication",
+      "item": [
+        {
+          "name": "Get Access Token",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Token request successful', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.expect(jsonData).to.have.property('access_token');",
+                  "    pm.expect(jsonData).to.have.property('token_type');",
+                  "    pm.expect(jsonData).to.have.property('expires_in');",
+                  "    ",
+                  "    // Store token for other requests",
+                  "    pm.environment.set('access_token', jsonData.access_token);",
+                  "    pm.environment.set('token_expiry', Date.now() + (jsonData.expires_in * 1000));",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/x-www-form-urlencoded"
+              }
+            ],
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                {
+                  "key": "grant_type",
+                  "value": "client_credentials"
+                },
+                {
+                  "key": "client_id",
+                  "value": "{{CLIENT_ID}}"
+                },
+                {
+                  "key": "client_secret",
+                  "value": "{{CLIENT_SECRET}}"
+                },
+                {
+                  "key": "scope",
+                  "value": "system/*.read"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{TOKEN_URL}}",
+              "host": ["{{TOKEN_URL}}"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Patient Operations",
+      "item": [
+        {
+          "name": "Search Patients by Name",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Search patients successful', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.expect(jsonData).to.have.property('resourceType', 'Bundle');",
+                  "    pm.expect(jsonData).to.have.property('type', 'searchset');",
+                  "    ",
+                  "    if (jsonData.entry && jsonData.entry.length > 0) {",
+                  "        pm.expect(jsonData.entry[0].resource).to.have.property('resourceType', 'Patient');",
+                  "        pm.expect(jsonData.entry[0].resource).to.have.property('id');",
+                  "    }",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              },
+              {
+                "key": "Accept",
+                "value": "application/fhir+json"
+              }
+            ],
+            "url": {
+              "raw": "{{FHIR_BASE_URL}}/Patient?name={{patient_name}}&_count=10",
+              "host": ["{{FHIR_BASE_URL}}"],
+              "path": ["Patient"],
+              "query": [
+                {
+                  "key": "name",
+                  "value": "{{patient_name}}"
+                },
+                {
+                  "key": "_count",
+                  "value": "10"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Search Patients by Birth Date",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              },
+              {
+                "key": "Accept",
+                "value": "application/fhir+json"
+              }
+            ],
+            "url": {
+              "raw": "{{FHIR_BASE_URL}}/Patient?birthdate={{patient_birthdate}}&_count=10",
+              "host": ["{{FHIR_BASE_URL}}"],
+              "path": ["Patient"],
+              "query": [
+                {
+                  "key": "birthdate",
+                  "value": "{{patient_birthdate}}"
+                },
+                {
+                  "key": "_count",
+                  "value": "10"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get Patient by ID",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Get patient successful', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.expect(jsonData).to.have.property('resourceType', 'Patient');",
+                  "    pm.expect(jsonData).to.have.property('id');",
+                  "    ",
+                  "    // Store patient ID for other requests",
+                  "    pm.environment.set('patient_id', jsonData.id);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              },
+              {
+                "key": "Accept",
+                "value": "application/fhir+json"
+              }
+            ],
+            "url": {
+              "raw": "{{FHIR_BASE_URL}}/Patient/{{patient_id}}",
+              "host": ["{{FHIR_BASE_URL}}"],
+              "path": ["Patient", "{{patient_id}}"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Appointment Operations",
+      "item": [
+        {
+          "name": "Get Patient Appointments",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Get appointments successful', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.expect(jsonData).to.have.property('resourceType', 'Bundle');",
+                  "    pm.expect(jsonData).to.have.property('type', 'searchset');",
+                  "    ",
+                  "    if (jsonData.entry && jsonData.entry.length > 0) {",
+                  "        pm.expect(jsonData.entry[0].resource).to.have.property('resourceType', 'Appointment');",
+                  "        pm.expect(jsonData.entry[0].resource).to.have.property('id');",
+                  "        ",
+                  "        // Store appointment ID for other requests",
+                  "        pm.environment.set('appointment_id', jsonData.entry[0].resource.id);",
+                  "    }",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              },
+              {
+                "key": "Accept",
+                "value": "application/fhir+json"
+              }
+            ],
+            "url": {
+              "raw": "{{FHIR_BASE_URL}}/Appointment?patient={{patient_id}}&_count=10",
+              "host": ["{{FHIR_BASE_URL}}"],
+              "path": ["Appointment"],
+              "query": [
+                {
+                  "key": "patient",
+                  "value": "{{patient_id}}"
+                },
+                {
+                  "key": "_count",
+                  "value": "10"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get Appointment by ID",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              },
+              {
+                "key": "Accept",
+                "value": "application/fhir+json"
+              }
+            ],
+            "url": {
+              "raw": "{{FHIR_BASE_URL}}/Appointment/{{appointment_id}}",
+              "host": ["{{FHIR_BASE_URL}}"],
+              "path": ["Appointment", "{{appointment_id}}"]
+            }
+          }
+        },
+        {
+          "name": "Get Appointments by Date Range",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              },
+              {
+                "key": "Accept",
+                "value": "application/fhir+json"
+              }
+            ],
+            "url": {
+              "raw": "{{FHIR_BASE_URL}}/Appointment?date=ge{{start_date}}&date=le{{end_date}}&_count=20",
+              "host": ["{{FHIR_BASE_URL}}"],
+              "path": ["Appointment"],
+              "query": [
+                {
+                  "key": "date",
+                  "value": "ge{{start_date}}"
+                },
+                {
+                  "key": "date",
+                  "value": "le{{end_date}}"
+                },
+                {
+                  "key": "_count",
+                  "value": "20"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Medication Operations",
+      "item": [
+        {
+          "name": "Get Patient Medications",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Get medications successful', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.expect(jsonData).to.have.property('resourceType', 'Bundle');",
+                  "    pm.expect(jsonData).to.have.property('type', 'searchset');",
+                  "    ",
+                  "    if (jsonData.entry && jsonData.entry.length > 0) {",
+                  "        pm.expect(jsonData.entry[0].resource).to.have.property('resourceType', 'MedicationRequest');",
+                  "        pm.expect(jsonData.entry[0].resource).to.have.property('id');",
+                  "    }",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              },
+              {
+                "key": "Accept",
+                "value": "application/fhir+json"
+              }
+            ],
+            "url": {
+              "raw": "{{FHIR_BASE_URL}}/MedicationRequest?patient={{patient_id}}&status=active&_count=10",
+              "host": ["{{FHIR_BASE_URL}}"],
+              "path": ["MedicationRequest"],
+              "query": [
+                {
+                  "key": "patient",
+                  "value": "{{patient_id}}"
+                },
+                {
+                  "key": "status",
+                  "value": "active"
+                },
+                {
+                  "key": "_count",
+                  "value": "10"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get Medication Statements",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              },
+              {
+                "key": "Accept",
+                "value": "application/fhir+json"
+              }
+            ],
+            "url": {
+              "raw": "{{FHIR_BASE_URL}}/MedicationStatement?patient={{patient_id}}&_count=10",
+              "host": ["{{FHIR_BASE_URL}}"],
+              "path": ["MedicationStatement"],
+              "query": [
+                {
+                  "key": "patient",
+                  "value": "{{patient_id}}"
+                },
+                {
+                  "key": "_count",
+                  "value": "10"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Provider Operations",
+      "item": [
+        {
+          "name": "Search Practitioners",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              },
+              {
+                "key": "Accept",
+                "value": "application/fhir+json"
+              }
+            ],
+            "url": {
+              "raw": "{{FHIR_BASE_URL}}/Practitioner?name={{practitioner_name}}&_count=10",
+              "host": ["{{FHIR_BASE_URL}}"],
+              "path": ["Practitioner"],
+              "query": [
+                {
+                  "key": "name",
+                  "value": "{{practitioner_name}}"
+                },
+                {
+                  "key": "_count",
+                  "value": "10"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Search Locations",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              },
+              {
+                "key": "Accept",
+                "value": "application/fhir+json"
+              }
+            ],
+            "url": {
+              "raw": "{{FHIR_BASE_URL}}/Location?name={{location_name}}&_count=10",
+              "host": ["{{FHIR_BASE_URL}}"],
+              "path": ["Location"],
+              "query": [
+                {
+                  "key": "name",
+                  "value": "{{location_name}}"
+                },
+                {
+                  "key": "_count",
+                  "value": "10"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Clinical Operations",
+      "item": [
+        {
+          "name": "Get Patient Conditions",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              },
+              {
+                "key": "Accept",
+                "value": "application/fhir+json"
+              }
+            ],
+            "url": {
+              "raw": "{{FHIR_BASE_URL}}/Condition?patient={{patient_id}}&_count=10",
+              "host": ["{{FHIR_BASE_URL}}"],
+              "path": ["Condition"],
+              "query": [
+                {
+                  "key": "patient",
+                  "value": "{{patient_id}}"
+                },
+                {
+                  "key": "_count",
+                  "value": "10"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get Patient Allergies",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              },
+              {
+                "key": "Accept",
+                "value": "application/fhir+json"
+              }
+            ],
+            "url": {
+              "raw": "{{FHIR_BASE_URL}}/AllergyIntolerance?patient={{patient_id}}&_count=10",
+              "host": ["{{FHIR_BASE_URL}}"],
+              "path": ["AllergyIntolerance"],
+              "query": [
+                {
+                  "key": "patient",
+                  "value": "{{patient_id}}"
+                },
+                {
+                  "key": "_count",
+                  "value": "10"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get Patient Observations",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              },
+              {
+                "key": "Accept",
+                "value": "application/fhir+json"
+              }
+            ],
+            "url": {
+              "raw": "{{FHIR_BASE_URL}}/Observation?patient={{patient_id}}&category=vital-signs&_count=10",
+              "host": ["{{FHIR_BASE_URL}}"],
+              "path": ["Observation"],
+              "query": [
+                {
+                  "key": "patient",
+                  "value": "{{patient_id}}"
+                },
+                {
+                  "key": "category",
+                  "value": "vital-signs"
+                },
+                {
+                  "key": "_count",
+                  "value": "10"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "System Operations",
+      "item": [
+        {
+          "name": "Get FHIR Capabilities",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Get capabilities successful', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.expect(jsonData).to.have.property('resourceType', 'CapabilityStatement');",
+                  "    pm.expect(jsonData).to.have.property('status');",
+                  "    pm.expect(jsonData).to.have.property('kind', 'instance');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              },
+              {
+                "key": "Accept",
+                "value": "application/fhir+json"
+              }
+            ],
+            "url": {
+              "raw": "{{FHIR_BASE_URL}}/metadata",
+              "host": ["{{FHIR_BASE_URL}}"],
+              "path": ["metadata"]
+            }
+          }
+        }
+      ]
+    }
+  ]
+}
+
+
+
+
