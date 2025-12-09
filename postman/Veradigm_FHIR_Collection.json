@@ -37,11 +37,6 @@
         "key": "access_token_url",
         "value": "{{TOKEN_URL}}",
         "type": "string"
-      },
-      {
-        "key": "scope",
-        "value": "system/*.read",
-        "type": "string"
       }
     ]
   },
@@ -69,8 +64,7 @@
           "            urlencoded: [",
           "                { key: 'grant_type', value: 'client_credentials' },",
           "                { key: 'client_id', value: pm.environment.get('CLIENT_ID') },",
-          "                { key: 'client_secret', value: pm.environment.get('CLIENT_SECRET') },",
-          "                { key: 'scope', value: 'system/*.read' }",
+          "                { key: 'client_secret', value: pm.environment.get('CLIENT_SECRET') }",
           "            ]",
           "        }",
           "    };",
@@ -712,7 +706,3 @@
     }
   ]
 }
-
-
-
-

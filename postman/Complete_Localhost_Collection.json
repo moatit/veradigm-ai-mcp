@@ -1,0 +1,590 @@
+{
+  "info": {
+    "name": "Veradigm MCP - Complete Localhost API",
+    "description": "Complete collection with all 20+ FHIR operations via localhost:3000",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "version": "2.0.0"
+  },
+  "item": [
+    {
+      "name": "System Operations",
+      "item": [
+        {
+          "name": "Health Check",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "http://localhost:3000/health",
+              "protocol": "http",
+              "host": ["localhost"],
+              "port": "3000",
+              "path": ["health"]
+            }
+          }
+        },
+        {
+          "name": "Test Authentication",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "http://localhost:3000/test/auth",
+              "protocol": "http",
+              "host": ["localhost"],
+              "port": "3000",
+              "path": ["test", "auth"]
+            }
+          }
+        },
+        {
+          "name": "List All Tools",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "http://localhost:3000/tools",
+              "protocol": "http",
+              "host": ["localhost"],
+              "port": "3000",
+              "path": ["tools"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Patient Operations",
+      "item": [
+        {
+          "name": "Search Patient by Name",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Smith\"\n}"
+            },
+            "url": {
+              "raw": "http://localhost:3000/api/patient/search",
+              "protocol": "http",
+              "host": ["localhost"],
+              "port": "3000",
+              "path": ["api", "patient", "search"]
+            }
+          }
+        },
+        {
+          "name": "Search Patient by Name & DOB",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Smith\",\n  \"birthDate\": \"1990-01-01\"\n}"
+            },
+            "url": {
+              "raw": "http://localhost:3000/api/patient/search",
+              "protocol": "http",
+              "host": ["localhost"],
+              "port": "3000",
+              "path": ["api", "patient", "search"]
+            }
+          }
+        },
+        {
+          "name": "Get Patient Details",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "http://localhost:3000/api/patient/:patientId",
+              "protocol": "http",
+              "host": ["localhost"],
+              "port": "3000",
+              "path": ["api", "patient", ":patientId"],
+              "variable": [
+                {
+                  "key": "patientId",
+                  "value": "69006"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Verify Patient Identity",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"firstName\": \"Thursday\",\n  \"lastName\": \"Smithe\",\n  \"birthDate\": \"1990-01-01\",\n  \"phone\": \"(312) 777-0000\"\n}"
+            },
+            "url": {
+              "raw": "http://localhost:3000/api/patient/verify",
+              "protocol": "http",
+              "host": ["localhost"],
+              "port": "3000",
+              "path": ["api", "patient", "verify"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Appointment Operations",
+      "item": [
+        {
+          "name": "Get Upcoming Appointments",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "http://localhost:3000/api/appointment?patientId=:patientId",
+              "protocol": "http",
+              "host": ["localhost"],
+              "port": "3000",
+              "path": ["api", "appointment"],
+              "query": [
+                {
+                  "key": "patientId",
+                  "value": ":patientId"
+                }
+              ],
+              "variable": [
+                {
+                  "key": "patientId",
+                  "value": "69006"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get Appointment Details",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "http://localhost:3000/api/appointment/:appointmentId",
+              "protocol": "http",
+              "host": ["localhost"],
+              "port": "3000",
+              "path": ["api", "appointment", ":appointmentId"],
+              "variable": [
+                {
+                  "key": "appointmentId",
+                  "value": "12345"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Check Appointment Status",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "http://localhost:3000/api/appointment/:appointmentId/status",
+              "protocol": "http",
+              "host": ["localhost"],
+              "port": "3000",
+              "path": ["api", "appointment", ":appointmentId", "status"],
+              "variable": [
+                {
+                  "key": "appointmentId",
+                  "value": "12345"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Find Next Appointment",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "http://localhost:3000/api/appointment/next?patientId=:patientId",
+              "protocol": "http",
+              "host": ["localhost"],
+              "port": "3000",
+              "path": ["api", "appointment", "next"],
+              "query": [
+                {
+                  "key": "patientId",
+                  "value": ":patientId"
+                }
+              ],
+              "variable": [
+                {
+                  "key": "patientId",
+                  "value": "69006"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get Appointments by Date Range",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "http://localhost:3000/api/appointment?patientId=:patientId&startDate=2024-11-01&endDate=2024-12-31",
+              "protocol": "http",
+              "host": ["localhost"],
+              "port": "3000",
+              "path": ["api", "appointment"],
+              "query": [
+                {
+                  "key": "patientId",
+                  "value": ":patientId"
+                },
+                {
+                  "key": "startDate",
+                  "value": "2024-11-01"
+                },
+                {
+                  "key": "endDate",
+                  "value": "2024-12-31"
+                }
+              ],
+              "variable": [
+                {
+                  "key": "patientId",
+                  "value": "69006"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Medication Operations",
+      "item": [
+        {
+          "name": "Get Patient Medications",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "http://localhost:3000/api/medication?patientId=:patientId",
+              "protocol": "http",
+              "host": ["localhost"],
+              "port": "3000",
+              "path": ["api", "medication"],
+              "query": [
+                {
+                  "key": "patientId",
+                  "value": ":patientId"
+                }
+              ],
+              "variable": [
+                {
+                  "key": "patientId",
+                  "value": "69006"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get Medication Requests",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "http://localhost:3000/api/medication/requests?patientId=:patientId",
+              "protocol": "http",
+              "host": ["localhost"],
+              "port": "3000",
+              "path": ["api", "medication", "requests"],
+              "query": [
+                {
+                  "key": "patientId",
+                  "value": ":patientId"
+                }
+              ],
+              "variable": [
+                {
+                  "key": "patientId",
+                  "value": "69006"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Check Refill Status",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "http://localhost:3000/api/medication/:medicationId/refill",
+              "protocol": "http",
+              "host": ["localhost"],
+              "port": "3000",
+              "path": ["api", "medication", ":medicationId", "refill"],
+              "variable": [
+                {
+                  "key": "medicationId",
+                  "value": "med123"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get Medication Statements",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "http://localhost:3000/api/medication/statements?patientId=:patientId",
+              "protocol": "http",
+              "host": ["localhost"],
+              "port": "3000",
+              "path": ["api", "medication", "statements"],
+              "query": [
+                {
+                  "key": "patientId",
+                  "value": ":patientId"
+                }
+              ],
+              "variable": [
+                {
+                  "key": "patientId",
+                  "value": "69006"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Provider Operations",
+      "item": [
+        {
+          "name": "Search Providers",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "http://localhost:3000/api/provider/search?name=Smith",
+              "protocol": "http",
+              "host": ["localhost"],
+              "port": "3000",
+              "path": ["api", "provider", "search"],
+              "query": [
+                {
+                  "key": "name",
+                  "value": "Smith"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get Provider Details",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "http://localhost:3000/api/provider/:providerId",
+              "protocol": "http",
+              "host": ["localhost"],
+              "port": "3000",
+              "path": ["api", "provider", ":providerId"],
+              "variable": [
+                {
+                  "key": "providerId",
+                  "value": "prov123"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Search Locations",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "http://localhost:3000/api/location/search?name=Hospital",
+              "protocol": "http",
+              "host": ["localhost"],
+              "port": "3000",
+              "path": ["api", "location", "search"],
+              "query": [
+                {
+                  "key": "name",
+                  "value": "Hospital"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get Location Details",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "http://localhost:3000/api/location/:locationId",
+              "protocol": "http",
+              "host": ["localhost"],
+              "port": "3000",
+              "path": ["api", "location", ":locationId"],
+              "variable": [
+                {
+                  "key": "locationId",
+                  "value": "loc123"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Clinical Operations",
+      "item": [
+        {
+          "name": "Get Patient Conditions",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "http://localhost:3000/api/clinical/conditions?patientId=:patientId",
+              "protocol": "http",
+              "host": ["localhost"],
+              "port": "3000",
+              "path": ["api", "clinical", "conditions"],
+              "query": [
+                {
+                  "key": "patientId",
+                  "value": ":patientId"
+                }
+              ],
+              "variable": [
+                {
+                  "key": "patientId",
+                  "value": "69006"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get Allergies",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "http://localhost:3000/api/clinical/allergies?patientId=:patientId",
+              "protocol": "http",
+              "host": ["localhost"],
+              "port": "3000",
+              "path": ["api", "clinical", "allergies"],
+              "query": [
+                {
+                  "key": "patientId",
+                  "value": ":patientId"
+                }
+              ],
+              "variable": [
+                {
+                  "key": "patientId",
+                  "value": "69006"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get Recent Observations",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "http://localhost:3000/api/clinical/observations?patientId=:patientId",
+              "protocol": "http",
+              "host": ["localhost"],
+              "port": "3000",
+              "path": ["api", "clinical", "observations"],
+              "query": [
+                {
+                  "key": "patientId",
+                  "value": ":patientId"
+                }
+              ],
+              "variable": [
+                {
+                  "key": "patientId",
+                  "value": "69006"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get Patient Procedures",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "http://localhost:3000/api/clinical/procedures?patientId=:patientId",
+              "protocol": "http",
+              "host": ["localhost"],
+              "port": "3000",
+              "path": ["api", "clinical", "procedures"],
+              "query": [
+                {
+                  "key": "patientId",
+                  "value": ":patientId"
+                }
+              ],
+              "variable": [
+                {
+                  "key": "patientId",
+                  "value": "69006"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get Patient Coverage",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "http://localhost:3000/api/clinical/coverage?patientId=:patientId",
+              "protocol": "http",
+              "host": ["localhost"],
+              "port": "3000",
+              "path": ["api", "clinical", "coverage"],
+              "query": [
+                {
+                  "key": "patientId",
+                  "value": ":patientId"
+                }
+              ],
+              "variable": [
+                {
+                  "key": "patientId",
+                  "value": "69006"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

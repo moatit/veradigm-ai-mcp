@@ -1,0 +1,618 @@
+{
+  "info": {
+    "name": "Veradigm FHIR MCP - All 22 Tools",
+    "description": "Complete Postman collection for testing all 22 MCP tools via JSON-RPC 2.0",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "version": "2.0.0"
+  },
+  "variable": [
+    {
+      "key": "mcp_server_url",
+      "value": "http://localhost:3000",
+      "type": "string"
+    },
+    {
+      "key": "test_patient_id",
+      "value": "67980",
+      "type": "string"
+    },
+    {
+      "key": "test_patient_first_name",
+      "value": "Smitha",
+      "type": "string"
+    },
+    {
+      "key": "test_patient_last_name",
+      "value": "Patil",
+      "type": "string"
+    },
+    {
+      "key": "test_patient_mrn",
+      "value": "75550",
+      "type": "string"
+    },
+    {
+      "key": "test_date_start",
+      "value": "2025-01-01",
+      "type": "string"
+    },
+    {
+      "key": "test_date_end",
+      "value": "2025-12-31",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "1. Patient Tools",
+      "item": [
+        {
+          "name": "1.1 search_patient",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": 1,\n  \"method\": \"tools/call\",\n  \"params\": {\n    \"name\": \"search_patient\",\n    \"arguments\": {\n      \"firstName\": \"{{test_patient_first_name}}\",\n      \"lastName\": \"{{test_patient_last_name}}\",\n      \"mrn\": \"{{test_patient_mrn}}\",\n      \"limit\": 20\n    }\n  }\n}"
+            },
+            "url": {
+              "raw": "{{mcp_server_url}}/",
+              "host": ["{{mcp_server_url}}"],
+              "path": [""]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "1.2 get_patient_details",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": 2,\n  \"method\": \"tools/call\",\n  \"params\": {\n    \"name\": \"get_patient_details\",\n    \"arguments\": {\n      \"patientId\": \"{{test_patient_id}}\"\n    }\n  }\n}"
+            },
+            "url": {
+              "raw": "{{mcp_server_url}}/",
+              "host": ["{{mcp_server_url}}"],
+              "path": [""]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "1.3 verify_patient_identity",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": 3,\n  \"method\": \"tools/call\",\n  \"params\": {\n    \"name\": \"verify_patient_identity\",\n    \"arguments\": {\n      \"firstName\": \"{{test_patient_first_name}}\",\n      \"lastName\": \"{{test_patient_last_name}}\",\n      \"mrn\": \"{{test_patient_mrn}}\"\n    }\n  }\n}"
+            },
+            "url": {
+              "raw": "{{mcp_server_url}}/",
+              "host": ["{{mcp_server_url}}"],
+              "path": [""]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "2. Appointment Tools",
+      "item": [
+        {
+          "name": "2.1 get_upcoming_appointments",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": 4,\n  \"method\": \"tools/call\",\n  \"params\": {\n    \"name\": \"get_upcoming_appointments\",\n    \"arguments\": {\n      \"patientId\": \"{{test_patient_id}}\",\n      \"startDate\": \"{{test_date_start}}\",\n      \"endDate\": \"{{test_date_end}}\",\n      \"limit\": 20\n    }\n  }\n}"
+            },
+            "url": {
+              "raw": "{{mcp_server_url}}/",
+              "host": ["{{mcp_server_url}}"],
+              "path": [""]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "2.2 get_appointment_details",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": 5,\n  \"method\": \"tools/call\",\n  \"params\": {\n    \"name\": \"get_appointment_details\",\n    \"arguments\": {\n      \"appointmentId\": \"APPT-123\"\n    }\n  }\n}"
+            },
+            "url": {
+              "raw": "{{mcp_server_url}}/",
+              "host": ["{{mcp_server_url}}"],
+              "path": [""]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "2.3 check_appointment_status",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": 6,\n  \"method\": \"tools/call\",\n  \"params\": {\n    \"name\": \"check_appointment_status\",\n    \"arguments\": {\n      \"appointmentId\": \"APPT-123\"\n    }\n  }\n}"
+            },
+            "url": {
+              "raw": "{{mcp_server_url}}/",
+              "host": ["{{mcp_server_url}}"],
+              "path": [""]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "2.4 find_patient_next_appointment",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": 7,\n  \"method\": \"tools/call\",\n  \"params\": {\n    \"name\": \"find_patient_next_appointment\",\n    \"arguments\": {\n      \"patientId\": \"{{test_patient_id}}\"\n    }\n  }\n}"
+            },
+            "url": {
+              "raw": "{{mcp_server_url}}/",
+              "host": ["{{mcp_server_url}}"],
+              "path": [""]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "2.5 get_appointments_by_date_range",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": 8,\n  \"method\": \"tools/call\",\n  \"params\": {\n    \"name\": \"get_appointments_by_date_range\",\n    \"arguments\": {\n      \"startDate\": \"{{test_date_start}}\",\n      \"endDate\": \"{{test_date_end}}\",\n      \"limit\": 50\n    }\n  }\n}"
+            },
+            "url": {
+              "raw": "{{mcp_server_url}}/",
+              "host": ["{{mcp_server_url}}"],
+              "path": [""]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "2.6 create_appointment",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": 9,\n  \"method\": \"tools/call\",\n  \"params\": {\n    \"name\": \"create_appointment\",\n    \"arguments\": {\n      \"patientId\": \"{{test_patient_id}}\",\n      \"practitionerId\": \"PR-10794\",\n      \"locationId\": \"LOC-001\",\n      \"start\": \"2025-12-15T10:00:00Z\",\n      \"end\": \"2025-12-15T10:30:00Z\",\n      \"description\": \"Follow-up appointment\",\n      \"serviceType\": \"108379007\",\n      \"priority\": 5\n    }\n  }\n}"
+            },
+            "url": {
+              "raw": "{{mcp_server_url}}/",
+              "host": ["{{mcp_server_url}}"],
+              "path": [""]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "3. Medication Tools",
+      "item": [
+        {
+          "name": "3.1 get_patient_medications",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": 10,\n  \"method\": \"tools/call\",\n  \"params\": {\n    \"name\": \"get_patient_medications\",\n    \"arguments\": {\n      \"patientId\": \"{{test_patient_id}}\",\n      \"status\": \"active\",\n      \"intent\": \"order\",\n      \"limit\": 20\n    }\n  }\n}"
+            },
+            "url": {
+              "raw": "{{mcp_server_url}}/",
+              "host": ["{{mcp_server_url}}"],
+              "path": [""]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "3.2 get_medication_requests",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": 11,\n  \"method\": \"tools/call\",\n  \"params\": {\n    \"name\": \"get_medication_requests\",\n    \"arguments\": {\n      \"patientId\": \"{{test_patient_id}}\",\n      \"status\": \"active\",\n      \"intent\": \"order\",\n      \"limit\": 20\n    }\n  }\n}"
+            },
+            "url": {
+              "raw": "{{mcp_server_url}}/",
+              "host": ["{{mcp_server_url}}"],
+              "path": [""]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "3.3 check_refill_status",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": 12,\n  \"method\": \"tools/call\",\n  \"params\": {\n    \"name\": \"check_refill_status\",\n    \"arguments\": {\n      \"patientId\": \"{{test_patient_id}}\"\n    }\n  }\n}"
+            },
+            "url": {
+              "raw": "{{mcp_server_url}}/",
+              "host": ["{{mcp_server_url}}"],
+              "path": [""]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "3.4 get_medication_statements",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": 13,\n  \"method\": \"tools/call\",\n  \"params\": {\n    \"name\": \"get_medication_statements\",\n    \"arguments\": {\n      \"patientId\": \"{{test_patient_id}}\",\n      \"status\": \"active\",\n      \"limit\": 20\n    }\n  }\n}"
+            },
+            "url": {
+              "raw": "{{mcp_server_url}}/",
+              "host": ["{{mcp_server_url}}"],
+              "path": [""]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "4. Provider Tools",
+      "item": [
+        {
+          "name": "4.1 search_providers",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": 14,\n  \"method\": \"tools/call\",\n  \"params\": {\n    \"name\": \"search_providers\",\n    \"arguments\": {\n      \"name\": \"Dr. Smith\",\n      \"active\": true,\n      \"limit\": 20\n    }\n  }\n}"
+            },
+            "url": {
+              "raw": "{{mcp_server_url}}/",
+              "host": ["{{mcp_server_url}}"],
+              "path": [""]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "4.2 get_provider_details",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": 15,\n  \"method\": \"tools/call\",\n  \"params\": {\n    \"name\": \"get_provider_details\",\n    \"arguments\": {\n      \"providerId\": \"PR-10794\"\n    }\n  }\n}"
+            },
+            "url": {
+              "raw": "{{mcp_server_url}}/",
+              "host": ["{{mcp_server_url}}"],
+              "path": [""]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "4.3 search_locations",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": 16,\n  \"method\": \"tools/call\",\n  \"params\": {\n    \"name\": \"search_locations\",\n    \"arguments\": {\n      \"name\": \"Downtown Clinic\",\n      \"status\": \"active\",\n      \"limit\": 20\n    }\n  }\n}"
+            },
+            "url": {
+              "raw": "{{mcp_server_url}}/",
+              "host": ["{{mcp_server_url}}"],
+              "path": [""]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "4.4 get_location_details",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": 17,\n  \"method\": \"tools/call\",\n  \"params\": {\n    \"name\": \"get_location_details\",\n    \"arguments\": {\n      \"locationId\": \"LOC-001\"\n    }\n  }\n}"
+            },
+            "url": {
+              "raw": "{{mcp_server_url}}/",
+              "host": ["{{mcp_server_url}}"],
+              "path": [""]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "5. Clinical Tools",
+      "item": [
+        {
+          "name": "5.1 get_patient_conditions",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": 18,\n  \"method\": \"tools/call\",\n  \"params\": {\n    \"name\": \"get_patient_conditions\",\n    \"arguments\": {\n      \"patientId\": \"{{test_patient_id}}\",\n      \"status\": \"active\",\n      \"limit\": 20\n    }\n  }\n}"
+            },
+            "url": {
+              "raw": "{{mcp_server_url}}/",
+              "host": ["{{mcp_server_url}}"],
+              "path": [""]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "5.2 get_allergies",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": 19,\n  \"method\": \"tools/call\",\n  \"params\": {\n    \"name\": \"get_allergies\",\n    \"arguments\": {\n      \"patientId\": \"{{test_patient_id}}\",\n      \"status\": \"active\",\n      \"category\": \"medication\",\n      \"limit\": 20\n    }\n  }\n}"
+            },
+            "url": {
+              "raw": "{{mcp_server_url}}/",
+              "host": ["{{mcp_server_url}}"],
+              "path": [""]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "5.3 get_recent_observations",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": 20,\n  \"method\": \"tools/call\",\n  \"params\": {\n    \"name\": \"get_recent_observations\",\n    \"arguments\": {\n      \"patientId\": \"{{test_patient_id}}\",\n      \"category\": \"laboratory\",\n      \"dateFrom\": \"{{test_date_start}}\",\n      \"dateTo\": \"{{test_date_end}}\",\n      \"limit\": 20\n    }\n  }\n}"
+            },
+            "url": {
+              "raw": "{{mcp_server_url}}/",
+              "host": ["{{mcp_server_url}}"],
+              "path": [""]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "5.4 get_patient_procedures",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": 21,\n  \"method\": \"tools/call\",\n  \"params\": {\n    \"name\": \"get_patient_procedures\",\n    \"arguments\": {\n      \"patientId\": \"{{test_patient_id}}\",\n      \"status\": \"completed\",\n      \"dateFrom\": \"{{test_date_start}}\",\n      \"dateTo\": \"{{test_date_end}}\",\n      \"limit\": 20\n    }\n  }\n}"
+            },
+            "url": {
+              "raw": "{{mcp_server_url}}/",
+              "host": ["{{mcp_server_url}}"],
+              "path": [""]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "5.5 get_patient_coverage",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": 22,\n  \"method\": \"tools/call\",\n  \"params\": {\n    \"name\": \"get_patient_coverage\",\n    \"arguments\": {\n      \"patientId\": \"{{test_patient_id}}\",\n      \"status\": \"active\",\n      \"limit\": 10\n    }\n  }\n}"
+            },
+            "url": {
+              "raw": "{{mcp_server_url}}/",
+              "host": ["{{mcp_server_url}}"],
+              "path": [""]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "6. Utility Requests",
+      "item": [
+        {
+          "name": "6.1 List All Tools",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": 100,\n  \"method\": \"tools/list\"\n}"
+            },
+            "url": {
+              "raw": "{{mcp_server_url}}/",
+              "host": ["{{mcp_server_url}}"],
+              "path": [""]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "6.2 Initialize MCP",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": 101,\n  \"method\": \"initialize\",\n  \"params\": {\n    \"protocolVersion\": \"2025-06-18\",\n    \"capabilities\": {\n      \"tools\": {},\n      \"resources\": {},\n      \"prompts\": {}\n    },\n    \"clientInfo\": {\n      \"name\": \"postman-client\",\n      \"version\": \"1.0.0\"\n    }\n  }\n}"
+            },
+            "url": {
+              "raw": "{{mcp_server_url}}/",
+              "host": ["{{mcp_server_url}}"],
+              "path": [""]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "6.3 Health Check",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{mcp_server_url}}/health",
+              "host": ["{{mcp_server_url}}"],
+              "path": ["health"]
+            }
+          },
+          "response": []
+        }
+      ]
+    }
+  ]
+}

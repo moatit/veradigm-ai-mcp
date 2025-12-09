@@ -1,7 +1,7 @@
-import { Tool } from '@modelcontextprotocol/sdk/types.js';
-import { FHIRService } from '../services/fhir.service';
-import { FHIRParser, ParsedAppointment } from '../utils/fhir-parser';
-import { ErrorHandler, FHIRMCPError } from '../utils/error-handler';
+import { Tool } from "@modelcontextprotocol/sdk/types.js";
+import { FHIRService } from "../services/fhir.service";
+import { ErrorHandler, FHIRMCPError } from "../utils/error-handler";
+import { FHIRParser, ParsedAppointment } from "../utils/fhir-parser";
 
 export class AppointmentTools {
   constructor(private fhirService: FHIRService) {}
@@ -22,30 +22,38 @@ export class AppointmentTools {
   }> {
     try {
       if (!args.patientId) {
-        throw ErrorHandler.createValidationError('Patient ID is required');
+        throw ErrorHandler.createValidationError("Patient ID is required");
       }
 
       const searchParams: Record<string, string> = {
-        patient: args.patientId
+        patient: args.patientId,
       };
 
       if (args.startDate) {
         searchParams.date = `ge${args.startDate}`;
       }
       if (args.endDate) {
-        searchParams.date = searchParams.date ? `${searchParams.date}&le${args.endDate}` : `le${args.endDate}`;
+        searchParams.date = searchParams.date
+          ? `${searchParams.date}&le${args.endDate}`
+          : `le${args.endDate}`;
       }
       if (args.status) {
         searchParams.status = args.status;
       }
 
-      const result = await this.fhirService.search('Appointment', searchParams, args.limit || 20);
-      const appointments = result.resources.map(appointment => FHIRParser.parseAppointment(appointment));
+      const result = await this.fhirService.search(
+        "Appointment",
+        searchParams,
+        args.limit || 20
+      );
+      const appointments = result.resources.map((appointment) =>
+        FHIRParser.parseAppointment(appointment)
+      );
 
       return {
         appointments,
         total: result.total,
-        hasMore: result.hasMore
+        hasMore: result.hasMore,
       };
     } catch (error) {
       throw ErrorHandler.handleUnknownError(error);
@@ -55,13 +63,18 @@ export class AppointmentTools {
   /**
    * Get details for a specific appointment
    */
-  async getAppointmentDetails(args: { appointmentId: string }): Promise<ParsedAppointment> {
+  async getAppointmentDetails(args: {
+    appointmentId: string;
+  }): Promise<ParsedAppointment> {
     try {
       if (!args.appointmentId) {
-        throw ErrorHandler.createValidationError('Appointment ID is required');
+        throw ErrorHandler.createValidationError("Appointment ID is required");
       }
 
-      const appointment = await this.fhirService.getResource('Appointment', args.appointmentId);
+      const appointment = await this.fhirService.getResource(
+        "Appointment",
+        args.appointmentId
+      );
       return FHIRParser.parseAppointment(appointment);
     } catch (error) {
       if (error instanceof FHIRMCPError) {
@@ -86,7 +99,7 @@ export class AppointmentTools {
   }> {
     try {
       const appointment = await this.getAppointmentDetails(args);
-      
+
       return {
         appointmentId: appointment.id,
         status: appointment.status,
@@ -95,7 +108,7 @@ export class AppointmentTools {
         patientName: appointment.patientName,
         practitionerName: appointment.practitionerName,
         locationName: appointment.locationName,
-        description: appointment.description
+        description: appointment.description,
       };
     } catch (error) {
       throw ErrorHandler.handleUnknownError(error);
@@ -111,21 +124,21 @@ export class AppointmentTools {
   }> {
     try {
       if (!args.patientId) {
-        throw ErrorHandler.createValidationError('Patient ID is required');
+        throw ErrorHandler.createValidationError("Patient ID is required");
       }
 
       // Get appointments starting from today
-      const today = new Date().toISOString().split('T')[0];
+      const today = new Date().toISOString().split("T")[0];
       const result = await this.getUpcomingAppointments({
         patientId: args.patientId,
         startDate: today,
-        status: 'booked', // Only get confirmed appointments
-        limit: 1
+        status: "booked", // Only get confirmed appointments
+        limit: 1,
       });
 
       return {
         appointment: result.appointments[0],
-        found: result.appointments.length > 0
+        found: result.appointments.length > 0,
       };
     } catch (error) {
       throw ErrorHandler.handleUnknownError(error);
@@ -149,7 +162,7 @@ export class AppointmentTools {
   }> {
     try {
       const searchParams: Record<string, string> = {
-        date: `ge${args.startDate}&le${args.endDate}`
+        date: `ge${args.startDate}&le${args.endDate}`,
       };
 
       if (args.practitionerId) {
@@ -162,15 +175,128 @@ export class AppointmentTools {
         searchParams.status = args.status;
       }
 
-      const result = await this.fhirService.search('Appointment', searchParams, args.limit || 50);
-      const appointments = result.resources.map(appointment => FHIRParser.parseAppointment(appointment));
+      const result = await this.fhirService.search(
+        "Appointment",
+        searchParams,
+        args.limit || 50
+      );
+      const appointments = result.resources.map((appointment) =>
+        FHIRParser.parseAppointment(appointment)
+      );
 
       return {
         appointments,
         total: result.total,
-        hasMore: result.hasMore
+        hasMore: result.hasMore,
       };
     } catch (error) {
+      throw ErrorHandler.handleUnknownError(error);
+    }
+  }
+
+  /**
+   * Create a new appointment
+   */
+  async createAppointment(args: {
+    patientId: string;
+    practitionerId: string;
+    locationId: string;
+    start: string; // ISO datetime string
+    end: string; // ISO datetime string
+    serviceType?: string;
+    description?: string;
+    priority?: number;
+  }): Promise<{
+    appointmentId: string;
+    status: string;
+    created: boolean;
+    patientId: string;
+    practitionerId: string;
+    locationId: string;
+    start: string;
+    end: string;
+  }> {
+    try {
+      if (
+        !args.patientId ||
+        !args.practitionerId ||
+        !args.locationId ||
+        !args.start ||
+        !args.end
+      ) {
+        throw ErrorHandler.createValidationError(
+          "Patient ID, Practitioner ID, Location ID, start time, and end time are required"
+        );
+      }
+
+      // Build FHIR Appointment resource
+      const appointmentResource = {
+        resourceType: "Appointment",
+        status: "proposed",
+        serviceType: args.serviceType
+          ? [
+              {
+                coding: [
+                  {
+                    code: args.serviceType,
+                    display: args.serviceType,
+                  },
+                ],
+              },
+            ]
+          : undefined,
+        description: args.description,
+        start: args.start,
+        end: args.end,
+        priority: args.priority,
+        participant: [
+          {
+            actor: {
+              reference: `Patient/${args.patientId}`,
+            },
+            status: "accepted",
+            required: "required",
+          },
+          {
+            actor: {
+              reference: `Practitioner/${args.practitionerId}`,
+            },
+            status: "accepted",
+            required: "required",
+          },
+          {
+            actor: {
+              reference: `Location/${args.locationId}`,
+            },
+            status: "accepted",
+            required: "required",
+          },
+        ],
+      };
+
+      const createdAppointment = await this.fhirService.createResource<any>(
+        "Appointment",
+        appointmentResource
+      );
+      const parsed = FHIRParser.parseAppointment(createdAppointment);
+
+      return {
+        appointmentId: parsed.id,
+        status: parsed.status,
+        created: true,
+        patientId: args.patientId,
+        practitionerId: args.practitionerId,
+        locationId: args.locationId,
+        start: parsed.start,
+        end: parsed.end,
+      };
+    } catch (error: any) {
+      // Check if it's a "not supported" error
+      if (error.message && error.message.includes("not supported")) {
+        throw ErrorHandler.createValidationError(
+          "Appointment creation is not supported by the FHIR API. The Veradigm FHIR API does not currently support creating appointments. Please contact your provider's office directly to schedule appointments."
+        );
+      }
       throw ErrorHandler.handleUnknownError(error);
     }
   }
@@ -181,119 +307,190 @@ export class AppointmentTools {
   getTools(): Tool[] {
     return [
       {
-        name: 'get_upcoming_appointments',
-        description: 'Get upcoming appointments for a patient within a date range',
+        name: "create_appointment",
+        description: "Create a new appointment for a patient",
         inputSchema: {
-          type: 'object',
+          type: "object",
           properties: {
             patientId: {
-              type: 'string',
-              description: 'FHIR Patient resource ID'
-            },
-            startDate: {
-              type: 'string',
-              description: 'Start date in YYYY-MM-DD format (defaults to today)'
-            },
-            endDate: {
-              type: 'string',
-              description: 'End date in YYYY-MM-DD format'
-            },
-            status: {
-              type: 'string',
-              enum: ['proposed', 'pending', 'booked', 'arrived', 'fulfilled', 'cancelled', 'noshow', 'entered-in-error', 'checked-in', 'waitlist'],
-              description: 'Appointment status to filter by'
-            },
-            limit: {
-              type: 'number',
-              description: 'Maximum number of results to return (default: 20)',
-              default: 20
-            }
-          },
-          required: ['patientId']
-        }
-      },
-      {
-        name: 'get_appointment_details',
-        description: 'Get detailed information for a specific appointment',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            appointmentId: {
-              type: 'string',
-              description: 'FHIR Appointment resource ID'
-            }
-          },
-          required: ['appointmentId']
-        }
-      },
-      {
-        name: 'check_appointment_status',
-        description: 'Check the current status of a specific appointment',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            appointmentId: {
-              type: 'string',
-              description: 'FHIR Appointment resource ID'
-            }
-          },
-          required: ['appointmentId']
-        }
-      },
-      {
-        name: 'find_patient_next_appointment',
-        description: 'Find the next scheduled appointment for a patient',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            patientId: {
-              type: 'string',
-              description: 'FHIR Patient resource ID'
-            }
-          },
-          required: ['patientId']
-        }
-      },
-      {
-        name: 'get_appointments_by_date_range',
-        description: 'Get appointments within a specific date range, optionally filtered by practitioner or location',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            startDate: {
-              type: 'string',
-              description: 'Start date in YYYY-MM-DD format'
-            },
-            endDate: {
-              type: 'string',
-              description: 'End date in YYYY-MM-DD format'
+              type: "string",
+              description: "FHIR Patient resource ID",
             },
             practitionerId: {
-              type: 'string',
-              description: 'FHIR Practitioner resource ID to filter by'
+              type: "string",
+              description: "FHIR Practitioner resource ID",
             },
             locationId: {
-              type: 'string',
-              description: 'FHIR Location resource ID to filter by'
+              type: "string",
+              description: "FHIR Location resource ID",
+            },
+            start: {
+              type: "string",
+              description:
+                "Appointment start time in ISO 8601 format (e.g., 2025-12-15T10:00:00Z)",
+            },
+            end: {
+              type: "string",
+              description:
+                "Appointment end time in ISO 8601 format (e.g., 2025-12-15T10:30:00Z)",
+            },
+            serviceType: {
+              type: "string",
+              description: "Service type code (optional)",
+            },
+            description: {
+              type: "string",
+              description: "Appointment description (optional)",
+            },
+            priority: {
+              type: "number",
+              description: "Appointment priority (optional)",
+            },
+          },
+          required: [
+            "patientId",
+            "practitionerId",
+            "locationId",
+            "start",
+            "end",
+          ],
+        },
+      },
+      {
+        name: "get_upcoming_appointments",
+        description:
+          "Get upcoming appointments for a patient within a date range",
+        inputSchema: {
+          type: "object",
+          properties: {
+            patientId: {
+              type: "string",
+              description: "FHIR Patient resource ID",
+            },
+            startDate: {
+              type: "string",
+              description:
+                "Start date in YYYY-MM-DD format (defaults to today)",
+            },
+            endDate: {
+              type: "string",
+              description: "End date in YYYY-MM-DD format",
             },
             status: {
-              type: 'string',
-              enum: ['proposed', 'pending', 'booked', 'arrived', 'fulfilled', 'cancelled', 'noshow', 'entered-in-error', 'checked-in', 'waitlist'],
-              description: 'Appointment status to filter by'
+              type: "string",
+              enum: [
+                "proposed",
+                "pending",
+                "booked",
+                "arrived",
+                "fulfilled",
+                "cancelled",
+                "noshow",
+                "entered-in-error",
+                "checked-in",
+                "waitlist",
+              ],
+              description: "Appointment status to filter by",
             },
             limit: {
-              type: 'number',
-              description: 'Maximum number of results to return (default: 50)',
-              default: 50
-            }
+              type: "number",
+              description: "Maximum number of results to return (default: 20)",
+              default: 20,
+            },
           },
-          required: ['startDate', 'endDate']
-        }
-      }
+          required: ["patientId"],
+        },
+      },
+      {
+        name: "get_appointment_details",
+        description: "Get detailed information for a specific appointment",
+        inputSchema: {
+          type: "object",
+          properties: {
+            appointmentId: {
+              type: "string",
+              description: "FHIR Appointment resource ID",
+            },
+          },
+          required: ["appointmentId"],
+        },
+      },
+      {
+        name: "check_appointment_status",
+        description: "Check the current status of a specific appointment",
+        inputSchema: {
+          type: "object",
+          properties: {
+            appointmentId: {
+              type: "string",
+              description: "FHIR Appointment resource ID",
+            },
+          },
+          required: ["appointmentId"],
+        },
+      },
+      {
+        name: "find_patient_next_appointment",
+        description: "Find the next scheduled appointment for a patient",
+        inputSchema: {
+          type: "object",
+          properties: {
+            patientId: {
+              type: "string",
+              description: "FHIR Patient resource ID",
+            },
+          },
+          required: ["patientId"],
+        },
+      },
+      {
+        name: "get_appointments_by_date_range",
+        description:
+          "Get appointments within a specific date range, optionally filtered by practitioner or location",
+        inputSchema: {
+          type: "object",
+          properties: {
+            startDate: {
+              type: "string",
+              description: "Start date in YYYY-MM-DD format",
+            },
+            endDate: {
+              type: "string",
+              description: "End date in YYYY-MM-DD format",
+            },
+            practitionerId: {
+              type: "string",
+              description: "FHIR Practitioner resource ID to filter by",
+            },
+            locationId: {
+              type: "string",
+              description: "FHIR Location resource ID to filter by",
+            },
+            status: {
+              type: "string",
+              enum: [
+                "proposed",
+                "pending",
+                "booked",
+                "arrived",
+                "fulfilled",
+                "cancelled",
+                "noshow",
+                "entered-in-error",
+                "checked-in",
+                "waitlist",
+              ],
+              description: "Appointment status to filter by",
+            },
+            limit: {
+              type: "number",
+              description: "Maximum number of results to return (default: 50)",
+              default: 50,
+            },
+          },
+          required: ["startDate", "endDate"],
+        },
+      },
     ];
   }
 }
-
-
-
-

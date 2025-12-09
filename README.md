@@ -7,7 +7,7 @@ A Model Context Protocol (MCP) 2.0 Server that provides read-only access to Vera
 This MCP server exposes 20+ FHIR read-only operations as tools for AI voice agents, enabling:
 
 - **Patient Verification**: Search and verify patient identity
-- **Appointment Management**: Query appointments and schedules  
+- **Appointment Management**: Query appointments and schedules
 - **Medication Information**: Access medication requests and refill status
 - **Provider Directory**: Search healthcare providers and locations
 - **Clinical Data**: Retrieve conditions, allergies, observations, and procedures
@@ -25,7 +25,7 @@ This MCP server exposes 20+ FHIR read-only operations as tools for AI voice agen
 
 ### Prerequisites
 
-- Node.js 18+ 
+- Node.js 18+
 - Docker (optional)
 - Veradigm Developer Account with FHIR API access
 
@@ -70,15 +70,15 @@ docker run -p 3000:3000 veradigm-fhir-mcp-server
 
 ### Environment Variables
 
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `NODE_ENV` | Environment (sandbox/production) | `sandbox` |
-| `CLIENT_ID` | OAuth 2.0 Client ID | Required |
-| `CLIENT_SECRET` | OAuth 2.0 Client Secret | Required |
-| `FHIR_BASE_URL_SANDBOX` | Sandbox FHIR endpoint | Veradigm sandbox |
-| `FHIR_BASE_URL_PRODUCTION` | Production FHIR endpoint | Required for prod |
-| `TOKEN_CACHE_TTL` | Token cache TTL (seconds) | `3600` |
-| `CACHE_ENABLED` | Enable token caching | `true` |
+| Variable                   | Description                      | Default           |
+| -------------------------- | -------------------------------- | ----------------- |
+| `NODE_ENV`                 | Environment (sandbox/production) | `sandbox`         |
+| `CLIENT_ID`                | OAuth 2.0 Client ID              | Required          |
+| `CLIENT_SECRET`            | OAuth 2.0 Client Secret          | Required          |
+| `FHIR_BASE_URL_SANDBOX`    | Sandbox FHIR endpoint            | Veradigm sandbox  |
+| `FHIR_BASE_URL_PRODUCTION` | Production FHIR endpoint         | Required for prod |
+| `TOKEN_CACHE_TTL`          | Token cache TTL (seconds)        | `3600`            |
+| `CACHE_ENABLED`            | Enable token caching             | `true`            |
 
 ### Veradigm Setup
 
@@ -90,11 +90,13 @@ docker run -p 3000:3000 veradigm-fhir-mcp-server
 ## Available Tools
 
 ### Patient Operations
+
 - `search_patient` - Search patients by name, DOB, phone, MRN
 - `get_patient_details` - Get detailed patient information
 - `verify_patient_identity` - Verify patient identity with match scoring
 
-### Appointment Operations  
+### Appointment Operations
+
 - `get_upcoming_appointments` - Get patient appointments
 - `get_appointment_details` - Get specific appointment info
 - `check_appointment_status` - Check appointment status
@@ -102,18 +104,21 @@ docker run -p 3000:3000 veradigm-fhir-mcp-server
 - `get_appointments_by_date_range` - Get appointments in date range
 
 ### Medication Operations
+
 - `get_patient_medications` - Get active patient medications
 - `get_medication_requests` - Get medication requests
 - `check_refill_status` - Check refill eligibility (read-only)
 - `get_medication_statements` - Get medication history
 
 ### Provider Operations
+
 - `search_providers` - Search healthcare providers
 - `get_provider_details` - Get provider information
 - `search_locations` - Search healthcare facilities
 - `get_location_details` - Get location information
 
 ### Clinical Operations
+
 - `get_patient_conditions` - Get patient conditions/diagnoses
 - `get_allergies` - Get patient allergies
 - `get_recent_observations` - Get vitals, lab results
@@ -127,13 +132,13 @@ docker run -p 3000:3000 veradigm-fhir-mcp-server
 ```javascript
 // Example tool call
 const result = await mcpClient.callTool({
-  name: 'verify_patient_identity',
+  name: "verify_patient_identity",
   arguments: {
-    firstName: 'John',
-    lastName: 'Doe',
-    birthDate: '1990-01-01',
-    phone: '555-123-4567'
-  }
+    firstName: "John",
+    lastName: "Doe",
+    birthDate: "1990-01-01",
+    phone: "555-123-4567",
+  },
 });
 ```
 
@@ -150,6 +155,7 @@ const result = await mcpClient.callTool({
 See the `docs/` directory for comprehensive documentation:
 
 ### HTML Documentation (Recommended)
+
 Open `docs/index.html` in your browser for interactive documentation with diagrams:
 
 - [Documentation Home](docs/index.html) - Main documentation hub
@@ -161,6 +167,7 @@ Open `docs/index.html` in your browser for interactive documentation with diagra
 - [Integration Guide](docs/integration.html) - RetellAI integration
 
 ### Markdown Documentation
+
 - [API Reference](docs/API.md) - Complete tool documentation
 - [Integration Guide](docs/INTEGRATION.md) - RetellAI integration steps
 - [FHIR Resources](docs/FHIR_RESOURCES.md) - Supported FHIR resources
@@ -177,7 +184,7 @@ Import the provided Postman collection for comprehensive API testing:
 # Import collection
 postman/Veradigm_FHIR_Collection.json
 
-# Import environments  
+# Import environments
 postman/environments/Sandbox.json
 postman/environments/Production.json
 ```
@@ -234,7 +241,7 @@ npm run lint       # Run ESLint
 Future enhancements for write operations:
 
 - Appointment scheduling/rescheduling
-- Prescription refill request submission  
+- Prescription refill request submission
 - Patient communication preferences
 - Consent management
 - Advanced authentication (SMART on FHIR)
@@ -256,7 +263,3 @@ Future enhancements for write operations:
 ## License
 
 MIT License - see LICENSE file for details.
-
-
-
-
