@@ -1,6 +1,7 @@
 version: '3.8'
 
 services:
+  # FHIR MCP Server - Read Operations
   veradigm-fhir-mcp-server:
     build:
       context: .
@@ -28,16 +29,55 @@ services:
     networks:
       - mcp-network
     healthcheck:
-      test: ["CMD", "node", "-e", "console.log('Health check passed')"]
+      test: ["CMD", "node", "-e", "console.log('FHIR Health check passed')"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 40s
 
+  # Unity MCP Server - Write Operations
+  veradigm-unity-mcp-server:
+    build:
+      context: .
+      dockerfile: Dockerfile.unity
+      target: production
+    container_name: veradigm-unity-mcp-server
+    environment:
+      - NODE_ENV=${NODE_ENV:-sandbox}
+      # Unity Application Configuration
+      - UNITY_APP_NAME=${UNITY_APP_NAME}
+      # Unity Service Credentials (for GetToken)
+      - UNITY_SVC_USERNAME=${UNITY_SVC_USERNAME}
+      - UNITY_SVC_PASSWORD=${UNITY_SVC_PASSWORD}
+      # EHR/PM User Credentials (for GetUserAuthentication)
+      - UNITY_EHR_USERNAME=${UNITY_EHR_USERNAME}
+      - UNITY_EHR_PASSWORD=${UNITY_EHR_PASSWORD}
+      # Unity Endpoints
+      - UNITY_UBIQUITY_ENDPOINT=${UNITY_UBIQUITY_ENDPOINT:-https://ubiquityunity.azurewebsites.net/UnityService.svc}
+      - UNITY_UBIQUITY_ID_PM=${UNITY_UBIQUITY_ID_PM:-VHCP001PM:PMGA02^8^}
+      - UNITY_UBIQUITY_ID_EHR=${UNITY_UBIQUITY_ID_EHR:-AHMCP00101:CP00101^1^}
+      # Token Configuration
+      - UNITY_TOKEN_CACHE_TTL=${UNITY_TOKEN_CACHE_TTL:-1140}
+      - UNITY_TOKEN_REFRESH_BUFFER=${UNITY_TOKEN_REFRESH_BUFFER:-60}
+      # Server Configuration
+      - UNITY_MCP_SERVER_PORT=${UNITY_MCP_SERVER_PORT:-3001}
+      - UNITY_MCP_SERVER_HOST=${UNITY_MCP_SERVER_HOST:-localhost}
+      # Logging
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+    volumes:
+      - ./logs:/app/logs
+    restart: unless-stopped
+    networks:
+      - mcp-network
+    healthcheck:
+      test: ["CMD", "node", "-e", "console.log('Unity Health check passed')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    depends_on:
+      - veradigm-fhir-mcp-server
+
 networks:
   mcp-network:
     driver: bridge
-
-
-
-

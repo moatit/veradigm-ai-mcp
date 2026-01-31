@@ -1,0 +1,99 @@
+{
+  "id": "unity-sandbox-env",
+  "name": "Unity Sandbox - MOATiT Castle Agent",
+  "values": [
+    {
+      "key": "unity_mcp_server_url",
+      "value": "http://localhost:3001",
+      "type": "default",
+      "enabled": true
+    },
+    {
+      "key": "unity_base_url",
+      "value": "https://ubiquityunity.azurewebsites.net/UnityService.svc",
+      "type": "default",
+      "enabled": true
+    },
+    {
+      "key": "unity_app_name",
+      "value": "MOATiT.MOATiT-Castle-AGENT.TestApp",
+      "type": "default",
+      "enabled": true
+    },
+    {
+      "key": "unity_svc_username",
+      "value": "MOATi-0ff5-MOATiTCast-test",
+      "type": "secret",
+      "enabled": true
+    },
+    {
+      "key": "unity_svc_password",
+      "value": "M!4T#tMd@T6t-cbStle-@GcnTt%St3",
+      "type": "secret",
+      "enabled": true
+    },
+    {
+      "key": "unity_ehr_username",
+      "value": "Kanhaiya.K.MOATiT",
+      "type": "secret",
+      "enabled": true
+    },
+    {
+      "key": "unity_ehr_password",
+      "value": "VeradigmConnectTest7371!&",
+      "type": "secret",
+      "enabled": true
+    },
+    {
+      "key": "ubiquity_id_pm",
+      "value": "VHCP001PM:PMGA02^8^",
+      "type": "default",
+      "enabled": true
+    },
+    {
+      "key": "ubiquity_id_ehr",
+      "value": "AHMCP00101:CP00101^1^",
+      "type": "default",
+      "enabled": true
+    },
+    {
+      "key": "security_token",
+      "value": "",
+      "type": "default",
+      "enabled": true
+    },
+    {
+      "key": "test_patient_id",
+      "value": "67980",
+      "type": "default",
+      "enabled": true
+    },
+    {
+      "key": "test_patient_mrn",
+      "value": "75550",
+      "type": "default",
+      "enabled": true
+    },
+    {
+      "key": "test_appointment_id",
+      "value": "",
+      "type": "default",
+      "enabled": true
+    },
+    {
+      "key": "new_patient_id",
+      "value": "",
+      "type": "default",
+      "enabled": true
+    },
+    {
+      "key": "new_appointment_id",
+      "value": "",
+      "type": "default",
+      "enabled": true
+    }
+  ],
+  "_postman_variable_scope": "environment",
+  "_postman_exported_at": "2024-12-09T00:00:00.000Z",
+  "_postman_exported_using": "Postman/10.0.0"
+}

@@ -1,0 +1,973 @@
+{
+  "info": {
+    "name": "Veradigm Unity MCP - Write Operations",
+    "description": "Complete Postman collection for testing Unity MCP tools via JSON-RPC 2.0. This collection covers all write operations for appointments and patient demographics.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "version": "1.0.0"
+  },
+  "variable": [
+    {
+      "key": "unity_mcp_server_url",
+      "value": "http://localhost:3001",
+      "type": "string"
+    },
+    {
+      "key": "unity_base_url",
+      "value": "https://ubiquityunity.azurewebsites.net/UnityService.svc",
+      "type": "string"
+    },
+    {
+      "key": "unity_app_name",
+      "value": "MOATiT.MOATiT-Castle-AGENT.TestApp",
+      "type": "string"
+    },
+    {
+      "key": "unity_svc_username",
+      "value": "MOATi-0ff5-MOATiTCast-test",
+      "type": "string"
+    },
+    {
+      "key": "unity_svc_password",
+      "value": "M!4T#tMd@T6t-cbStle-@GcnTt%St3",
+      "type": "string"
+    },
+    {
+      "key": "unity_ehr_username",
+      "value": "Kanhaiya.K.MOATiT",
+      "type": "string"
+    },
+    {
+      "key": "unity_ehr_password",
+      "value": "VeradigmConnectTest7371!&",
+      "type": "string"
+    },
+    {
+      "key": "ubiquity_id_pm",
+      "value": "VHCP001PM:PMGA02^8^",
+      "type": "string"
+    },
+    {
+      "key": "ubiquity_id_ehr",
+      "value": "AHMCP00101:CP00101^1^",
+      "type": "string"
+    },
+    {
+      "key": "security_token",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "test_patient_id",
+      "value": "67980",
+      "type": "string"
+    },
+    {
+      "key": "test_patient_mrn",
+      "value": "75550",
+      "type": "string"
+    },
+    {
+      "key": "test_appointment_id",
+      "value": "",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "0. Direct Unity API (Raw)",
+      "description": "Direct calls to Unity API endpoints for testing authentication and connectivity",
+      "item": [
+        {
+          "name": "0.1 GetToken (PM)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "    var token = pm.response.text().replace(/\"/g, '');",
+                  "    pm.collectionVariables.set('security_token', token);",
+                  "    pm.test('Token obtained successfully', function() {",
+                  "        pm.expect(token).to.have.length.above(30);",
+                  "    });",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"Username\": \"{{ubiquity_id_pm}}{{unity_svc_username}}\",\n  \"Password\": \"{{unity_svc_password}}\"\n}"
+            },
+            "url": {
+              "raw": "{{unity_base_url}}/json/GetToken",
+              "host": ["{{unity_base_url}}"],
+              "path": ["json", "GetToken"]
+            },
+            "description": "Get security token from Unity API for Practice Management"
+          },
+          "response": []
+        },
+        {
+          "name": "0.2 GetToken (EHR)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "    var token = pm.response.text().replace(/\"/g, '');",
+                  "    pm.collectionVariables.set('security_token', token);",
+                  "    pm.test('Token obtained successfully', function() {",
+                  "        pm.expect(token).to.have.length.above(30);",
+                  "    });",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"Username\": \"{{ubiquity_id_ehr}}{{unity_svc_username}}\",\n  \"Password\": \"{{unity_svc_password}}\"\n}"
+            },
+            "url": {
+              "raw": "{{unity_base_url}}/json/GetToken",
+              "host": ["{{unity_base_url}}"],
+              "path": ["json", "GetToken"]
+            },
+            "description": "Get security token from Unity API for EHR"
+          },
+          "response": []
+        },
+        {
+          "name": "0.3 GetUserAuthentication",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"Action\": \"GetUserAuthentication\",\n  \"Appname\": \"{{unity_app_name}}\",\n  \"AppUserID\": \"{{unity_ehr_username}}\",\n  \"PatientID\": \"\",\n  \"Token\": \"{{security_token}}\",\n  \"Parameter1\": \"{{unity_ehr_password}}\",\n  \"Parameter2\": \"\",\n  \"Parameter3\": \"\",\n  \"Parameter4\": \"\",\n  \"Parameter5\": \"\",\n  \"Parameter6\": \"\",\n  \"Data\": \"\"\n}"
+            },
+            "url": {
+              "raw": "{{unity_base_url}}/json/MagicJson",
+              "host": ["{{unity_base_url}}"],
+              "path": ["json", "MagicJson"]
+            },
+            "description": "Authenticate EHR/PM user - required before other Unity calls"
+          },
+          "response": []
+        },
+        {
+          "name": "0.4 Echo (Connection Test)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"Action\": \"Echo\",\n  \"Appname\": \"{{unity_app_name}}\",\n  \"AppUserID\": \"{{unity_ehr_username}}\",\n  \"PatientID\": \"\",\n  \"Token\": \"{{security_token}}\",\n  \"Parameter1\": \"ConnectionTest\",\n  \"Parameter2\": \"{{$timestamp}}\",\n  \"Parameter3\": \"\",\n  \"Parameter4\": \"\",\n  \"Parameter5\": \"\",\n  \"Parameter6\": \"\",\n  \"Data\": \"\"\n}"
+            },
+            "url": {
+              "raw": "{{unity_base_url}}/json/MagicJson",
+              "host": ["{{unity_base_url}}"],
+              "path": ["json", "MagicJson"]
+            },
+            "description": "Echo action - test connection without authentication"
+          },
+          "response": []
+        },
+        {
+          "name": "0.5 GetServerInfo",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"Action\": \"GetServerInfo\",\n  \"Appname\": \"{{unity_app_name}}\",\n  \"AppUserID\": \"{{unity_ehr_username}}\",\n  \"PatientID\": \"\",\n  \"Token\": \"{{security_token}}\",\n  \"Parameter1\": \"\",\n  \"Parameter2\": \"\",\n  \"Parameter3\": \"\",\n  \"Parameter4\": \"\",\n  \"Parameter5\": \"\",\n  \"Parameter6\": \"\",\n  \"Data\": \"\"\n}"
+            },
+            "url": {
+              "raw": "{{unity_base_url}}/json/MagicJson",
+              "host": ["{{unity_base_url}}"],
+              "path": ["json", "MagicJson"]
+            },
+            "description": "Get server information including EHR version and time zone"
+          },
+          "response": []
+        },
+        {
+          "name": "0.6 RetireToken",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"Token\": \"{{security_token}}\",\n  \"Appname\": \"{{unity_app_name}}\"\n}"
+            },
+            "url": {
+              "raw": "{{unity_base_url}}/json/RetireToken",
+              "host": ["{{unity_base_url}}"],
+              "path": ["json", "RetireToken"]
+            },
+            "description": "Retire/invalidate security token"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "1. Patient Tools (MCP)",
+      "description": "Patient-related write operations via Unity MCP Server",
+      "item": [
+        {
+          "name": "1.1 unity_save_patient (Create)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": 1,\n  \"method\": \"tools/call\",\n  \"params\": {\n    \"name\": \"unity_save_patient\",\n    \"arguments\": {\n      \"firstName\": \"John\",\n      \"lastName\": \"Doe\",\n      \"middleName\": \"Michael\",\n      \"dateOfBirth\": \"01/15/1985\",\n      \"gender\": \"M\",\n      \"address1\": \"123 Main Street\",\n      \"address2\": \"Apt 4B\",\n      \"city\": \"Chicago\",\n      \"state\": \"IL\",\n      \"zipCode\": \"60601\",\n      \"homePhone\": \"312-555-0100\",\n      \"cellPhone\": \"312-555-0101\",\n      \"email\": \"john.doe@example.com\",\n      \"race\": \"White\",\n      \"ethnicity\": \"Not Hispanic or Latino\",\n      \"language\": \"English\"\n    }\n  }\n}"
+            },
+            "url": {
+              "raw": "{{unity_mcp_server_url}}/",
+              "host": ["{{unity_mcp_server_url}}"],
+              "path": [""]
+            },
+            "description": "Create a new patient with full demographics"
+          },
+          "response": []
+        },
+        {
+          "name": "1.2 unity_save_patient (Minimal)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": 2,\n  \"method\": \"tools/call\",\n  \"params\": {\n    \"name\": \"unity_save_patient\",\n    \"arguments\": {\n      \"firstName\": \"Jane\",\n      \"lastName\": \"Smith\"\n    }\n  }\n}"
+            },
+            "url": {
+              "raw": "{{unity_mcp_server_url}}/",
+              "host": ["{{unity_mcp_server_url}}"],
+              "path": [""]
+            },
+            "description": "Create a patient with minimum required fields"
+          },
+          "response": []
+        },
+        {
+          "name": "1.3 unity_update_demographics",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": 3,\n  \"method\": \"tools/call\",\n  \"params\": {\n    \"name\": \"unity_update_demographics\",\n    \"arguments\": {\n      \"patientId\": \"{{test_patient_id}}\",\n      \"ethnicity\": \"Hispanic or Latino\",\n      \"race\": \"White\",\n      \"language\": \"Spanish\",\n      \"cellPhone\": \"312-555-9999\",\n      \"email\": \"updated.email@example.com\"\n    }\n  }\n}"
+            },
+            "url": {
+              "raw": "{{unity_mcp_server_url}}/",
+              "host": ["{{unity_mcp_server_url}}"],
+              "path": [""]
+            },
+            "description": "Update specific demographic fields for an existing patient"
+          },
+          "response": []
+        },
+        {
+          "name": "1.4 unity_get_patient",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": 4,\n  \"method\": \"tools/call\",\n  \"params\": {\n    \"name\": \"unity_get_patient\",\n    \"arguments\": {\n      \"patientId\": \"{{test_patient_id}}\",\n      \"includePicture\": false\n    }\n  }\n}"
+            },
+            "url": {
+              "raw": "{{unity_mcp_server_url}}/",
+              "host": ["{{unity_mcp_server_url}}"],
+              "path": [""]
+            },
+            "description": "Get patient information by ID"
+          },
+          "response": []
+        },
+        {
+          "name": "1.5 unity_search_patients (By Name)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": 5,\n  \"method\": \"tools/call\",\n  \"params\": {\n    \"name\": \"unity_search_patients\",\n    \"arguments\": {\n      \"lastName\": \"Smith\",\n      \"firstName\": \"John\",\n      \"limit\": 20\n    }\n  }\n}"
+            },
+            "url": {
+              "raw": "{{unity_mcp_server_url}}/",
+              "host": ["{{unity_mcp_server_url}}"],
+              "path": [""]
+            },
+            "description": "Search for patients by name"
+          },
+          "response": []
+        },
+        {
+          "name": "1.6 unity_search_patients (By DOB)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": 6,\n  \"method\": \"tools/call\",\n  \"params\": {\n    \"name\": \"unity_search_patients\",\n    \"arguments\": {\n      \"lastName\": \"Doe\",\n      \"dateOfBirth\": \"01/15/1985\",\n      \"limit\": 10\n    }\n  }\n}"
+            },
+            "url": {
+              "raw": "{{unity_mcp_server_url}}/",
+              "host": ["{{unity_mcp_server_url}}"],
+              "path": [""]
+            },
+            "description": "Search for patients by last name and date of birth"
+          },
+          "response": []
+        },
+        {
+          "name": "1.7 unity_get_patient_by_mrn",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": 7,\n  \"method\": \"tools/call\",\n  \"params\": {\n    \"name\": \"unity_get_patient_by_mrn\",\n    \"arguments\": {\n      \"mrn\": \"{{test_patient_mrn}}\"\n    }\n  }\n}"
+            },
+            "url": {
+              "raw": "{{unity_mcp_server_url}}/",
+              "host": ["{{unity_mcp_server_url}}"],
+              "path": [""]
+            },
+            "description": "Get patient by Medical Record Number"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "2. Appointment Tools (MCP)",
+      "description": "Appointment/scheduling write operations via Unity MCP Server",
+      "item": [
+        {
+          "name": "2.1 unity_save_appointment (Full)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var jsonData = pm.response.json();",
+                  "if (jsonData.result && jsonData.result.appointmentId) {",
+                  "    pm.collectionVariables.set('test_appointment_id', jsonData.result.appointmentId);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": 10,\n  \"method\": \"tools/call\",\n  \"params\": {\n    \"name\": \"unity_save_appointment\",\n    \"arguments\": {\n      \"patientId\": \"{{test_patient_id}}\",\n      \"appointmentDate\": \"01/15/2025\",\n      \"appointmentTime\": \"10:00\",\n      \"duration\": 30,\n      \"providerId\": \"PROV001\",\n      \"locationId\": \"LOC001\",\n      \"appointmentType\": \"Office Visit\",\n      \"reasonForVisit\": \"Annual Physical Exam\",\n      \"notes\": \"Patient requested morning appointment\"\n    }\n  }\n}"
+            },
+            "url": {
+              "raw": "{{unity_mcp_server_url}}/",
+              "host": ["{{unity_mcp_server_url}}"],
+              "path": [""]
+            },
+            "description": "Create a new appointment with all details"
+          },
+          "response": []
+        },
+        {
+          "name": "2.2 unity_save_appointment (Minimal)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": 11,\n  \"method\": \"tools/call\",\n  \"params\": {\n    \"name\": \"unity_save_appointment\",\n    \"arguments\": {\n      \"patientId\": \"{{test_patient_id}}\",\n      \"appointmentDate\": \"01/20/2025\",\n      \"appointmentTime\": \"14:30\",\n      \"duration\": 15\n    }\n  }\n}"
+            },
+            "url": {
+              "raw": "{{unity_mcp_server_url}}/",
+              "host": ["{{unity_mcp_server_url}}"],
+              "path": [""]
+            },
+            "description": "Create appointment with minimum required fields"
+          },
+          "response": []
+        },
+        {
+          "name": "2.3 unity_cancel_appointment",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": 12,\n  \"method\": \"tools/call\",\n  \"params\": {\n    \"name\": \"unity_cancel_appointment\",\n    \"arguments\": {\n      \"appointmentId\": \"{{test_appointment_id}}\",\n      \"patientId\": \"{{test_patient_id}}\",\n      \"cancellationReason\": \"Patient requested cancellation\"\n    }\n  }\n}"
+            },
+            "url": {
+              "raw": "{{unity_mcp_server_url}}/",
+              "host": ["{{unity_mcp_server_url}}"],
+              "path": [""]
+            },
+            "description": "Cancel an existing appointment"
+          },
+          "response": []
+        },
+        {
+          "name": "2.4 unity_get_open_slots",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": 13,\n  \"method\": \"tools/call\",\n  \"params\": {\n    \"name\": \"unity_get_open_slots\",\n    \"arguments\": {\n      \"startDate\": \"01/15/2025\",\n      \"endDate\": \"01/31/2025\",\n      \"providerId\": \"PROV001\",\n      \"duration\": 30\n    }\n  }\n}"
+            },
+            "url": {
+              "raw": "{{unity_mcp_server_url}}/",
+              "host": ["{{unity_mcp_server_url}}"],
+              "path": [""]
+            },
+            "description": "Find available appointment slots for a date range"
+          },
+          "response": []
+        },
+        {
+          "name": "2.5 unity_get_open_slots (All Providers)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": 14,\n  \"method\": \"tools/call\",\n  \"params\": {\n    \"name\": \"unity_get_open_slots\",\n    \"arguments\": {\n      \"startDate\": \"01/15/2025\",\n      \"endDate\": \"01/20/2025\",\n      \"appointmentType\": \"Office Visit\"\n    }\n  }\n}"
+            },
+            "url": {
+              "raw": "{{unity_mcp_server_url}}/",
+              "host": ["{{unity_mcp_server_url}}"],
+              "path": [""]
+            },
+            "description": "Find open slots across all providers"
+          },
+          "response": []
+        },
+        {
+          "name": "2.6 unity_get_patient_appointments",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": 15,\n  \"method\": \"tools/call\",\n  \"params\": {\n    \"name\": \"unity_get_patient_appointments\",\n    \"arguments\": {\n      \"patientId\": \"{{test_patient_id}}\",\n      \"startDate\": \"01/01/2025\",\n      \"endDate\": \"12/31/2025\"\n    }\n  }\n}"
+            },
+            "url": {
+              "raw": "{{unity_mcp_server_url}}/",
+              "host": ["{{unity_mcp_server_url}}"],
+              "path": [""]
+            },
+            "description": "Get all appointments for a patient within a date range"
+          },
+          "response": []
+        },
+        {
+          "name": "2.7 unity_get_patient_appointments (By Status)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": 16,\n  \"method\": \"tools/call\",\n  \"params\": {\n    \"name\": \"unity_get_patient_appointments\",\n    \"arguments\": {\n      \"patientId\": \"{{test_patient_id}}\",\n      \"status\": \"Scheduled\"\n    }\n  }\n}"
+            },
+            "url": {
+              "raw": "{{unity_mcp_server_url}}/",
+              "host": ["{{unity_mcp_server_url}}"],
+              "path": [""]
+            },
+            "description": "Get scheduled appointments for a patient"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "3. Direct Unity Actions (Raw)",
+      "description": "Direct Unity MagicJson calls for advanced testing",
+      "item": [
+        {
+          "name": "3.1 SearchPatients (Direct)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"Action\": \"SearchPatients\",\n  \"Appname\": \"{{unity_app_name}}\",\n  \"AppUserID\": \"{{unity_ehr_username}}\",\n  \"PatientID\": \"\",\n  \"Token\": \"{{security_token}}\",\n  \"Parameter1\": \"<searchcriteria><LastName>Smith</LastName></searchcriteria>\",\n  \"Parameter2\": \"\",\n  \"Parameter3\": \"\",\n  \"Parameter4\": \"\",\n  \"Parameter5\": \"\",\n  \"Parameter6\": \"\",\n  \"Data\": \"\"\n}"
+            },
+            "url": {
+              "raw": "{{unity_base_url}}/json/MagicJson",
+              "host": ["{{unity_base_url}}"],
+              "path": ["json", "MagicJson"]
+            },
+            "description": "Direct SearchPatients call to Unity API"
+          },
+          "response": []
+        },
+        {
+          "name": "3.2 GetPatient (Direct)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"Action\": \"GetPatient\",\n  \"Appname\": \"{{unity_app_name}}\",\n  \"AppUserID\": \"{{unity_ehr_username}}\",\n  \"PatientID\": \"{{test_patient_id}}\",\n  \"Token\": \"{{security_token}}\",\n  \"Parameter1\": \"N\",\n  \"Parameter2\": \"\",\n  \"Parameter3\": \"\",\n  \"Parameter4\": \"\",\n  \"Parameter5\": \"\",\n  \"Parameter6\": \"\",\n  \"Data\": \"\"\n}"
+            },
+            "url": {
+              "raw": "{{unity_base_url}}/json/MagicJson",
+              "host": ["{{unity_base_url}}"],
+              "path": ["json", "MagicJson"]
+            },
+            "description": "Direct GetPatient call to Unity API"
+          },
+          "response": []
+        },
+        {
+          "name": "3.3 SavePatient (Direct)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"Action\": \"SavePatient\",\n  \"Appname\": \"{{unity_app_name}}\",\n  \"AppUserID\": \"{{unity_ehr_username}}\",\n  \"PatientID\": \"\",\n  \"Token\": \"{{security_token}}\",\n  \"Parameter1\": \"<patient><FirstName>Test</FirstName><LastName>Patient</LastName><DOB>01/01/1990</DOB><Gender>M</Gender></patient>\",\n  \"Parameter2\": \"\",\n  \"Parameter3\": \"\",\n  \"Parameter4\": \"\",\n  \"Parameter5\": \"\",\n  \"Parameter6\": \"\",\n  \"Data\": \"\"\n}"
+            },
+            "url": {
+              "raw": "{{unity_base_url}}/json/MagicJson",
+              "host": ["{{unity_base_url}}"],
+              "path": ["json", "MagicJson"]
+            },
+            "description": "Direct SavePatient call to Unity API"
+          },
+          "response": []
+    },
+    {
+          "name": "3.4 GetSchedule (Direct)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"Action\": \"GetSchedule\",\n  \"Appname\": \"{{unity_app_name}}\",\n  \"AppUserID\": \"{{unity_ehr_username}}\",\n  \"PatientID\": \"\",\n  \"Token\": \"{{security_token}}\",\n  \"Parameter1\": \"01/15/2025\",\n  \"Parameter2\": \"01/31/2025\",\n  \"Parameter3\": \"\",\n  \"Parameter4\": \"\",\n  \"Parameter5\": \"\",\n  \"Parameter6\": \"\",\n  \"Data\": \"\"\n}"
+            },
+            "url": {
+              "raw": "{{unity_base_url}}/json/MagicJson",
+              "host": ["{{unity_base_url}}"],
+              "path": ["json", "MagicJson"]
+            },
+            "description": "Direct GetSchedule call to Unity API"
+          },
+          "response": []
+        },
+        {
+          "name": "3.5 SaveAppointment (Direct)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"Action\": \"SaveAppointment\",\n  \"Appname\": \"{{unity_app_name}}\",\n  \"AppUserID\": \"{{unity_ehr_username}}\",\n  \"PatientID\": \"{{test_patient_id}}\",\n  \"Token\": \"{{security_token}}\",\n  \"Parameter1\": \"<appointment><PatientID>{{test_patient_id}}</PatientID><AppointmentDate>01/20/2025</AppointmentDate><AppointmentTime>09:00</AppointmentTime><Duration>30</Duration></appointment>\",\n  \"Parameter2\": \"\",\n  \"Parameter3\": \"\",\n  \"Parameter4\": \"\",\n  \"Parameter5\": \"\",\n  \"Parameter6\": \"\",\n  \"Data\": \"\"\n}"
+            },
+            "url": {
+              "raw": "{{unity_base_url}}/json/MagicJson",
+              "host": ["{{unity_base_url}}"],
+              "path": ["json", "MagicJson"]
+            },
+            "description": "Direct SaveAppointment call to Unity API"
+          },
+          "response": []
+        },
+        {
+          "name": "3.6 GetPatientByMRN (Direct)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"Action\": \"GetPatientByMRN\",\n  \"Appname\": \"{{unity_app_name}}\",\n  \"AppUserID\": \"{{unity_ehr_username}}\",\n  \"PatientID\": \"\",\n  \"Token\": \"{{security_token}}\",\n  \"Parameter1\": \"{{test_patient_mrn}}\",\n  \"Parameter2\": \"\",\n  \"Parameter3\": \"\",\n  \"Parameter4\": \"\",\n  \"Parameter5\": \"\",\n  \"Parameter6\": \"\",\n  \"Data\": \"\"\n}"
+            },
+            "url": {
+              "raw": "{{unity_base_url}}/json/MagicJson",
+              "host": ["{{unity_base_url}}"],
+              "path": ["json", "MagicJson"]
+            },
+            "description": "Direct GetPatientByMRN call to Unity API"
+          },
+          "response": []
+        }
+      ]
+        },
+        {
+      "name": "4. Workflow Tests",
+      "description": "End-to-end workflow testing scenarios",
+      "item": [
+        {
+          "name": "4.1 Create Patient → Book Appointment",
+          "item": [
+            {
+              "name": "Step 1: Create Patient",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "exec": [
+                      "var jsonData = pm.response.json();",
+                      "if (jsonData.result && jsonData.result.patientId) {",
+                      "    pm.collectionVariables.set('new_patient_id', jsonData.result.patientId);",
+                      "    pm.test('Patient created', function() {",
+                      "        pm.expect(jsonData.result.success).to.be.true;",
+                      "    });",
+                      "}"
+                    ],
+                    "type": "text/javascript"
+                  }
+                }
+              ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+                  "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": 100,\n  \"method\": \"tools/call\",\n  \"params\": {\n    \"name\": \"unity_save_patient\",\n    \"arguments\": {\n      \"firstName\": \"Workflow\",\n      \"lastName\": \"TestPatient\",\n      \"dateOfBirth\": \"03/15/1990\",\n      \"gender\": \"F\",\n      \"cellPhone\": \"555-123-4567\",\n      \"email\": \"workflow.test@example.com\"\n    }\n  }\n}"
+            },
+            "url": {
+              "raw": "{{unity_mcp_server_url}}/",
+              "host": ["{{unity_mcp_server_url}}"],
+              "path": [""]
+                }
+          },
+          "response": []
+        },
+        {
+              "name": "Step 2: Find Open Slots",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+                  "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": 101,\n  \"method\": \"tools/call\",\n  \"params\": {\n    \"name\": \"unity_get_open_slots\",\n    \"arguments\": {\n      \"startDate\": \"01/15/2025\",\n      \"endDate\": \"01/20/2025\",\n      \"duration\": 30\n    }\n  }\n}"
+            },
+            "url": {
+              "raw": "{{unity_mcp_server_url}}/",
+              "host": ["{{unity_mcp_server_url}}"],
+              "path": [""]
+                }
+          },
+          "response": []
+    },
+    {
+              "name": "Step 3: Book Appointment",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "exec": [
+                      "var jsonData = pm.response.json();",
+                      "if (jsonData.result && jsonData.result.appointmentId) {",
+                      "    pm.collectionVariables.set('new_appointment_id', jsonData.result.appointmentId);",
+                      "    pm.test('Appointment booked', function() {",
+                      "        pm.expect(jsonData.result.success).to.be.true;",
+                      "    });",
+                      "}"
+                    ],
+                    "type": "text/javascript"
+                  }
+                }
+              ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+                  "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": 102,\n  \"method\": \"tools/call\",\n  \"params\": {\n    \"name\": \"unity_save_appointment\",\n    \"arguments\": {\n      \"patientId\": \"{{new_patient_id}}\",\n      \"appointmentDate\": \"01/16/2025\",\n      \"appointmentTime\": \"10:30\",\n      \"duration\": 30,\n      \"appointmentType\": \"New Patient Visit\",\n      \"reasonForVisit\": \"Initial consultation\"\n    }\n  }\n}"
+            },
+            "url": {
+              "raw": "{{unity_mcp_server_url}}/",
+              "host": ["{{unity_mcp_server_url}}"],
+              "path": [""]
+                }
+          },
+          "response": []
+        },
+        {
+              "name": "Step 4: Verify Appointment",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+                  "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": 103,\n  \"method\": \"tools/call\",\n  \"params\": {\n    \"name\": \"unity_get_patient_appointments\",\n    \"arguments\": {\n      \"patientId\": \"{{new_patient_id}}\"\n    }\n  }\n}"
+            },
+            "url": {
+              "raw": "{{unity_mcp_server_url}}/",
+              "host": ["{{unity_mcp_server_url}}"],
+              "path": [""]
+                }
+          },
+          "response": []
+            }
+          ]
+        },
+        {
+          "name": "4.2 Update Demographics Workflow",
+          "item": [
+            {
+              "name": "Step 1: Get Current Patient",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+                  "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": 200,\n  \"method\": \"tools/call\",\n  \"params\": {\n    \"name\": \"unity_get_patient\",\n    \"arguments\": {\n      \"patientId\": \"{{test_patient_id}}\"\n    }\n  }\n}"
+            },
+            "url": {
+              "raw": "{{unity_mcp_server_url}}/",
+              "host": ["{{unity_mcp_server_url}}"],
+              "path": [""]
+                }
+          },
+          "response": []
+        },
+        {
+              "name": "Step 2: Update Contact Info",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+                  "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": 201,\n  \"method\": \"tools/call\",\n  \"params\": {\n    \"name\": \"unity_update_demographics\",\n    \"arguments\": {\n      \"patientId\": \"{{test_patient_id}}\",\n      \"cellPhone\": \"555-NEW-PHONE\",\n      \"email\": \"new.email@example.com\"\n    }\n  }\n}"
+            },
+            "url": {
+              "raw": "{{unity_mcp_server_url}}/",
+              "host": ["{{unity_mcp_server_url}}"],
+              "path": [""]
+                }
+          },
+          "response": []
+    },
+    {
+              "name": "Step 3: Update Address",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+                  "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": 202,\n  \"method\": \"tools/call\",\n  \"params\": {\n    \"name\": \"unity_update_demographics\",\n    \"arguments\": {\n      \"patientId\": \"{{test_patient_id}}\",\n      \"address1\": \"456 New Street\",\n      \"city\": \"New City\",\n      \"state\": \"NY\",\n      \"zipCode\": \"10001\"\n    }\n  }\n}"
+            },
+            "url": {
+              "raw": "{{unity_mcp_server_url}}/",
+              "host": ["{{unity_mcp_server_url}}"],
+              "path": [""]
+                }
+          },
+          "response": []
+        },
+        {
+              "name": "Step 4: Verify Updates",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+                  "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": 203,\n  \"method\": \"tools/call\",\n  \"params\": {\n    \"name\": \"unity_get_patient\",\n    \"arguments\": {\n      \"patientId\": \"{{test_patient_id}}\"\n    }\n  }\n}"
+            },
+            "url": {
+              "raw": "{{unity_mcp_server_url}}/",
+              "host": ["{{unity_mcp_server_url}}"],
+              "path": [""]
+                }
+          },
+          "response": []
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

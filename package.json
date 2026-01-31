@@ -1,25 +1,36 @@
 {
   "name": "veradigm-fhir-mcp-server",
   "version": "1.0.0",
-  "description": "MCP 2.0 Server for Veradigm FHIR API integration with AI voice agents",
+  "description": "MCP 2.0 Server for Veradigm FHIR and Unity API integration with AI voice agents",
   "main": "dist/index.js",
   "scripts": {
     "build": "tsc",
     "start": "node dist/index.js",
+    "start:unity": "node dist/unity/index.js",
     "dev": "ts-node src/index.ts",
+    "dev:unity": "ts-node src/unity/index.ts",
     "server": "ts-node src/test-server.ts",
+    "server:unity": "ts-node src/unity/unity-test-server.ts",
     "test": "jest",
     "lint": "eslint src/**/*.ts",
     "docker:build": "docker build -t veradigm-fhir-mcp-server .",
-    "docker:run": "docker run -p 3000:3000 veradigm-fhir-mcp-server"
+    "docker:build:unity": "docker build -f Dockerfile.unity -t veradigm-unity-mcp-server .",
+    "docker:build:all": "npm run docker:build && npm run docker:build:unity",
+    "docker:run": "docker run -p 3000:3000 veradigm-fhir-mcp-server",
+    "docker:run:unity": "docker run -p 3001:3001 veradigm-unity-mcp-server",
+    "docker:compose:up": "docker-compose up -d",
+    "docker:compose:down": "docker-compose down",
+    "docker:compose:logs": "docker-compose logs -f"
   },
   "keywords": [
     "mcp",
     "fhir",
+    "unity",
     "healthcare",
     "ai",
     "voice-agent",
-    "veradigm"
+    "veradigm",
+    "ehr"
   ],
   "author": "Your Name",
   "license": "MIT",
