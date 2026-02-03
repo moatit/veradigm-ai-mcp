@@ -15,6 +15,7 @@ import { MedicationTools } from "./tools/medication.tools";
 import { PatientTools } from "./tools/patient.tools";
 import { ProviderTools } from "./tools/provider.tools";
 import { ErrorHandler } from "./utils/error-handler";
+import { adminLogger } from "./middleware/admin-logger";
 
 class VeradigmFHIRMCPServer {
   private server: Server;
@@ -72,6 +73,8 @@ class VeradigmFHIRMCPServer {
     // Handle tool calls
     this.server.setRequestHandler(CallToolRequestSchema, async (request) => {
       const { name, arguments: args } = request.params;
+      const requestTime = new Date();
+      const startTime = Date.now();
 
       try {
         let result: any;
@@ -153,6 +156,15 @@ class VeradigmFHIRMCPServer {
           throw ErrorHandler.createValidationError(`Unknown tool: ${name}`);
         }
 
+        // Log successful call to admin portal
+        const responseTime = Date.now() - startTime;
+        adminLogger.logToolCall({
+          toolName: name,
+          requestTime,
+          responseTime,
+          status: 'SUCCESS',
+        });
+
         return {
           content: [
             {
@@ -164,6 +176,16 @@ class VeradigmFHIRMCPServer {
       } catch (error) {
         const fhirError = ErrorHandler.handleUnknownError(error);
         ErrorHandler.logError(fhirError, `Tool: ${name}`);
+
+        // Log failed call to admin portal
+        const responseTime = Date.now() - startTime;
+        adminLogger.logToolCall({
+          toolName: name,
+          requestTime,
+          responseTime,
+          status: 'ERROR',
+          errorMessage: fhirError.message,
+        });
 
         return {
           content: [
@@ -195,7 +217,7 @@ class VeradigmFHIRMCPServer {
       `Veradigm FHIR MCP Server started (${config.nodeEnv} environment)`
     );
     console.error(`FHIR Base URL: ${config.fhirBaseUrl}`);
-    console.error(`Available tools: 20 FHIR read-only operations`);
+    console.error(`Available tools: 22 FHIR operations (21 read, 1 write: create_appointment)`);
   }
 }
 

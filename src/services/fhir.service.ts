@@ -32,7 +32,7 @@ export interface FHIRResource {
 }
 
 export interface FHIRSearchParams {
-  [key: string]: string | number | boolean | undefined;
+  [key: string]: string | string[] | number | boolean | undefined;
 }
 
 export interface FHIRSearchResult<T = FHIRResource> {
@@ -142,19 +142,24 @@ export class FHIRService {
   }
 
   /**
-   * Build search parameters for FHIR API
+   * Build search parameters for FHIR API.
+   * Supports multi-value params (e.g. date=ge2024-01-01&date=le2024-12-31) via string[].
    */
   private buildSearchParams(
     params: FHIRSearchParams,
     pageSize: number
-  ): Record<string, string> {
-    const searchParams: Record<string, string> = {
+  ): Record<string, string | string[]> {
+    const searchParams: Record<string, string | string[]> = {
       _count: pageSize.toString(),
     };
 
     // Add search parameters, filtering out undefined values
     Object.entries(params).forEach(([key, value]) => {
-      if (value !== undefined && value !== null && value !== "") {
+      if (value === undefined || value === null || value === "") return;
+      if (Array.isArray(value)) {
+        const nonEmpty = value.filter((v) => v !== undefined && v !== null && v !== "");
+        if (nonEmpty.length > 0) searchParams[key] = nonEmpty.map(String);
+      } else {
         searchParams[key] = value.toString();
       }
     });

@@ -50,5 +50,5 @@ EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
   CMD node -e "console.log('Health check passed')" || exit 1
 
-# Start the application
-CMD ["node", "dist/index.js"]
+# Start the HTTP MCP server (for Retell / external calls; stdio server is dist/index.js)
+CMD ["node", "dist/test-server.js"]

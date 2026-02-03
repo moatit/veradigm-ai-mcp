@@ -1,0 +1,377 @@
+{
+  "info": {
+    "name": "FHIR MCP - All 22 Tools",
+    "description": "Postman collection for all FHIR MCP tools. Use with localhost (http://localhost:3000) or tunnel URL. Set 'base_url' in environment.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "version": "1.0.0"
+  },
+  "variable": [
+    { "key": "base_url", "value": "http://localhost:3000", "type": "string" },
+    { "key": "patient_id", "value": "", "type": "string" },
+    { "key": "provider_id", "value": "", "type": "string" },
+    { "key": "location_id", "value": "", "type": "string" },
+    { "key": "appointment_id", "value": "", "type": "string" }
+  ],
+  "item": [
+    {
+      "name": "0. Health & Info",
+      "item": [
+        {
+          "name": "Health Check",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/health",
+            "description": "Check if FHIR MCP server is running."
+          }
+        },
+        {
+          "name": "List Tools",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/tools",
+            "description": "List all 22 FHIR MCP tools."
+          }
+        },
+        {
+          "name": "MCP Initialize",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"method\": \"initialize\",\n  \"id\": 1\n}"
+            },
+            "url": "{{base_url}}/",
+            "description": "MCP protocol initialize."
+          }
+        },
+        {
+          "name": "MCP tools/list",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"method\": \"tools/list\",\n  \"id\": 2\n}"
+            },
+            "url": "{{base_url}}/",
+            "description": "List tools via MCP JSON-RPC."
+          }
+        }
+      ]
+    },
+    {
+      "name": "1. Patient Tools (3)",
+      "item": [
+        {
+          "name": "search_patient",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"method\": \"tools/call\",\n  \"params\": {\n    \"name\": \"search_patient\",\n    \"arguments\": {\n      \"lastName\": \"Smith\",\n      \"firstName\": \"John\",\n      \"birthDate\": \"1980-01-15\",\n      \"_count\": 10\n    }\n  },\n  \"id\": 1\n}"
+            },
+            "url": "{{base_url}}/",
+            "description": "Search for patients by name, DOB, phone, email, or MRN. Date format: YYYY-MM-DD"
+          }
+        },
+        {
+          "name": "get_patient_details",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"method\": \"tools/call\",\n  \"params\": {\n    \"name\": \"get_patient_details\",\n    \"arguments\": {\n      \"patientId\": \"{{patient_id}}\"\n    }\n  },\n  \"id\": 2\n}"
+            },
+            "url": "{{base_url}}/",
+            "description": "Get full patient details by patient ID."
+          }
+        },
+        {
+          "name": "verify_patient_identity",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"method\": \"tools/call\",\n  \"params\": {\n    \"name\": \"verify_patient_identity\",\n    \"arguments\": {\n      \"patientId\": \"{{patient_id}}\",\n      \"birthDate\": \"1980-01-15\",\n      \"lastName\": \"Smith\"\n    }\n  },\n  \"id\": 3\n}"
+            },
+            "url": "{{base_url}}/",
+            "description": "Verify patient identity with DOB and name."
+          }
+        }
+      ]
+    },
+    {
+      "name": "2. Medication Tools (4)",
+      "item": [
+        {
+          "name": "get_patient_medications",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"method\": \"tools/call\",\n  \"params\": {\n    \"name\": \"get_patient_medications\",\n    \"arguments\": {\n      \"patientId\": \"{{patient_id}}\",\n      \"status\": \"active\"\n    }\n  },\n  \"id\": 4\n}"
+            },
+            "url": "{{base_url}}/",
+            "description": "Get patient's current medications."
+          }
+        },
+        {
+          "name": "get_medication_requests",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"method\": \"tools/call\",\n  \"params\": {\n    \"name\": \"get_medication_requests\",\n    \"arguments\": {\n      \"patientId\": \"{{patient_id}}\"\n    }\n  },\n  \"id\": 5\n}"
+            },
+            "url": "{{base_url}}/",
+            "description": "Get medication requests/prescriptions."
+          }
+        },
+        {
+          "name": "check_refill_status",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"method\": \"tools/call\",\n  \"params\": {\n    \"name\": \"check_refill_status\",\n    \"arguments\": {\n      \"patientId\": \"{{patient_id}}\"\n    }\n  },\n  \"id\": 6\n}"
+            },
+            "url": "{{base_url}}/",
+            "description": "Check medication refill status."
+          }
+        },
+        {
+          "name": "get_medication_statements",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"method\": \"tools/call\",\n  \"params\": {\n    \"name\": \"get_medication_statements\",\n    \"arguments\": {\n      \"patientId\": \"{{patient_id}}\"\n    }\n  },\n  \"id\": 7\n}"
+            },
+            "url": "{{base_url}}/",
+            "description": "Get medication statements (what patient is taking)."
+          }
+        }
+      ]
+    },
+    {
+      "name": "3. Clinical Tools (5)",
+      "item": [
+        {
+          "name": "get_patient_conditions",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"method\": \"tools/call\",\n  \"params\": {\n    \"name\": \"get_patient_conditions\",\n    \"arguments\": {\n      \"patientId\": \"{{patient_id}}\",\n      \"clinicalStatus\": \"active\"\n    }\n  },\n  \"id\": 8\n}"
+            },
+            "url": "{{base_url}}/",
+            "description": "Get patient conditions/diagnoses."
+          }
+        },
+        {
+          "name": "get_allergies",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"method\": \"tools/call\",\n  \"params\": {\n    \"name\": \"get_allergies\",\n    \"arguments\": {\n      \"patientId\": \"{{patient_id}}\"\n    }\n  },\n  \"id\": 9\n}"
+            },
+            "url": "{{base_url}}/",
+            "description": "Get patient allergies."
+          }
+        },
+        {
+          "name": "get_recent_observations",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"method\": \"tools/call\",\n  \"params\": {\n    \"name\": \"get_recent_observations\",\n    \"arguments\": {\n      \"patientId\": \"{{patient_id}}\",\n      \"category\": \"vital-signs\",\n      \"_count\": 10\n    }\n  },\n  \"id\": 10\n}"
+            },
+            "url": "{{base_url}}/",
+            "description": "Get vitals, lab results, and other observations. Categories: vital-signs, laboratory, etc."
+          }
+        },
+        {
+          "name": "get_patient_procedures",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"method\": \"tools/call\",\n  \"params\": {\n    \"name\": \"get_patient_procedures\",\n    \"arguments\": {\n      \"patientId\": \"{{patient_id}}\"\n    }\n  },\n  \"id\": 11\n}"
+            },
+            "url": "{{base_url}}/",
+            "description": "Get patient procedures history."
+          }
+        },
+        {
+          "name": "get_patient_coverage",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"method\": \"tools/call\",\n  \"params\": {\n    \"name\": \"get_patient_coverage\",\n    \"arguments\": {\n      \"patientId\": \"{{patient_id}}\"\n    }\n  },\n  \"id\": 12\n}"
+            },
+            "url": "{{base_url}}/",
+            "description": "Get patient insurance coverage."
+          }
+        }
+      ]
+    },
+    {
+      "name": "4. Appointment Tools (6)",
+      "item": [
+        {
+          "name": "get_upcoming_appointments",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"method\": \"tools/call\",\n  \"params\": {\n    \"name\": \"get_upcoming_appointments\",\n    \"arguments\": {\n      \"patientId\": \"{{patient_id}}\"\n    }\n  },\n  \"id\": 13\n}"
+            },
+            "url": "{{base_url}}/",
+            "description": "Get patient's upcoming appointments."
+          }
+        },
+        {
+          "name": "get_appointment_details",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"method\": \"tools/call\",\n  \"params\": {\n    \"name\": \"get_appointment_details\",\n    \"arguments\": {\n      \"appointmentId\": \"{{appointment_id}}\"\n    }\n  },\n  \"id\": 14\n}"
+            },
+            "url": "{{base_url}}/",
+            "description": "Get details of a specific appointment."
+          }
+        },
+        {
+          "name": "check_appointment_status",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"method\": \"tools/call\",\n  \"params\": {\n    \"name\": \"check_appointment_status\",\n    \"arguments\": {\n      \"appointmentId\": \"{{appointment_id}}\"\n    }\n  },\n  \"id\": 15\n}"
+            },
+            "url": "{{base_url}}/",
+            "description": "Check status of an appointment."
+          }
+        },
+        {
+          "name": "find_patient_next_appointment",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"method\": \"tools/call\",\n  \"params\": {\n    \"name\": \"find_patient_next_appointment\",\n    \"arguments\": {\n      \"patientId\": \"{{patient_id}}\"\n    }\n  },\n  \"id\": 16\n}"
+            },
+            "url": "{{base_url}}/",
+            "description": "Find patient's next appointment."
+          }
+        },
+        {
+          "name": "get_appointments_by_date_range",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"method\": \"tools/call\",\n  \"params\": {\n    \"name\": \"get_appointments_by_date_range\",\n    \"arguments\": {\n      \"patientId\": \"{{patient_id}}\",\n      \"startDate\": \"2025-01-01\",\n      \"endDate\": \"2025-12-31\"\n    }\n  },\n  \"id\": 17\n}"
+            },
+            "url": "{{base_url}}/",
+            "description": "Get appointments in a date range. Date format: YYYY-MM-DD"
+          }
+        },
+        {
+          "name": "create_appointment",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"method\": \"tools/call\",\n  \"params\": {\n    \"name\": \"create_appointment\",\n    \"arguments\": {\n      \"patientId\": \"{{patient_id}}\",\n      \"practitionerId\": \"{{provider_id}}\",\n      \"start\": \"2025-02-15T10:00:00Z\",\n      \"end\": \"2025-02-15T10:30:00Z\",\n      \"appointmentType\": \"Office Visit\",\n      \"reasonCode\": \"Routine checkup\"\n    }\n  },\n  \"id\": 18\n}"
+            },
+            "url": "{{base_url}}/",
+            "description": "Create a new appointment (limited support in FHIR)."
+          }
+        }
+      ]
+    },
+    {
+      "name": "5. Provider & Location Tools (4)",
+      "item": [
+        {
+          "name": "search_providers",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"method\": \"tools/call\",\n  \"params\": {\n    \"name\": \"search_providers\",\n    \"arguments\": {\n      \"name\": \"Smith\",\n      \"specialty\": \"General Practice\",\n      \"_count\": 10\n    }\n  },\n  \"id\": 19\n}"
+            },
+            "url": "{{base_url}}/",
+            "description": "Search for providers/practitioners."
+          }
+        },
+        {
+          "name": "get_provider_details",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"method\": \"tools/call\",\n  \"params\": {\n    \"name\": \"get_provider_details\",\n    \"arguments\": {\n      \"providerId\": \"{{provider_id}}\"\n    }\n  },\n  \"id\": 20\n}"
+            },
+            "url": "{{base_url}}/",
+            "description": "Get provider details by ID."
+          }
+        },
+        {
+          "name": "search_locations",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"method\": \"tools/call\",\n  \"params\": {\n    \"name\": \"search_locations\",\n    \"arguments\": {\n      \"name\": \"Clinic\",\n      \"city\": \"Raleigh\",\n      \"_count\": 10\n    }\n  },\n  \"id\": 21\n}"
+            },
+            "url": "{{base_url}}/",
+            "description": "Search for locations/facilities."
+          }
+        },
+        {
+          "name": "get_location_details",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"method\": \"tools/call\",\n  \"params\": {\n    \"name\": \"get_location_details\",\n    \"arguments\": {\n      \"locationId\": \"{{location_id}}\"\n    }\n  },\n  \"id\": 22\n}"
+            },
+            "url": "{{base_url}}/",
+            "description": "Get location details by ID."
+          }
+        }
+      ]
+    }
+  ]
+}

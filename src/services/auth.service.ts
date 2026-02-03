@@ -54,13 +54,12 @@ export class AuthService {
    */
   private async requestNewToken(): Promise<TokenResponse> {
     try {
-      // Build params without scope - let Veradigm assign default scopes
-      // Veradigm OAuth server assigns scopes based on application configuration
+      // Build params with scope for FHIR read access
       const params = new URLSearchParams({
         grant_type: "client_credentials",
         client_id: config.clientId,
         client_secret: config.clientSecret,
-        // Note: Scope is configured in Veradigm Developer Portal, not in token request
+        scope: "system/*.read",
       });
 
       const response: AxiosResponse<TokenResponse> = await axios.post(

@@ -25,17 +25,16 @@ export class AppointmentTools {
         throw ErrorHandler.createValidationError("Patient ID is required");
       }
 
-      const searchParams: Record<string, string> = {
+      const searchParams: Record<string, string | string[]> = {
         patient: args.patientId,
       };
 
-      if (args.startDate) {
+      if (args.startDate && args.endDate) {
+        searchParams.date = [`ge${args.startDate}`, `le${args.endDate}`];
+      } else if (args.startDate) {
         searchParams.date = `ge${args.startDate}`;
-      }
-      if (args.endDate) {
-        searchParams.date = searchParams.date
-          ? `${searchParams.date}&le${args.endDate}`
-          : `le${args.endDate}`;
+      } else if (args.endDate) {
+        searchParams.date = `le${args.endDate}`;
       }
       if (args.status) {
         searchParams.status = args.status;
@@ -161,8 +160,8 @@ export class AppointmentTools {
     hasMore: boolean;
   }> {
     try {
-      const searchParams: Record<string, string> = {
-        date: `ge${args.startDate}&le${args.endDate}`,
+      const searchParams: Record<string, string | string[]> = {
+        date: [`ge${args.startDate}`, `le${args.endDate}`],
       };
 
       if (args.practitionerId) {

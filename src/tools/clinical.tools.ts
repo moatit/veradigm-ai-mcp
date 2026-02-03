@@ -142,7 +142,7 @@ export class ClinicalTools {
         throw ErrorHandler.createValidationError("Patient ID is required");
       }
 
-      const searchParams: Record<string, string> = {
+      const searchParams: Record<string, string | string[]> = {
         patient: args.patientId,
       };
 
@@ -152,13 +152,12 @@ export class ClinicalTools {
       if (args.code) {
         searchParams.code = args.code;
       }
-      if (args.dateFrom) {
+      if (args.dateFrom && args.dateTo) {
+        searchParams.date = [`ge${args.dateFrom}`, `le${args.dateTo}`];
+      } else if (args.dateFrom) {
         searchParams.date = `ge${args.dateFrom}`;
-      }
-      if (args.dateTo) {
-        searchParams.date = searchParams.date
-          ? `${searchParams.date}&le${args.dateTo}`
-          : `le${args.dateTo}`;
+      } else if (args.dateTo) {
+        searchParams.date = `le${args.dateTo}`;
       }
 
       const result = await this.fhirService.search(
@@ -231,7 +230,7 @@ export class ClinicalTools {
         throw ErrorHandler.createValidationError("Patient ID is required");
       }
 
-      const searchParams: Record<string, string> = {
+      const searchParams: Record<string, string | string[]> = {
         patient: args.patientId,
       };
 
@@ -241,13 +240,12 @@ export class ClinicalTools {
       if (args.category) {
         searchParams.category = args.category;
       }
-      if (args.dateFrom) {
+      if (args.dateFrom && args.dateTo) {
+        searchParams.date = [`ge${args.dateFrom}`, `le${args.dateTo}`];
+      } else if (args.dateFrom) {
         searchParams.date = `ge${args.dateFrom}`;
-      }
-      if (args.dateTo) {
-        searchParams.date = searchParams.date
-          ? `${searchParams.date}&le${args.dateTo}`
-          : `le${args.dateTo}`;
+      } else if (args.dateTo) {
+        searchParams.date = `le${args.dateTo}`;
       }
 
       const result = await this.fhirService.search(

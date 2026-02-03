@@ -11,6 +11,8 @@ import { MedicationTools } from "./tools/medication.tools";
 import { PatientTools } from "./tools/patient.tools";
 import { ProviderTools } from "./tools/provider.tools";
 import { ErrorHandler } from "./utils/error-handler";
+import { adminLogger } from "./middleware/admin-logger";
+import { accessControl, requiresFhirAccess, requiresUnityAccess } from "./middleware/access-control";
 
 const app = express();
 
@@ -79,7 +81,7 @@ app.get("/tools", (req, res) => {
 // =============================================================================
 
 // Root-level JSON-RPC handler (for RetellAI base URL calls)
-app.post("/", async (req, res) => {
+app.post("/", async (req, res): Promise<void> => {
   try {
     const method = req.body.method;
 
@@ -138,6 +140,60 @@ app.post("/", async (req, res) => {
     // MCP Protocol: tools/call
     if (method === "tools/call") {
       const { name, arguments: args } = req.body.params || {};
+      const toolRequestTime = new Date();
+      const toolStartTime = Date.now();
+      
+      // Get channel from header or use default (for multi-client support)
+      const channel = (req.headers['x-mcp-channel'] as string) || 
+                      (req.headers['x-channel'] as string) || 
+                      adminLogger.getDefaultChannel();
+
+      // Access control check
+      const apiKey = req.headers['x-api-key'] as string;
+      if (apiKey && process.env.ADMIN_PORTAL_URL) {
+        const validation = await accessControl.validateClient(apiKey);
+        
+        if (!validation.valid) {
+          res.status(401).json({
+            jsonrpc: "2.0",
+            id: req.body.id || null,
+            error: {
+              code: -32001,
+              message: "Invalid API key",
+              data: validation.error,
+            },
+          });
+          return;
+        }
+
+        // Check FHIR access for FHIR tools
+        if (requiresFhirAccess(name) && !accessControl.hasFhirAccess(validation.client)) {
+          res.status(403).json({
+            jsonrpc: "2.0",
+            id: req.body.id || null,
+            error: {
+              code: -32002,
+              message: "Access denied: No FHIR access",
+              data: { tool: name, required: "fhirAccess" },
+            },
+          });
+          return;
+        }
+
+        // Check Unity access for Unity tools
+        if (requiresUnityAccess(name) && !accessControl.hasUnityAccess(validation.client)) {
+          res.status(403).json({
+            jsonrpc: "2.0",
+            id: req.body.id || null,
+            error: {
+              code: -32003,
+              message: "Access denied: No Unity access",
+              data: { tool: name, required: "unityAccess" },
+            },
+          });
+          return;
+        }
+      }
 
       let result: any;
 
@@ -198,6 +254,15 @@ app.post("/", async (req, res) => {
         throw ErrorHandler.createValidationError(`Unknown tool: ${name}`);
       }
 
+      // Log successful call to admin portal (use request's client key so log goes to right client)
+      const toolResponseTime = Date.now() - toolStartTime;
+      adminLogger.logToolCall({
+        toolName: name,
+        requestTime: toolRequestTime,
+        responseTime: toolResponseTime,
+        status: 'SUCCESS',
+      }, channel, apiKey);
+
       res.json({
         jsonrpc: "2.0",
         id: req.body.id || null,
@@ -225,6 +290,21 @@ app.post("/", async (req, res) => {
   } catch (error: any) {
     const fhirError = ErrorHandler.handleUnknownError(error);
     ErrorHandler.logError(fhirError, `Method: ${req.body.method}`);
+
+    // Log failed call to admin portal (if it was a tools/call)
+    if (req.body.method === "tools/call" && req.body.params?.name) {
+      const errorChannel = (req.headers['x-mcp-channel'] as string) || 
+                           (req.headers['x-channel'] as string) || 
+                           adminLogger.getDefaultChannel();
+      const errorApiKey = req.headers['x-api-key'] as string;
+      adminLogger.logToolCall({
+        toolName: req.body.params.name,
+        requestTime: new Date(),
+        responseTime: 0,
+        status: 'ERROR',
+        errorMessage: fhirError.message,
+      }, errorChannel, errorApiKey);
+    }
 
     res.status(500).json({
       jsonrpc: "2.0",
@@ -851,7 +931,13 @@ app.listen(PORT, HOST, () => {
   console.log(`📊 Environment: ${config.nodeEnv}`);
   console.log(`🔗 FHIR URL: ${config.fhirBaseUrl}`);
   console.log(
-    `🔑 Auth: ${authService ? "✅ Configured" : "❌ Not configured"}\n`
+    `🔑 Auth: ${authService ? "✅ Configured" : "❌ Not configured"}`
+  );
+  console.log(
+    `📊 Admin Portal: ${process.env.ADMIN_PORTAL_URL && process.env.ADMIN_API_KEY ? "✅ Logging enabled → " + process.env.ADMIN_PORTAL_URL : "❌ Not configured"}`
+  );
+  console.log(
+    `🔐 Access Control: ${process.env.ADMIN_PORTAL_URL ? "✅ Enabled (API key required)" : "❌ Disabled (open access)"}\n`
   );
 
   console.log(`📋 Available Endpoints:\n`);
@@ -893,6 +979,11 @@ app.listen(PORT, HOST, () => {
   console.log(`   GET  /api/clinical/coverage?patientId=xxx\n`);
 
   console.log(`📊 TOTAL: 28 Endpoints (using same tools as MCP server)\n`);
+  
+  console.log(`🔖 Multi-Client Support:`);
+  console.log(`   Pass header 'X-MCP-Channel' or 'X-Channel' with value:`);
+  console.log(`   RETELL | APP | WEB | API\n`);
+  
   console.log(`🧪 Quick Test:`);
   console.log(`   curl http://localhost:${PORT}/health`);
   console.log(`   curl http://localhost:${PORT}/test/auth\n`);

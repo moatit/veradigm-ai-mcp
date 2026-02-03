@@ -50,6 +50,6 @@ EXPOSE 3001
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
   CMD node -e "console.log('Unity Health check passed')" || exit 1
 
-# Start the Unity MCP server
-CMD ["node", "dist/unity/index.js"]
+# Start the Unity HTTP MCP server (for external calls)
+CMD ["node", "dist/unity/unity-test-server.js"]
 
