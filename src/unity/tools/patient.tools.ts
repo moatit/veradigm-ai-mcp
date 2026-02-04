@@ -280,6 +280,14 @@ export class UnityPatientTools {
 
       const patient = this.parsePatientFromUnity(response.data);
 
+      if (this.isEmptyPatient(patient)) {
+        return {
+          success: false,
+          message:
+            "No patient details returned for this ID. The record may not exist or the system returned empty data. Try searching by full name and date of birth (MM/DD/YYYY), or by MRN using unity_get_patient_by_mrn.",
+        };
+      }
+
       return {
         success: true,
         patient,
@@ -417,6 +425,14 @@ export class UnityPatientTools {
         }
       }
 
+      if (this.isEmptyPatient(patient)) {
+        return {
+          success: false,
+          message:
+            `No patient found for MRN "${args.mrn}". Try searching by full name and date of birth (MM/DD/YYYY) using unity_search_patients.`,
+        };
+      }
+
       return {
         success: true,
         patient,
@@ -433,6 +449,19 @@ export class UnityPatientTools {
   // ============================================
   // Helper Methods
   // ============================================
+
+  /**
+   * True when the parsed patient has no usable identifiers or name (treat as "not found").
+   */
+  private isEmptyPatient(p: ParsedPatient): boolean {
+    const hasId = Boolean(p.id && String(p.id).trim());
+    const hasName = Boolean(
+      (p.firstName && String(p.firstName).trim()) ||
+        (p.lastName && String(p.lastName).trim()),
+    );
+    const hasMrn = Boolean(p.mrn && String(p.mrn).trim());
+    return !hasId && !hasName && !hasMrn;
+  }
 
   /**
    * Build patient XML for SavePatient

@@ -9,7 +9,9 @@
 
 import cors from "cors";
 import express, { NextFunction, Request, Response } from "express";
+// Load env first so adminLogger gets ADMIN_PORTAL_URL and ADMIN_API_KEY
 import { unityConfig } from "./config/environment";
+import { adminLogger } from "../middleware/admin-logger";
 import { UnityAuthService } from "./services/unity-auth.service";
 import { UnityService } from "./services/unity.service";
 import { UnityAppointmentTools } from "./tools/appointment.tools";
@@ -145,22 +147,62 @@ app.post("/", async (req: Request, res: Response): Promise<void> => {
         result = { tools: getToolDefinitions() };
         break;
 
-      case "tools/call":
+      case "tools/call": {
         const { name, arguments: toolArgs } = params || {};
         if (!name) {
           throw new Error("Tool name is required");
         }
 
-        const toolResult = await executeTool(name, toolArgs || {});
-        result = {
-          content: [
+        const toolRequestTime = new Date();
+        const toolStartTime = Date.now();
+        const apiKey = req.headers["x-api-key"] as string | undefined;
+        const channel =
+          (req.headers["x-mcp-channel"] as string) ||
+          (req.headers["x-channel"] as string) ||
+          adminLogger.getDefaultChannel();
+
+        try {
+          const toolResult = await executeTool(name, toolArgs || {});
+          const toolResponseTime = Date.now() - toolStartTime;
+
+          adminLogger.logToolCall(
             {
-              type: "text",
-              text: JSON.stringify(toolResult, null, 2),
+              toolName: name,
+              requestTime: toolRequestTime,
+              responseTime: toolResponseTime,
+              status: "SUCCESS",
+              metadata: { server: "unity" },
             },
-          ],
-        };
+            channel,
+            apiKey
+          );
+
+          result = {
+            content: [
+              {
+                type: "text",
+                text: JSON.stringify(toolResult, null, 2),
+              },
+            ],
+          };
+        } catch (toolError: any) {
+          const toolResponseTime = Date.now() - toolStartTime;
+          adminLogger.logToolCall(
+            {
+              toolName: name,
+              requestTime: toolRequestTime,
+              responseTime: toolResponseTime,
+              status: "ERROR",
+              errorMessage: toolError?.message || String(toolError),
+              metadata: { server: "unity" },
+            },
+            channel,
+            apiKey
+          );
+          throw toolError;
+        }
         break;
+      }
 
       default:
         res.json({

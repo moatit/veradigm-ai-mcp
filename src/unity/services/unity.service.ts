@@ -182,9 +182,12 @@ export class UnityService {
     if (Array.isArray(data)) {
       // Array response - could be table data
       parsedData = data as unknown as T;
-    } else if (data?.Table || data?.getpatientresult || data?.Results) {
+    } else if (data?.Table || data?.Results) {
       // Common Unity response wrappers
-      parsedData = (data.Table || data.getpatientresult || data.Results) as T;
+      parsedData = (data.Table || data.Results) as T;
+    } else if (data?.GetPatientResult ?? data?.getpatientresult) {
+      // GetPatient / GetPatientFull often return { GetPatientResult: { PatientID, FirstName, ... } }
+      parsedData = (data.GetPatientResult ?? data.getpatientresult) as T;
     } else if (typeof data === 'object') {
       parsedData = data as T;
     }

@@ -1,4 +1,8 @@
 import axios from 'axios'
+import dotenv from 'dotenv'
+
+// Ensure env is loaded when this module is used (e.g. by Unity server before its config)
+dotenv.config()
 
 interface LogEntry {
   channel: string
