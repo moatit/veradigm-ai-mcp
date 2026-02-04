@@ -1,7 +1,7 @@
-import { Tool } from '@modelcontextprotocol/sdk/types.js';
-import { FHIRService } from '../services/fhir.service';
-import { FHIRParser, ParsedCondition } from '../utils/fhir-parser';
-import { ErrorHandler, FHIRMCPError } from '../utils/error-handler';
+import { Tool } from "@modelcontextprotocol/sdk/types.js";
+import { FHIRService } from "../services/fhir.service";
+import { ErrorHandler } from "../utils/error-handler";
+import { FHIRParser, ParsedCondition } from "../utils/fhir-parser";
 
 export class ClinicalTools {
   constructor(private fhirService: FHIRService) {}
@@ -21,27 +21,33 @@ export class ClinicalTools {
   }> {
     try {
       if (!args.patientId) {
-        throw ErrorHandler.createValidationError('Patient ID is required');
+        throw ErrorHandler.createValidationError("Patient ID is required");
       }
 
       const searchParams: Record<string, string> = {
-        patient: args.patientId
+        patient: args.patientId,
       };
 
       if (args.status) {
-        searchParams['clinical-status'] = args.status;
+        searchParams["clinical-status"] = args.status;
       }
       if (args.category) {
         searchParams.category = args.category;
       }
 
-      const result = await this.fhirService.search('Condition', searchParams, args.limit || 20);
-      const conditions = result.resources.map(condition => FHIRParser.parseCondition(condition));
+      const result = await this.fhirService.search(
+        "Condition",
+        searchParams,
+        args.limit || 20
+      );
+      const conditions = result.resources.map((condition) =>
+        FHIRParser.parseCondition(condition)
+      );
 
       return {
         conditions,
         total: result.total,
-        hasMore: result.hasMore
+        hasMore: result.hasMore,
       };
     } catch (error) {
       throw ErrorHandler.handleUnknownError(error);
@@ -71,27 +77,35 @@ export class ClinicalTools {
   }> {
     try {
       if (!args.patientId) {
-        throw ErrorHandler.createValidationError('Patient ID is required');
+        throw ErrorHandler.createValidationError("Patient ID is required");
       }
 
       const searchParams: Record<string, string> = {
-        patient: args.patientId
+        patient: args.patientId,
       };
 
       if (args.status) {
-        searchParams['clinical-status'] = args.status;
+        searchParams["clinical-status"] = args.status;
       }
-      if (args.category) {
-        searchParams.category = args.category;
-      }
+      // NOTE: Veradigm API returns 403 when 'category' parameter is used for AllergyIntolerance
+      // Skipping category filter as it's not supported by this FHIR server
+      // if (args.category) {
+      //   searchParams.category = args.category;
+      // }
 
-      const result = await this.fhirService.search('AllergyIntolerance', searchParams, args.limit || 20);
-      const allergies = result.resources.map(allergy => FHIRParser.parseAllergy(allergy));
+      const result = await this.fhirService.search(
+        "AllergyIntolerance",
+        searchParams,
+        args.limit || 20
+      );
+      const allergies = result.resources.map((allergy) =>
+        FHIRParser.parseAllergy(allergy)
+      );
 
       return {
         allergies,
         total: result.total,
-        hasMore: result.hasMore
+        hasMore: result.hasMore,
       };
     } catch (error) {
       throw ErrorHandler.handleUnknownError(error);
@@ -125,11 +139,11 @@ export class ClinicalTools {
   }> {
     try {
       if (!args.patientId) {
-        throw ErrorHandler.createValidationError('Patient ID is required');
+        throw ErrorHandler.createValidationError("Patient ID is required");
       }
 
-      const searchParams: Record<string, string> = {
-        patient: args.patientId
+      const searchParams: Record<string, string | string[]> = {
+        patient: args.patientId,
       };
 
       if (args.category) {
@@ -138,38 +152,45 @@ export class ClinicalTools {
       if (args.code) {
         searchParams.code = args.code;
       }
-      if (args.dateFrom) {
+      if (args.dateFrom && args.dateTo) {
+        searchParams.date = [`ge${args.dateFrom}`, `le${args.dateTo}`];
+      } else if (args.dateFrom) {
         searchParams.date = `ge${args.dateFrom}`;
-      }
-      if (args.dateTo) {
-        searchParams.date = searchParams.date ? `${searchParams.date}&le${args.dateTo}` : `le${args.dateTo}`;
+      } else if (args.dateTo) {
+        searchParams.date = `le${args.dateTo}`;
       }
 
-      const result = await this.fhirService.search('Observation', searchParams, args.limit || 20);
-      
-      const observations = result.resources.map(observation => {
+      const result = await this.fhirService.search(
+        "Observation",
+        searchParams,
+        args.limit || 20
+      );
+
+      const observations = result.resources.map((observation) => {
         const code = observation.code?.coding?.[0];
         const valueQuantity = observation.valueQuantity;
         const valueString = observation.valueString;
-        const value = valueQuantity ? `${valueQuantity.value} ${valueQuantity.unit || ''}`.trim() : valueString;
+        const value = valueQuantity
+          ? `${valueQuantity.value} ${valueQuantity.unit || ""}`.trim()
+          : valueString;
 
         return {
           id: observation.id,
-          patientId: observation.subject?.reference?.split('/')[1] || '',
-          code: code?.code || '',
-          display: code?.display || '',
+          patientId: observation.subject?.reference?.split("/")[1] || "",
+          code: code?.code || "",
+          display: code?.display || "",
           value,
           unit: valueQuantity?.unit,
           status: observation.status,
           effectiveDateTime: observation.effectiveDateTime,
-          category: observation.category?.[0]?.coding?.[0]?.display
+          category: observation.category?.[0]?.coding?.[0]?.display,
         };
       });
 
       return {
         observations,
         total: result.total,
-        hasMore: result.hasMore
+        hasMore: result.hasMore,
       };
     } catch (error) {
       throw ErrorHandler.handleUnknownError(error);
@@ -206,11 +227,11 @@ export class ClinicalTools {
   }> {
     try {
       if (!args.patientId) {
-        throw ErrorHandler.createValidationError('Patient ID is required');
+        throw ErrorHandler.createValidationError("Patient ID is required");
       }
 
-      const searchParams: Record<string, string> = {
-        patient: args.patientId
+      const searchParams: Record<string, string | string[]> = {
+        patient: args.patientId,
       };
 
       if (args.status) {
@@ -219,39 +240,44 @@ export class ClinicalTools {
       if (args.category) {
         searchParams.category = args.category;
       }
-      if (args.dateFrom) {
+      if (args.dateFrom && args.dateTo) {
+        searchParams.date = [`ge${args.dateFrom}`, `le${args.dateTo}`];
+      } else if (args.dateFrom) {
         searchParams.date = `ge${args.dateFrom}`;
-      }
-      if (args.dateTo) {
-        searchParams.date = searchParams.date ? `${searchParams.date}&le${args.dateTo}` : `le${args.dateTo}`;
+      } else if (args.dateTo) {
+        searchParams.date = `le${args.dateTo}`;
       }
 
-      const result = await this.fhirService.search('Procedure', searchParams, args.limit || 20);
-      
-      const procedures = result.resources.map(procedure => {
+      const result = await this.fhirService.search(
+        "Procedure",
+        searchParams,
+        args.limit || 20
+      );
+
+      const procedures = result.resources.map((procedure) => {
         const code = procedure.code?.coding?.[0];
         const reason = procedure.reasonCode?.[0]?.coding?.[0]?.display;
 
         return {
           id: procedure.id,
-          patientId: procedure.subject?.reference?.split('/')[1] || '',
-          code: code?.code || '',
-          display: code?.display || '',
+          patientId: procedure.subject?.reference?.split("/")[1] || "",
+          code: code?.code || "",
+          display: code?.display || "",
           status: procedure.status,
           performedDateTime: procedure.performedDateTime,
           performedPeriod: {
             start: procedure.performedPeriod?.start,
-            end: procedure.performedPeriod?.end
+            end: procedure.performedPeriod?.end,
           },
           category: procedure.category?.coding?.[0]?.display,
-          reason
+          reason,
         };
       });
 
       return {
         procedures,
         total: result.total,
-        hasMore: result.hasMore
+        hasMore: result.hasMore,
       };
     } catch (error) {
       throw ErrorHandler.handleUnknownError(error);
@@ -283,36 +309,40 @@ export class ClinicalTools {
   }> {
     try {
       if (!args.patientId) {
-        throw ErrorHandler.createValidationError('Patient ID is required');
+        throw ErrorHandler.createValidationError("Patient ID is required");
       }
 
       const searchParams: Record<string, string> = {
-        beneficiary: args.patientId
+        beneficiary: args.patientId,
       };
 
       if (args.status) {
         searchParams.status = args.status;
       }
 
-      const result = await this.fhirService.search('Coverage', searchParams, args.limit || 10);
-      
-      const coverage = result.resources.map(coverage => ({
+      const result = await this.fhirService.search(
+        "Coverage",
+        searchParams,
+        args.limit || 10
+      );
+
+      const coverage = result.resources.map((coverage) => ({
         id: coverage.id,
-        patientId: coverage.beneficiary?.reference?.split('/')[1] || '',
+        patientId: coverage.beneficiary?.reference?.split("/")[1] || "",
         status: coverage.status,
         type: coverage.type?.coding?.[0]?.display,
         subscriberId: coverage.subscriberId,
         payor: coverage.payor?.[0]?.display,
         period: {
           start: coverage.period?.start,
-          end: coverage.period?.end
-        }
+          end: coverage.period?.end,
+        },
       }));
 
       return {
         coverage,
         total: result.total,
-        hasMore: result.hasMore
+        hasMore: result.hasMore,
       };
     } catch (error) {
       throw ErrorHandler.handleUnknownError(error);
@@ -325,162 +355,181 @@ export class ClinicalTools {
   getTools(): Tool[] {
     return [
       {
-        name: 'get_patient_conditions',
-        description: 'Get patient conditions/diagnoses',
+        name: "get_patient_conditions",
+        description: "Get patient conditions/diagnoses",
         inputSchema: {
-          type: 'object',
+          type: "object",
           properties: {
             patientId: {
-              type: 'string',
-              description: 'FHIR Patient resource ID'
+              type: "string",
+              description: "FHIR Patient resource ID",
             },
             status: {
-              type: 'string',
-              enum: ['active', 'recurrence', 'relapse', 'inactive', 'remission', 'resolved'],
-              description: 'Clinical status to filter by'
+              type: "string",
+              enum: [
+                "active",
+                "recurrence",
+                "relapse",
+                "inactive",
+                "remission",
+                "resolved",
+              ],
+              description: "Clinical status to filter by",
             },
             category: {
-              type: 'string',
-              description: 'Condition category to filter by'
+              type: "string",
+              description: "Condition category to filter by",
             },
             limit: {
-              type: 'number',
-              description: 'Maximum number of results to return (default: 20)',
-              default: 20
-            }
+              type: "number",
+              description: "Maximum number of results to return (default: 20)",
+              default: 20,
+            },
           },
-          required: ['patientId']
-        }
+          required: ["patientId"],
+        },
       },
       {
-        name: 'get_allergies',
-        description: 'Get patient allergies and intolerances',
+        name: "get_allergies",
+        description: "Get patient allergies and intolerances",
         inputSchema: {
-          type: 'object',
+          type: "object",
           properties: {
             patientId: {
-              type: 'string',
-              description: 'FHIR Patient resource ID'
+              type: "string",
+              description: "FHIR Patient resource ID",
             },
             status: {
-              type: 'string',
-              enum: ['active', 'inactive', 'resolved'],
-              description: 'Allergy status to filter by'
+              type: "string",
+              enum: ["active", "inactive", "resolved"],
+              description: "Allergy status to filter by",
             },
             category: {
-              type: 'string',
-              enum: ['food', 'medication', 'environment', 'biologic'],
-              description: 'Allergy category to filter by'
+              type: "string",
+              enum: ["food", "medication", "environment", "biologic"],
+              description: "Allergy category to filter by",
             },
             limit: {
-              type: 'number',
-              description: 'Maximum number of results to return (default: 20)',
-              default: 20
-            }
+              type: "number",
+              description: "Maximum number of results to return (default: 20)",
+              default: 20,
+            },
           },
-          required: ['patientId']
-        }
+          required: ["patientId"],
+        },
       },
       {
-        name: 'get_recent_observations',
-        description: 'Get recent observations (vitals, lab results, etc.) for a patient',
+        name: "get_recent_observations",
+        description:
+          "Get recent observations (vitals, lab results, etc.) for a patient",
         inputSchema: {
-          type: 'object',
+          type: "object",
           properties: {
             patientId: {
-              type: 'string',
-              description: 'FHIR Patient resource ID'
+              type: "string",
+              description: "FHIR Patient resource ID",
             },
             category: {
-              type: 'string',
-              enum: ['vital-signs', 'laboratory', 'imaging', 'survey', 'social-history'],
-              description: 'Observation category to filter by'
+              type: "string",
+              enum: [
+                "vital-signs",
+                "laboratory",
+                "imaging",
+                "survey",
+                "social-history",
+              ],
+              description: "Observation category to filter by",
             },
             code: {
-              type: 'string',
-              description: 'Specific observation code to filter by'
+              type: "string",
+              description: "Specific observation code to filter by",
             },
             dateFrom: {
-              type: 'string',
-              description: 'Start date in YYYY-MM-DD format'
+              type: "string",
+              description: "Start date in YYYY-MM-DD format",
             },
             dateTo: {
-              type: 'string',
-              description: 'End date in YYYY-MM-DD format'
+              type: "string",
+              description: "End date in YYYY-MM-DD format",
             },
             limit: {
-              type: 'number',
-              description: 'Maximum number of results to return (default: 20)',
-              default: 20
-            }
+              type: "number",
+              description: "Maximum number of results to return (default: 20)",
+              default: 20,
+            },
           },
-          required: ['patientId']
-        }
+          required: ["patientId"],
+        },
       },
       {
-        name: 'get_patient_procedures',
-        description: 'Get patient procedures',
+        name: "get_patient_procedures",
+        description: "Get patient procedures",
         inputSchema: {
-          type: 'object',
+          type: "object",
           properties: {
             patientId: {
-              type: 'string',
-              description: 'FHIR Patient resource ID'
+              type: "string",
+              description: "FHIR Patient resource ID",
             },
             status: {
-              type: 'string',
-              enum: ['preparation', 'in-progress', 'not-done', 'on-hold', 'stopped', 'completed', 'entered-in-error', 'unknown'],
-              description: 'Procedure status to filter by'
+              type: "string",
+              enum: [
+                "preparation",
+                "in-progress",
+                "not-done",
+                "on-hold",
+                "stopped",
+                "completed",
+                "entered-in-error",
+                "unknown",
+              ],
+              description: "Procedure status to filter by",
             },
             category: {
-              type: 'string',
-              description: 'Procedure category to filter by'
+              type: "string",
+              description: "Procedure category to filter by",
             },
             dateFrom: {
-              type: 'string',
-              description: 'Start date in YYYY-MM-DD format'
+              type: "string",
+              description: "Start date in YYYY-MM-DD format",
             },
             dateTo: {
-              type: 'string',
-              description: 'End date in YYYY-MM-DD format'
+              type: "string",
+              description: "End date in YYYY-MM-DD format",
             },
             limit: {
-              type: 'number',
-              description: 'Maximum number of results to return (default: 20)',
-              default: 20
-            }
+              type: "number",
+              description: "Maximum number of results to return (default: 20)",
+              default: 20,
+            },
           },
-          required: ['patientId']
-        }
+          required: ["patientId"],
+        },
       },
       {
-        name: 'get_patient_coverage',
-        description: 'Get patient insurance coverage information',
+        name: "get_patient_coverage",
+        description: "Get patient insurance coverage information",
         inputSchema: {
-          type: 'object',
+          type: "object",
           properties: {
             patientId: {
-              type: 'string',
-              description: 'FHIR Patient resource ID'
+              type: "string",
+              description: "FHIR Patient resource ID",
             },
             status: {
-              type: 'string',
-              enum: ['active', 'cancelled', 'draft', 'entered-in-error'],
-              description: 'Coverage status to filter by'
+              type: "string",
+              enum: ["active", "cancelled", "draft", "entered-in-error"],
+              description: "Coverage status to filter by",
             },
             limit: {
-              type: 'number',
-              description: 'Maximum number of results to return (default: 10)',
-              default: 10
-            }
+              type: "number",
+              description: "Maximum number of results to return (default: 10)",
+              default: 10,
+            },
           },
-          required: ['patientId']
-        }
-      }
+          required: ["patientId"],
+        },
+      },
     ];
   }
 }
-
-
-
-

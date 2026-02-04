@@ -1,0 +1,267 @@
+{
+  "info": {
+    "name": "Unity MCP - All 13 Tools",
+    "description": "Postman collection for all Unity EHR + PM MCP tools. Use with localhost (http://localhost:3001) or tunnel URL. Set 'base_url' in environment.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "version": "1.0.0"
+  },
+  "variable": [
+    { "key": "base_url", "value": "http://localhost:3001", "type": "string" },
+    { "key": "patient_id", "value": "1556", "type": "string" },
+    { "key": "mrn", "value": "29700", "type": "string" },
+    { "key": "appointment_id", "value": "", "type": "string" }
+  ],
+  "item": [
+    {
+      "name": "0. Health & Info",
+      "item": [
+        {
+          "name": "Health Check",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/health",
+            "description": "Check if Unity MCP server is running."
+          }
+        },
+        {
+          "name": "List Tools",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/tools",
+            "description": "List all 13 MCP tools."
+          }
+        },
+        {
+          "name": "MCP Initialize",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"method\": \"initialize\",\n  \"id\": 1\n}"
+            },
+            "url": "{{base_url}}/",
+            "description": "MCP protocol initialize."
+          }
+        },
+        {
+          "name": "MCP tools/list",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"method\": \"tools/list\",\n  \"id\": 2\n}"
+            },
+            "url": "{{base_url}}/",
+            "description": "List tools via MCP."
+          }
+        },
+        {
+          "name": "Test Auth",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/test/auth",
+            "description": "Test Unity EHR/PM authentication."
+          }
+        },
+        {
+          "name": "Test Server Info",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/test/serverinfo",
+            "description": "Get Unity server info."
+          }
+        }
+      ]
+    },
+    {
+      "name": "1. Patient (5 tools)",
+      "item": [
+        {
+          "name": "unity_search_patients",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"method\": \"tools/call\",\n  \"params\": {\n    \"name\": \"unity_search_patients\",\n    \"arguments\": {\n      \"firstName\": \"Ed\",\n      \"lastName\": \"Smith\",\n      \"dateOfBirth\": \"12/06/1952\",\n      \"limit\": 10\n    }\n  },\n  \"id\": 1\n}"
+            },
+            "url": "{{base_url}}/",
+            "description": "Search patients by name/DOB/MRN. Use MM/DD/YYYY for dateOfBirth."
+          }
+        },
+        {
+          "name": "unity_get_patient",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"method\": \"tools/call\",\n  \"params\": {\n    \"name\": \"unity_get_patient\",\n    \"arguments\": {\n      \"patientId\": \"{{patient_id}}\",\n      \"includePicture\": false\n    }\n  },\n  \"id\": 2\n}"
+            },
+            "url": "{{base_url}}/",
+            "description": "Get patient details by patientId."
+          }
+        },
+        {
+          "name": "unity_get_patient_by_mrn",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"method\": \"tools/call\",\n  \"params\": {\n    \"name\": \"unity_get_patient_by_mrn\",\n    \"arguments\": {\n      \"mrn\": \"{{mrn}}\"\n    }\n  },\n  \"id\": 3\n}"
+            },
+            "url": "{{base_url}}/",
+            "description": "Get patient by Medical Record Number."
+          }
+        },
+        {
+          "name": "unity_save_patient",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"method\": \"tools/call\",\n  \"params\": {\n    \"name\": \"unity_save_patient\",\n    \"arguments\": {\n      \"firstName\": \"Alex\",\n      \"lastName\": \"Testpatient\",\n      \"dateOfBirth\": \"05/15/1990\",\n      \"gender\": \"M\",\n      \"address1\": \"123 Test St\",\n      \"city\": \"Raleigh\",\n      \"state\": \"NC\",\n      \"zipCode\": \"27511\",\n      \"homePhone\": \"919-555-0000\"\n    }\n  },\n  \"id\": 4\n}"
+            },
+            "url": "{{base_url}}/",
+            "description": "Create/update patient. Requires firstName, lastName."
+          }
+        },
+        {
+          "name": "unity_update_demographics",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"method\": \"tools/call\",\n  \"params\": {\n    \"name\": \"unity_update_demographics\",\n    \"arguments\": {\n      \"patientId\": \"{{patient_id}}\",\n      \"homePhone\": \"919-555-9999\",\n      \"cellPhone\": \"919-555-8888\"\n    }\n  },\n  \"id\": 5\n}"
+            },
+            "url": "{{base_url}}/",
+            "description": "Update patient demographics. Requires patientId."
+          }
+        }
+      ]
+    },
+    {
+      "name": "2. Appointment (4 tools)",
+      "item": [
+        {
+          "name": "unity_get_open_slots",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"method\": \"tools/call\",\n  \"params\": {\n    \"name\": \"unity_get_open_slots\",\n    \"arguments\": {\n      \"startDate\": \"02/03/2026\",\n      \"endDate\": \"02/07/2026\",\n      \"appointmentType\": \"Office Visit\",\n      \"duration\": 30\n    }\n  },\n  \"id\": 6\n}"
+            },
+            "url": "{{base_url}}/",
+            "description": "Get available slots. startDate/endDate in MM/DD/YYYY."
+          }
+        },
+        {
+          "name": "unity_get_patient_appointments",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"method\": \"tools/call\",\n  \"params\": {\n    \"name\": \"unity_get_patient_appointments\",\n    \"arguments\": {\n      \"patientId\": \"{{patient_id}}\"\n    }\n  },\n  \"id\": 7\n}"
+            },
+            "url": "{{base_url}}/",
+            "description": "Get appointments for a patient."
+          }
+        },
+        {
+          "name": "unity_save_appointment",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"method\": \"tools/call\",\n  \"params\": {\n    \"name\": \"unity_save_appointment\",\n    \"arguments\": {\n      \"patientId\": \"{{patient_id}}\",\n      \"appointmentDate\": \"02/05/2026\",\n      \"appointmentTime\": \"10:00\",\n      \"duration\": 30,\n      \"appointmentType\": \"Office Visit\",\n      \"reasonForVisit\": \"Follow-up\"\n    }\n  },\n  \"id\": 8\n}"
+            },
+            "url": "{{base_url}}/",
+            "description": "Book appointment. patientId, appointmentDate (MM/DD/YYYY), appointmentTime (HH:MM), duration required."
+          }
+        },
+        {
+          "name": "unity_cancel_appointment",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"method\": \"tools/call\",\n  \"params\": {\n    \"name\": \"unity_cancel_appointment\",\n    \"arguments\": {\n      \"appointmentId\": \"{{appointment_id}}\",\n      \"patientId\": \"{{patient_id}}\",\n      \"cancellationReason\": \"Patient requested\"\n    }\n  },\n  \"id\": 9\n}"
+            },
+            "url": "{{base_url}}/",
+            "description": "Cancel appointment. Set appointment_id from save_appointment or get_patient_appointments result."
+          }
+        }
+      ]
+    },
+    {
+      "name": "3. Clinical (4 tools)",
+      "item": [
+        {
+          "name": "unity_get_patient_problems",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"method\": \"tools/call\",\n  \"params\": {\n    \"name\": \"unity_get_patient_problems\",\n    \"arguments\": {\n      \"patientId\": \"{{patient_id}}\",\n      \"status\": \"active\"\n    }\n  },\n  \"id\": 10\n}"
+            },
+            "url": "{{base_url}}/",
+            "description": "Get problems/conditions. status: active | inactive | all."
+          }
+        },
+        {
+          "name": "unity_get_patient_medications",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"method\": \"tools/call\",\n  \"params\": {\n    \"name\": \"unity_get_patient_medications\",\n    \"arguments\": {\n      \"patientId\": \"{{patient_id}}\",\n      \"status\": \"active\"\n    }\n  },\n  \"id\": 11\n}"
+            },
+            "url": "{{base_url}}/",
+            "description": "Get medications. status: active | all."
+          }
+        },
+        {
+          "name": "unity_get_patient_allergies",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"method\": \"tools/call\",\n  \"params\": {\n    \"name\": \"unity_get_patient_allergies\",\n    \"arguments\": {\n      \"patientId\": \"{{patient_id}}\"\n    }\n  },\n  \"id\": 12\n}"
+            },
+            "url": "{{base_url}}/",
+            "description": "Get allergies."
+          }
+        },
+        {
+          "name": "unity_get_patient_diagnosis",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"method\": \"tools/call\",\n  \"params\": {\n    \"name\": \"unity_get_patient_diagnosis\",\n    \"arguments\": {\n      \"patientId\": \"{{patient_id}}\"\n    }\n  },\n  \"id\": 13\n}"
+            },
+            "url": "{{base_url}}/",
+            "description": "Get diagnoses. Optional: encounterId."
+          }
+        }
+      ]
+    }
+  ]
+}

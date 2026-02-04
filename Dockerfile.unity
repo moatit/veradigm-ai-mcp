@@ -1,4 +1,4 @@
-# Multi-stage build for production optimization
+# Multi-stage build for Unity MCP Server
 FROM node:20-alpine AS builder
 
 # Set working directory
@@ -14,7 +14,7 @@ RUN npm ci && npm cache clean --force
 # Copy source code
 COPY src/ ./src/
 
-# Build TypeScript
+# Build TypeScript (Unity server)
 RUN npm run build
 
 # Production stage
@@ -44,11 +44,12 @@ RUN chown -R mcp:nodejs /app
 USER mcp
 
 # Expose port (if needed for health checks)
-EXPOSE 3000
+EXPOSE 3001
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-  CMD node -e "console.log('Health check passed')" || exit 1
+  CMD node -e "console.log('Unity Health check passed')" || exit 1
 
-# Start the HTTP MCP server (for Retell / external calls; stdio server is dist/index.js)
-CMD ["node", "dist/test-server.js"]
+# Start the Unity HTTP MCP server (for external calls)
+CMD ["node", "dist/unity/unity-test-server.js"]
+

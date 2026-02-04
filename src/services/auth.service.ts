@@ -1,6 +1,6 @@
-import axios, { AxiosResponse } from 'axios';
-import NodeCache from 'node-cache';
-import { config } from '../config/environment';
+import axios, { AxiosResponse } from "axios";
+import NodeCache from "node-cache";
+import { config } from "../config/environment";
 
 export interface TokenResponse {
   access_token: string;
@@ -16,12 +16,12 @@ export interface AuthError {
 
 export class AuthService {
   private cache: NodeCache;
-  private readonly CACHE_KEY = 'access_token';
+  private readonly CACHE_KEY = "access_token";
 
   constructor() {
-    this.cache = new NodeCache({ 
+    this.cache = new NodeCache({
       stdTTL: config.tokenCacheTtl,
-      checkperiod: 60 
+      checkperiod: 60,
     });
   }
 
@@ -37,9 +37,13 @@ export class AuthService {
     }
 
     const tokenResponse = await this.requestNewToken();
-    
+
     if (config.cacheEnabled) {
-      this.cache.set(this.CACHE_KEY, tokenResponse.access_token, tokenResponse.expires_in);
+      this.cache.set(
+        this.CACHE_KEY,
+        tokenResponse.access_token,
+        tokenResponse.expires_in
+      );
     }
 
     return tokenResponse.access_token;
@@ -50,27 +54,33 @@ export class AuthService {
    */
   private async requestNewToken(): Promise<TokenResponse> {
     try {
+      // Build params with scope for FHIR read access
+      const params = new URLSearchParams({
+        grant_type: "client_credentials",
+        client_id: config.clientId,
+        client_secret: config.clientSecret,
+        scope: "system/*.read",
+      });
+
       const response: AxiosResponse<TokenResponse> = await axios.post(
         config.tokenUrl,
-        new URLSearchParams({
-          grant_type: 'client_credentials',
-          client_id: config.clientId,
-          client_secret: config.clientSecret,
-          scope: 'system/*.read' // Read-only access for all resources
-        }),
+        params,
         {
           headers: {
-            'Content-Type': 'application/x-www-form-urlencoded',
-            'Accept': 'application/json'
-          }
+            "Content-Type": "application/x-www-form-urlencoded",
+            Accept: "application/json",
+          },
         }
       );
 
       return response.data;
     } catch (error) {
+      console.error("Authentication failed:", error);
       if (axios.isAxiosError(error)) {
         const authError = error.response?.data as AuthError;
-        throw new Error(`Authentication failed: ${authError?.error || error.message}`);
+        throw new Error(
+          `Authentication failed: ${authError?.error || error.message}`
+        );
       }
       throw new Error(`Authentication failed: ${error}`);
     }
@@ -97,8 +107,7 @@ export class AuthService {
     const ttl = this.cache.getTtl(this.CACHE_KEY);
     return {
       cached: this.cache.has(this.CACHE_KEY),
-      ttl: ttl ? Math.floor((ttl - Date.now()) / 1000) : undefined
+      ttl: ttl ? Math.floor((ttl - Date.now()) / 1000) : undefined,
     };
   }
 }
-

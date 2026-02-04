@@ -1,7 +1,7 @@
-import { Tool } from '@modelcontextprotocol/sdk/types.js';
-import { FHIRService } from '../services/fhir.service';
-import { FHIRParser, ParsedPatient } from '../utils/fhir-parser';
-import { ErrorHandler, FHIRMCPError } from '../utils/error-handler';
+import { Tool } from "@modelcontextprotocol/sdk/types.js";
+import { FHIRService } from "../services/fhir.service";
+import { ErrorHandler, FHIRMCPError } from "../utils/error-handler";
+import { FHIRParser, ParsedPatient } from "../utils/fhir-parser";
 
 export class PatientTools {
   constructor(private fhirService: FHIRService) {}
@@ -26,27 +26,47 @@ export class PatientTools {
   }> {
     try {
       const searchParams: Record<string, string> = {};
-      
-      if (args.name) {
-        searchParams.name = args.name;
+
+      // Prioritize MRN if provided (most reliable search - use ONLY MRN, ignore other params)
+      if (args.mrn) {
+        searchParams.identifier = args.mrn;
       } else {
-        if (args.firstName) searchParams.given = args.firstName;
-        if (args.lastName) searchParams.family = args.lastName;
+        // Only use name parameters if MRN is NOT provided
+        // CRITICAL: Use ONLY lastName (family) - combining family + given causes 403 errors
+        // Prioritize lastName (family) over name parameter (works better with Veradigm)
+        if (args.lastName) {
+          // Use ONLY lastName - do NOT combine with firstName to avoid 403 errors
+          searchParams.family = args.lastName;
+          // DO NOT add given/firstName - API rejects family + given combination
+        } else if (args.firstName) {
+          // Only use firstName if no lastName
+          searchParams.given = args.firstName;
+        } else if (args.name) {
+          // Fall back to name parameter only if no better options
+          searchParams.name = args.name;
+        }
       }
-      
+
+      // Additional filters (can be combined with MRN or name searches)
       if (args.birthDate) searchParams.birthdate = args.birthDate;
-      if (args.gender) searchParams.gender = args.gender;
+      if (args.gender && args.gender !== "unknown")
+        searchParams.gender = args.gender;
       if (args.phone) searchParams.telecom = args.phone;
       if (args.email) searchParams.telecom = args.email;
-      if (args.mrn) searchParams.identifier = args.mrn;
 
-      const result = await this.fhirService.search('Patient', searchParams, args.limit || 20);
-      const patients = result.resources.map(patient => FHIRParser.parsePatient(patient));
+      const result = await this.fhirService.search(
+        "Patient",
+        searchParams,
+        args.limit || 20
+      );
+      const patients = result.resources.map((patient) =>
+        FHIRParser.parsePatient(patient)
+      );
 
       return {
         patients,
         total: result.total,
-        hasMore: result.hasMore
+        hasMore: result.hasMore,
       };
     } catch (error) {
       throw ErrorHandler.handleUnknownError(error);
@@ -59,10 +79,13 @@ export class PatientTools {
   async getPatientDetails(args: { patientId: string }): Promise<ParsedPatient> {
     try {
       if (!args.patientId) {
-        throw ErrorHandler.createValidationError('Patient ID is required');
+        throw ErrorHandler.createValidationError("Patient ID is required");
       }
 
-      const patient = await this.fhirService.getResource('Patient', args.patientId);
+      const patient = await this.fhirService.getResource(
+        "Patient",
+        args.patientId
+      );
       return FHIRParser.parsePatient(patient);
     } catch (error) {
       if (error instanceof FHIRMCPError) {
@@ -89,8 +112,17 @@ export class PatientTools {
     suggestions?: ParsedPatient[];
   }> {
     try {
-      if (!args.firstName && !args.lastName && !args.birthDate && !args.phone && !args.email && !args.mrn) {
-        throw ErrorHandler.createValidationError('At least one search criterion is required');
+      if (
+        !args.firstName &&
+        !args.lastName &&
+        !args.birthDate &&
+        !args.phone &&
+        !args.email &&
+        !args.mrn
+      ) {
+        throw ErrorHandler.createValidationError(
+          "At least one search criterion is required"
+        );
       }
 
       // Search for potential matches
@@ -101,13 +133,13 @@ export class PatientTools {
         phone: args.phone,
         email: args.email,
         mrn: args.mrn,
-        limit: 10
+        limit: 10,
       });
 
       if (searchResult.patients.length === 0) {
         return {
           verified: false,
-          suggestions: []
+          suggestions: [],
         };
       }
 
@@ -119,7 +151,7 @@ export class PatientTools {
         verified: matchScore >= 0.8, // 80% match threshold
         patient: bestMatch,
         matchScore,
-        suggestions: searchResult.patients.slice(1, 5) // Top 4 additional suggestions
+        suggestions: searchResult.patients.slice(1, 5), // Top 4 additional suggestions
       };
     } catch (error) {
       throw ErrorHandler.handleUnknownError(error);
@@ -129,23 +161,32 @@ export class PatientTools {
   /**
    * Calculate match score between patient and search criteria
    */
-  private calculateMatchScore(patient: ParsedPatient, criteria: {
-    firstName?: string;
-    lastName?: string;
-    birthDate?: string;
-    phone?: string;
-    email?: string;
-    mrn?: string;
-  }): number {
+  private calculateMatchScore(
+    patient: ParsedPatient,
+    criteria: {
+      firstName?: string;
+      lastName?: string;
+      birthDate?: string;
+      phone?: string;
+      email?: string;
+      mrn?: string;
+    }
+  ): number {
     let score = 0;
     let totalChecks = 0;
 
     // Name matching
     if (criteria.firstName && patient.firstName) {
       totalChecks++;
-      if (patient.firstName.toLowerCase() === criteria.firstName.toLowerCase()) {
+      if (
+        patient.firstName.toLowerCase() === criteria.firstName.toLowerCase()
+      ) {
         score += 1;
-      } else if (patient.firstName.toLowerCase().includes(criteria.firstName.toLowerCase())) {
+      } else if (
+        patient.firstName
+          .toLowerCase()
+          .includes(criteria.firstName.toLowerCase())
+      ) {
         score += 0.8;
       }
     }
@@ -154,7 +195,9 @@ export class PatientTools {
       totalChecks++;
       if (patient.lastName.toLowerCase() === criteria.lastName.toLowerCase()) {
         score += 1;
-      } else if (patient.lastName.toLowerCase().includes(criteria.lastName.toLowerCase())) {
+      } else if (
+        patient.lastName.toLowerCase().includes(criteria.lastName.toLowerCase())
+      ) {
         score += 0.8;
       }
     }
@@ -170,8 +213,8 @@ export class PatientTools {
     // Phone matching
     if (criteria.phone && patient.phone) {
       totalChecks++;
-      const normalizedCriteriaPhone = criteria.phone.replace(/\D/g, '');
-      const normalizedPatientPhone = patient.phone.replace(/\D/g, '');
+      const normalizedCriteriaPhone = criteria.phone.replace(/\D/g, "");
+      const normalizedPatientPhone = patient.phone.replace(/\D/g, "");
       if (normalizedPatientPhone === normalizedCriteriaPhone) {
         score += 1;
       }
@@ -202,103 +245,101 @@ export class PatientTools {
   getTools(): Tool[] {
     return [
       {
-        name: 'search_patient',
-        description: 'Search for patients by name, birth date, phone, email, or MRN',
+        name: "search_patient",
+        description:
+          "Search for patients by name, birth date, phone, email, or MRN",
         inputSchema: {
-          type: 'object',
+          type: "object",
           properties: {
             name: {
-              type: 'string',
-              description: 'Full name to search for'
+              type: "string",
+              description: "Full name to search for",
             },
             firstName: {
-              type: 'string',
-              description: 'First name to search for'
+              type: "string",
+              description: "First name to search for",
             },
             lastName: {
-              type: 'string',
-              description: 'Last name to search for'
+              type: "string",
+              description: "Last name to search for",
             },
             birthDate: {
-              type: 'string',
-              description: 'Birth date in YYYY-MM-DD format'
+              type: "string",
+              description: "Birth date in YYYY-MM-DD format",
             },
             gender: {
-              type: 'string',
-              enum: ['male', 'female', 'other', 'unknown'],
-              description: 'Gender to filter by'
+              type: "string",
+              enum: ["male", "female", "other", "unknown"],
+              description: "Gender to filter by",
             },
             phone: {
-              type: 'string',
-              description: 'Phone number to search for'
+              type: "string",
+              description: "Phone number to search for",
             },
             email: {
-              type: 'string',
-              description: 'Email address to search for'
+              type: "string",
+              description: "Email address to search for",
             },
             mrn: {
-              type: 'string',
-              description: 'Medical Record Number to search for'
+              type: "string",
+              description: "Medical Record Number to search for",
             },
             limit: {
-              type: 'number',
-              description: 'Maximum number of results to return (default: 20)',
-              default: 20
-            }
-          }
-        }
+              type: "number",
+              description: "Maximum number of results to return (default: 20)",
+              default: 20,
+            },
+          },
+        },
       },
       {
-        name: 'get_patient_details',
-        description: 'Get detailed information for a specific patient by ID',
+        name: "get_patient_details",
+        description: "Get detailed information for a specific patient by ID",
         inputSchema: {
-          type: 'object',
+          type: "object",
           properties: {
             patientId: {
-              type: 'string',
-              description: 'FHIR Patient resource ID'
-            }
+              type: "string",
+              description: "FHIR Patient resource ID",
+            },
           },
-          required: ['patientId']
-        }
+          required: ["patientId"],
+        },
       },
       {
-        name: 'verify_patient_identity',
-        description: 'Verify patient identity by matching provided information against patient records',
+        name: "verify_patient_identity",
+        description:
+          "Verify patient identity by matching provided information against patient records",
         inputSchema: {
-          type: 'object',
+          type: "object",
           properties: {
             firstName: {
-              type: 'string',
-              description: 'Patient first name'
+              type: "string",
+              description: "Patient first name",
             },
             lastName: {
-              type: 'string',
-              description: 'Patient last name'
+              type: "string",
+              description: "Patient last name",
             },
             birthDate: {
-              type: 'string',
-              description: 'Patient birth date in YYYY-MM-DD format'
+              type: "string",
+              description: "Patient birth date in YYYY-MM-DD format",
             },
             phone: {
-              type: 'string',
-              description: 'Patient phone number'
+              type: "string",
+              description: "Patient phone number",
             },
             email: {
-              type: 'string',
-              description: 'Patient email address'
+              type: "string",
+              description: "Patient email address",
             },
             mrn: {
-              type: 'string',
-              description: 'Patient Medical Record Number'
-            }
-          }
-        }
-      }
+              type: "string",
+              description: "Patient Medical Record Number",
+            },
+          },
+        },
+      },
     ];
   }
 }
-
-
-
-
