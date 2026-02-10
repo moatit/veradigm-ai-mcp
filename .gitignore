@@ -50,10 +50,27 @@ pids/
 # Coverage directory used by tools like istanbul
 coverage/
 
-# Docker
-.dockerignore
+# Docker (keep .dockerignore in version control)
 
 # Temporary files
 tmp/
 temp/
 
+# Terraform (infra/)
+infra/terraform/.terraform/
+infra/terraform/*.tfstate
+infra/terraform/*.tfstate.*
+infra/terraform/*.tfplan
+infra/terraform/tfplan
+infra/terraform/crash.log
+infra/terraform/override.tf
+infra/terraform/override.tf.json
+infra/terraform/*_override.tf
+infra/terraform/*_override.tf.json
+infra/terraform/.terraformrc
+infra/terraform/terraform.rc
+infra/terraform/terraform.tfvars
+
+# Infra environment files with real secrets
+infra/.env.prod
+infra/.env

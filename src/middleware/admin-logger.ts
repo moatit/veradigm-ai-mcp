@@ -74,9 +74,15 @@ export class AdminLogger {
           timeout: 5000, // 5 second timeout to not block main process
         }
       )
-    } catch (error) {
+    } catch (error: any) {
       // Don't fail the main process if logging fails
-      console.error('[AdminLogger] Failed to send log:', error)
+      const status = error?.response?.status
+      const msg = error?.response?.data?.error || error?.message
+      if (status === 401) {
+        console.error('[AdminLogger] Log rejected (401 Invalid API key). Ensure ADMIN_API_KEY in .env matches an active Client API key in the admin panel.')
+      } else {
+        console.error('[AdminLogger] Failed to send log:', msg || error)
+      }
     }
   }
 

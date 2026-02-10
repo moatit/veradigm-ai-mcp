@@ -10,8 +10,9 @@
 import cors from "cors";
 import express, { NextFunction, Request, Response } from "express";
 // Load env first so adminLogger gets ADMIN_PORTAL_URL and ADMIN_API_KEY
-import { unityConfig } from "./config/environment";
 import { adminLogger } from "../middleware/admin-logger";
+import { toVoiceSummary } from "../utils/response-formatter";
+import { unityConfig } from "./config/environment";
 import { UnityAuthService } from "./services/unity-auth.service";
 import { UnityService } from "./services/unity.service";
 import { UnityAppointmentTools } from "./tools/appointment.tools";
@@ -174,14 +175,23 @@ app.post("/", async (req: Request, res: Response): Promise<void> => {
               metadata: { server: "unity" },
             },
             channel,
-            apiKey
+            apiKey,
           );
+
+          // Voice/Retell: use short speakable summary so AI can respond in one go
+          const wantBrief =
+            (req.headers["x-response-format"] as string) === "brief" ||
+            (req.headers["x-voice-response"] as string) === "true" ||
+            channel === "RETELL";
+          const responseText = wantBrief
+            ? toVoiceSummary(name, toolResult)
+            : JSON.stringify(toolResult, null, 2);
 
           result = {
             content: [
               {
                 type: "text",
-                text: JSON.stringify(toolResult, null, 2),
+                text: responseText,
               },
             ],
           };
@@ -197,7 +207,7 @@ app.post("/", async (req: Request, res: Response): Promise<void> => {
               metadata: { server: "unity" },
             },
             channel,
-            apiKey
+            apiKey,
           );
           throw toolError;
         }

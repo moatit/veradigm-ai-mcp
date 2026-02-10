@@ -49,7 +49,7 @@ function getUnityEnvironmentConfig(): UnityEnvironmentConfig {
   for (const varName of requiredVars) {
     if (!process.env[varName]) {
       throw new Error(
-        `${varName} environment variable is required for Unity API`,
+        `${varName} environment variable is required for Unity API`
       );
     }
   }
@@ -79,7 +79,7 @@ function getUnityEnvironmentConfig(): UnityEnvironmentConfig {
     // Unity tokens expire after 20 minutes of inactivity
     tokenCacheTtl: parseInt(process.env.UNITY_TOKEN_CACHE_TTL || "1140"), // 19 minutes
     tokenRefreshBuffer: parseInt(
-      process.env.UNITY_TOKEN_REFRESH_BUFFER || "60",
+      process.env.UNITY_TOKEN_REFRESH_BUFFER || "60"
     ), // 1 minute before expiry
 
     // Server Configuration

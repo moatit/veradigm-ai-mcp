@@ -1,17 +1,15 @@
 # =============================================================================
-# Veradigm — Local Development Docker Compose
+# Veradigm Production Docker Compose
 # =============================================================================
 # Usage:
-#   docker compose up -d              (starts all: postgres, fhir, unity, admin)
-#   docker compose up -d fhir-mcp     (start only fhir + its dependencies)
-#   docker compose down               (stop all)
-#
-#   Production: use /opt/veradigm/docker-compose.prod.yml on EC2 instead.
+#   1. Set AWS_ACCOUNT_ID and AWS_REGION in .env.prod (or export them)
+#   2. Run: ./scripts/fetch-secrets.sh        (pulls secrets from SSM -> .env.prod)
+#   3. Run: docker compose -f docker-compose.prod.yml up -d
 # =============================================================================
 
 services:
   # ---------------------------------------------------------------------------
-  # PostgreSQL Database (for Admin Portal)
+  # PostgreSQL Database
   # ---------------------------------------------------------------------------
   postgres:
     image: postgres:15-alpine
@@ -35,37 +33,23 @@ services:
       start_period: 10s
 
   # ---------------------------------------------------------------------------
-  # FHIR MCP Server - Read Operations (Port 3000)
+  # FHIR MCP Server (Read Operations) - Port 3000
   # ---------------------------------------------------------------------------
   fhir-mcp:
-    build:
-      context: .
-      dockerfile: Dockerfile
-      target: production
-    image: veradigm-fhir-mcp:local
+    image: ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/veradigm-fhir-mcp:${IMAGE_TAG:-latest}
     container_name: veradigm-fhir-mcp-server
     ports:
-      - "${MCP_SERVER_PORT:-3000}:3000"
+      - "3000:3000"
+    env_file:
+      - .env.prod
     environment:
       - NODE_ENV=${NODE_ENV:-sandbox}
-      - CLIENT_ID=${CLIENT_ID}
-      - CLIENT_SECRET=${CLIENT_SECRET}
-      - FHIR_BASE_URL_SANDBOX=${FHIR_BASE_URL_SANDBOX}
-      - FHIR_BASE_URL_PRODUCTION=${FHIR_BASE_URL_PRODUCTION}
-      - AUTH_URL_SANDBOX=${AUTH_URL_SANDBOX}
-      - TOKEN_URL_SANDBOX=${TOKEN_URL_SANDBOX}
-      - AUTH_URL_PRODUCTION=${AUTH_URL_PRODUCTION}
-      - TOKEN_URL_PRODUCTION=${TOKEN_URL_PRODUCTION}
-      - MCP_SERVER_PORT=${MCP_SERVER_PORT:-3000}
+      - MCP_SERVER_PORT=3000
       - MCP_SERVER_HOST=0.0.0.0
-      - TOKEN_CACHE_TTL=${TOKEN_CACHE_TTL:-3600}
-      - CACHE_ENABLED=${CACHE_ENABLED:-true}
-      - LOG_LEVEL=${LOG_LEVEL:-info}
       - ADMIN_PORTAL_URL=http://admin-portal:5001
-      - ADMIN_API_KEY=${ADMIN_API_KEY}
       - MCP_CHANNEL=${MCP_CHANNEL:-API}
     volumes:
-      - ./logs:/app/logs
+      - fhir-logs:/app/logs
     restart: unless-stopped
     networks:
       - mcp-network
@@ -77,71 +61,51 @@ services:
       start_period: 40s
 
   # ---------------------------------------------------------------------------
-  # Unity MCP Server - Write Operations (Port 3001)
+  # Unity MCP Server (Write Operations) - Port 3001
   # ---------------------------------------------------------------------------
   unity-mcp:
-    build:
-      context: .
-      dockerfile: Dockerfile.unity
-      target: production
-    image: veradigm-unity-mcp:local
+    image: ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/veradigm-unity-mcp:${IMAGE_TAG:-latest}
     container_name: veradigm-unity-mcp-server
     ports:
-      - "${UNITY_MCP_SERVER_PORT:-3001}:3001"
+      - "3001:3001"
+    env_file:
+      - .env.prod
     environment:
       - NODE_ENV=${NODE_ENV:-sandbox}
-      - UNITY_APP_NAME=${UNITY_APP_NAME}
-      - UNITY_SVC_USERNAME=${UNITY_SVC_USERNAME}
-      - UNITY_SVC_PASSWORD=${UNITY_SVC_PASSWORD}
-      - UNITY_EHR_USERNAME=${UNITY_EHR_USERNAME}
-      - UNITY_EHR_PASSWORD=${UNITY_EHR_PASSWORD}
-      - UNITY_UBIQUITY_ENDPOINT=${UNITY_UBIQUITY_ENDPOINT:-https://ubiquityunity.azurewebsites.net/UnityService.svc}
-      - UNITY_UBIQUITY_ID_PM=${UNITY_UBIQUITY_ID_PM:-VHCP001PM:PMGA02^8^}
-      - UNITY_UBIQUITY_ID_EHR=${UNITY_UBIQUITY_ID_EHR:-AHMCP00101:CP00101^1^}
-      - UNITY_TOKEN_CACHE_TTL=${UNITY_TOKEN_CACHE_TTL:-1140}
-      - UNITY_TOKEN_REFRESH_BUFFER=${UNITY_TOKEN_REFRESH_BUFFER:-60}
-      - UNITY_MCP_SERVER_PORT=${UNITY_MCP_SERVER_PORT:-3001}
+      - UNITY_MCP_SERVER_PORT=3001
       - UNITY_MCP_SERVER_HOST=0.0.0.0
       - ADMIN_PORTAL_URL=http://admin-portal:5001
-      - ADMIN_API_KEY=${ADMIN_API_KEY}
       - MCP_CHANNEL=${MCP_CHANNEL:-API}
-      - LOG_LEVEL=${LOG_LEVEL:-info}
     volumes:
-      - ./logs:/app/logs
+      - unity-logs:/app/logs
     restart: unless-stopped
     networks:
       - mcp-network
+    depends_on:
+      fhir-mcp:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "node", "-e", "console.log('Unity Health check passed')"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 40s
-    depends_on:
-      fhir-mcp:
-        condition: service_healthy
 
   # ---------------------------------------------------------------------------
   # Admin Portal (Next.js) - Port 5001
   # ---------------------------------------------------------------------------
   admin-portal:
-    build:
-      context: ../veradigmai
-      dockerfile: Dockerfile
-    image: veradigm-admin-portal:local
+    image: ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/veradigm-admin-portal:${IMAGE_TAG:-latest}
     container_name: veradigm-admin-portal
     ports:
       - "5001:5001"
+    env_file:
+      - .env.prod
     environment:
       - NODE_ENV=production
       - PORT=5001
       - HOSTNAME=0.0.0.0
       - DATABASE_URL=postgres://postgres:${DB_PASSWORD:-veradigm2026}@postgres:5432/veradigm_admin
-      - NEXTAUTH_URL=http://localhost:5001
-      - NEXTAUTH_SECRET=${NEXTAUTH_SECRET:-dev-secret-change-in-production}
-      - ADMIN_EMAIL=${ADMIN_EMAIL:-admin@veradigm.com}
-      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-admin123}
-      - ADMIN_API_KEY=${ADMIN_API_KEY}
       - FHIR_MCP_CONTAINER_NAME=veradigm-fhir-mcp-server
       - UNITY_MCP_CONTAINER_NAME=veradigm-unity-mcp-server
     volumes:
@@ -165,6 +129,8 @@ services:
 
 volumes:
   pgdata:
+  fhir-logs:
+  unity-logs:
 
 networks:
   mcp-network:
