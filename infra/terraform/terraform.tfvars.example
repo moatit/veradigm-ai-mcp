@@ -1,18 +1,4 @@
-# =============================================================================
-# Example Terraform Variables
-# Copy to terraform.tfvars and fill in your values
-# =============================================================================
-
-aws_region  = "us-east-1"
-environment = "sandbox"
-
-# GitHub OIDC
-github_org  = "your-github-username-or-org"
-github_repos = ["veradigm-ai-mcp", "veradigmai"]
-
-# Optional: SSH key pair (leave empty to use SSM Session Manager only)
-# ec2_key_pair_name = "my-key-pair"
-
-# Optional: Custom domain + SSL
-# domain_name     = "mcp.example.com"
-# certificate_arn = "arn:aws:acm:us-east-1:123456789012:certificate/abc-123"
+# Copy to terraform.tfvars and adjust values
+aws_region        = "us-east-1"
+environment       = "sandbox"
+ec2_instance_type = "t3.small"

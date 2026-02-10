@@ -98,9 +98,9 @@ jobs:
               "aws ecr get-login-password --region ${{ env.AWS_REGION }} | docker login --username AWS --password-stdin ${{ env.ECR_REGISTRY }}",
               "/opt/veradigm/fetch-secrets.sh",
               "docker compose -f docker-compose.prod.yml pull fhir-mcp unity-mcp",
-              "docker compose -f docker-compose.prod.yml up -d fhir-mcp unity-mcp"
+              "docker compose -f docker-compose.prod.yml up -d --no-deps fhir-mcp unity-mcp"
             ]' \
-            --timeout-seconds 300 \
+            --timeout-seconds 600 \
             --query "Command.CommandId" \
             --output text)
 
