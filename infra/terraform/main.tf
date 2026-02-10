@@ -1,5 +1,5 @@
 # =============================================================================
-# Terraform Configuration & Provider
+# Terraform Configuration — Simple EC2 + ECR Setup
 # =============================================================================
 
 terraform {
@@ -11,15 +11,6 @@ terraform {
       version = "~> 5.0"
     }
   }
-
-  # Uncomment to use S3 backend for remote state
-  # backend "s3" {
-  #   bucket         = "veradigm-terraform-state"
-  #   key            = "prod/terraform.tfstate"
-  #   region         = "us-east-1"
-  #   dynamodb_table = "terraform-locks"
-  #   encrypt        = true
-  # }
 }
 
 provider "aws" {
@@ -27,7 +18,7 @@ provider "aws" {
 
   default_tags {
     tags = {
-      Project     = var.project_name
+      Project     = "veradigm"
       Environment = var.environment
       ManagedBy   = "terraform"
     }
@@ -38,11 +29,19 @@ provider "aws" {
 # Data Sources
 # =============================================================================
 
-data "aws_availability_zones" "available" {
-  state = "available"
+data "aws_caller_identity" "current" {}
+
+# Use the default VPC (every AWS account has one)
+data "aws_vpc" "default" {
+  default = true
 }
 
-data "aws_caller_identity" "current" {}
+data "aws_subnets" "default" {
+  filter {
+    name   = "vpc-id"
+    values = [data.aws_vpc.default.id]
+  }
+}
 
 # Latest Amazon Linux 2023 AMI
 data "aws_ami" "amazon_linux" {
@@ -58,51 +57,4 @@ data "aws_ami" "amazon_linux" {
     name   = "virtualization-type"
     values = ["hvm"]
   }
-}
-
-# =============================================================================
-# VPC & Networking
-# =============================================================================
-
-resource "aws_vpc" "main" {
-  cidr_block           = var.vpc_cidr
-  enable_dns_support   = true
-  enable_dns_hostnames = true
-
-  tags = { Name = "${var.project_name}-vpc" }
-}
-
-# --- Internet Gateway ---
-resource "aws_internet_gateway" "main" {
-  vpc_id = aws_vpc.main.id
-  tags   = { Name = "${var.project_name}-igw" }
-}
-
-# --- Public Subnets (2 AZs for ALB requirement) ---
-resource "aws_subnet" "public" {
-  count                   = 2
-  vpc_id                  = aws_vpc.main.id
-  cidr_block              = cidrsubnet(var.vpc_cidr, 8, count.index + 1)
-  availability_zone       = data.aws_availability_zones.available.names[count.index]
-  map_public_ip_on_launch = true
-
-  tags = { Name = "${var.project_name}-public-${count.index + 1}" }
-}
-
-# --- Route Table (public) ---
-resource "aws_route_table" "public" {
-  vpc_id = aws_vpc.main.id
-  tags   = { Name = "${var.project_name}-public-rt" }
-}
-
-resource "aws_route" "public_internet" {
-  route_table_id         = aws_route_table.public.id
-  destination_cidr_block = "0.0.0.0/0"
-  gateway_id             = aws_internet_gateway.main.id
-}
-
-resource "aws_route_table_association" "public" {
-  count          = 2
-  subnet_id      = aws_subnet.public[count.index].id
-  route_table_id = aws_route_table.public.id
 }
