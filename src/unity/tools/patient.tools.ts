@@ -283,8 +283,7 @@ export class UnityPatientTools {
       if (this.isEmptyPatient(patient)) {
         return {
           success: false,
-          message:
-            "No patient details returned for this ID. The record may not exist or the system returned empty data. Try searching by full name and date of birth (MM/DD/YYYY), or by MRN using unity_get_patient_by_mrn.",
+          message: "No patient found with that ID.",
         };
       }
 
@@ -409,7 +408,7 @@ export class UnityPatientTools {
           });
           const normalizedMrn = String(args.mrn || "").trim();
           const match = searchResult.patients.find(
-            (p) => String(p.mrn || "").trim() === normalizedMrn
+            (p) => String(p.mrn || "").trim() === normalizedMrn,
           );
           if (match) {
             console.error(
@@ -428,8 +427,7 @@ export class UnityPatientTools {
       if (this.isEmptyPatient(patient)) {
         return {
           success: false,
-          message:
-            `No patient found for MRN "${args.mrn}". Try searching by full name and date of birth (MM/DD/YYYY) using unity_search_patients.`,
+          message: `No patient found with MRN ${args.mrn}.`,
         };
       }
 
@@ -457,7 +455,7 @@ export class UnityPatientTools {
     const hasId = Boolean(p.id && String(p.id).trim());
     const hasName = Boolean(
       (p.firstName && String(p.firstName).trim()) ||
-        (p.lastName && String(p.lastName).trim()),
+      (p.lastName && String(p.lastName).trim()),
     );
     const hasMrn = Boolean(p.mrn && String(p.mrn).trim());
     return !hasId && !hasName && !hasMrn;
