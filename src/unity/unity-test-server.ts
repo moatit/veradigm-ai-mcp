@@ -178,14 +178,9 @@ app.post("/", async (req: Request, res: Response): Promise<void> => {
             apiKey,
           ).catch(() => {});
 
-          // Voice/Retell: use short speakable summary so AI can respond in one go
-          const wantBrief =
-            (req.headers["x-response-format"] as string) === "brief" ||
-            (req.headers["x-voice-response"] as string) === "true" ||
-            channel === "RETELL";
-          const responseText = wantBrief
-            ? toVoiceSummary(name, toolResult)
-            : JSON.stringify(toolResult, null, 2);
+          // MCP endpoint is primarily used by voice AI (Retell), always use
+          // short speakable summary so AI can respond quickly
+          const responseText = toVoiceSummary(name, toolResult);
 
           result = {
             content: [
@@ -253,6 +248,38 @@ app.post("/", async (req: Request, res: Response): Promise<void> => {
   }
 });
 
+// ═══════════════════════════════════════════════════════════════
+// Retell Custom Function endpoint
+// Retell sends:  { name, args, call }
+// We return:     plain text string (Retell converts to speech)
+//
+// This is preferred over MCP because custom functions have the
+// "Speak After Execution" toggle in the Retell dashboard.
+// ═══════════════════════════════════════════════════════════════
+app.post("/api/retell", async (req: Request, res: Response): Promise<void> => {
+  const { name, args, call } = req.body;
+  const t0 = Date.now();
+
+  if (!name) {
+    res.status(400).json("Tool name is required");
+    return;
+  }
+
+  try {
+    const toolResult = await executeTool(name, args || {});
+    const responseText = toVoiceSummary(name, toolResult);
+
+    console.log(`✅ [Retell] ${name} → ${Date.now() - t0}ms → ${responseText.slice(0, 80)}`);
+    res.json(responseText);
+  } catch (error: any) {
+    const friendlyMsg = error?.message || "Something went wrong";
+    const responseText = `Sorry, that request failed: ${friendlyMsg}. Please try again.`;
+
+    console.error(`❌ [Retell] ${name} → ${Date.now() - t0}ms → ${friendlyMsg}`);
+    res.json(responseText);
+  }
+});
+
 // Test authentication endpoint
 app.get("/test/auth", async (req: Request, res: Response) => {
   try {
@@ -291,6 +318,9 @@ app.get("/test/serverinfo", async (req: Request, res: Response) => {
 
 // Start server
 app.listen(PORT, () => {
+  // Pre-warm auth tokens so first Retell call doesn't wait for auth
+  authService.getSecurityToken("EHR").catch(() => {});
+
   console.log("");
   console.log(
     "╔══════════════════════════════════════════════════════════════╗",
@@ -327,6 +357,7 @@ app.listen(PORT, () => {
   console.log("");
   console.log("🔗 Endpoints:");
   console.log(`   POST http://localhost:${PORT}/        - MCP JSON-RPC 2.0`);
+  console.log(`   POST http://localhost:${PORT}/api/retell - Retell Custom Function`);
   console.log(`   GET  http://localhost:${PORT}/health  - Health check`);
   console.log(`   GET  http://localhost:${PORT}/tools   - List all tools`);
   console.log(
