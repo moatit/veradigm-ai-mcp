@@ -331,7 +331,23 @@ app.post("/", async (req, res): Promise<void> => {
         },
         errorChannel,
         errorApiKey
-      );
+      ).catch(() => {});
+
+      // Return error as a normal result so Retell AI / voice clients
+      // get a speakable response instead of a JSON-RPC error
+      res.json({
+        jsonrpc: "2.0",
+        id: req.body.id || null,
+        result: {
+          content: [
+            {
+              type: "text",
+              text: `Sorry, that request failed: ${fhirError.message}. Please try again.`,
+            },
+          ],
+        },
+      });
+      return;
     }
 
     res.status(500).json({
@@ -509,17 +525,17 @@ app.post("/mcp/tools/call", async (req, res) => {
       `Tool: ${req.body.params?.name || req.body.name}`
     );
 
-    res.status(500).json({
+    // Return error as a normal result so voice clients get a speakable response
+    res.json({
       jsonrpc: "2.0",
       id: req.body.id || null,
-      error: {
-        code: -32603,
-        message: fhirError.message,
-        data: {
-          code: fhirError.code,
-          details: fhirError.details,
-          timestamp: fhirError.timestamp,
-        },
+      result: {
+        content: [
+          {
+            type: "text",
+            text: `Sorry, that request failed: ${fhirError.message}. Please try again.`,
+          },
+        ],
       },
     });
   }
@@ -617,17 +633,17 @@ app.post("/tools/call", async (req, res) => {
       `Tool: ${req.body.params?.name || req.body.name}`
     );
 
-    res.status(500).json({
+    // Return error as a normal result so voice clients get a speakable response
+    res.json({
       jsonrpc: "2.0",
       id: req.body.id || null,
-      error: {
-        code: -32603,
-        message: fhirError.message,
-        data: {
-          code: fhirError.code,
-          details: fhirError.details,
-          timestamp: fhirError.timestamp,
-        },
+      result: {
+        content: [
+          {
+            type: "text",
+            text: `Sorry, that request failed: ${fhirError.message}. Please try again.`,
+          },
+        ],
       },
     });
   }
