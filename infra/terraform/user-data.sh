@@ -154,7 +154,7 @@ chown ec2-user:ec2-user /opt/veradigm/docker-compose.prod.yml
 # Create the fetch-secrets script on the instance
 cat > /opt/veradigm/fetch-secrets.sh << 'SCRIPT_EOF'
 #!/bin/bash
-set -euo pipefail
+set -uo pipefail
 REGION="${aws_region}"
 PREFIX="/veradigm"
 ENV_FILE="/opt/veradigm/.env.prod"
@@ -164,7 +164,9 @@ echo "# Auto-generated — $(date -u +%%Y-%%m-%%dT%%H:%%M:%%SZ)" > "$ENV_FILE"
 fetch() {
   local val
   val=$(aws ssm get-parameter --name "$PREFIX/$1" --with-decryption --query "Parameter.Value" --output text --region "$REGION" 2>/dev/null || echo "")
-  [ -n "$val" ] && echo "$2=$val" >> "$ENV_FILE"
+  if [ -n "$val" ]; then
+    echo "$2=$val" >> "$ENV_FILE"
+  fi
 }
 
 fetch "aws/account-id"           "AWS_ACCOUNT_ID"
