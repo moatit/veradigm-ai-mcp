@@ -176,7 +176,7 @@ app.post("/", async (req: Request, res: Response): Promise<void> => {
             },
             channel,
             apiKey,
-          );
+          ).catch(() => {});
 
           // Voice/Retell: use short speakable summary so AI can respond in one go
           const wantBrief =
@@ -208,8 +208,19 @@ app.post("/", async (req: Request, res: Response): Promise<void> => {
             },
             channel,
             apiKey,
-          );
-          throw toolError;
+          ).catch(() => {});
+
+          // Return error as a normal result so Retell AI / voice clients
+          // get a speakable response instead of a JSON-RPC error object
+          const friendlyMsg = toolError?.message || "Something went wrong";
+          result = {
+            content: [
+              {
+                type: "text",
+                text: `Sorry, that request failed: ${friendlyMsg}. Please try again.`,
+              },
+            ],
+          };
         }
         break;
       }
