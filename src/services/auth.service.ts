@@ -42,7 +42,7 @@ export class AuthService {
       this.cache.set(
         this.CACHE_KEY,
         tokenResponse.access_token,
-        tokenResponse.expires_in
+        tokenResponse.expires_in,
       );
     }
 
@@ -70,7 +70,7 @@ export class AuthService {
             "Content-Type": "application/x-www-form-urlencoded",
             Accept: "application/json",
           },
-        }
+        },
       );
 
       return response.data;
@@ -79,10 +79,23 @@ export class AuthService {
       if (axios.isAxiosError(error)) {
         const authError = error.response?.data as AuthError;
         throw new Error(
-          `Authentication failed: ${authError?.error || error.message}`
+          `Authentication failed: ${authError?.error || error.message}`,
         );
       }
       throw new Error(`Authentication failed: ${error}`);
+    }
+  }
+
+  /**
+   * Pre-warm the token cache so first API call is fast
+   */
+  async warmUp(): Promise<void> {
+    try {
+      console.log("[Auth] Pre-warming token cache...");
+      await this.getAccessToken();
+      console.log("[Auth] Token cache warmed up successfully");
+    } catch (error) {
+      console.error("[Auth] Failed to pre-warm token cache:", error);
     }
   }
 

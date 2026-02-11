@@ -339,17 +339,33 @@ export class UnityPatientTools {
         };
       }
 
-      const patients = this.parsePatientsList(response.data);
+      let patients = this.parsePatientsList(response.data);
+
+      // Unity API often returns ALL patients regardless of filters.
+      // Apply client-side filtering so only relevant results come through.
+      const hasFilter = args.firstName || args.lastName || args.dateOfBirth || args.mrn;
+      if (hasFilter && patients.length > 10) {
+        patients = this.filterPatients(patients, args);
+        console.error(`[Unity Patient] Client-side filter: ${patients.length} match(es)`);
+      }
 
       // Apply limit if specified
       const limitedPatients = args.limit
         ? patients.slice(0, args.limit)
         : patients;
 
+      const noResults = limitedPatients.length === 0;
+      let message = `Found ${limitedPatients.length} patient(s)`;
+      if (noResults && args.mrn) {
+        message = `No patient found with MRN ${args.mrn}. Try searching by patient name instead.`;
+      } else if (noResults) {
+        message = "No patients found matching the search criteria. Try broadening the search with fewer filters.";
+      }
+
       return {
         patients: limitedPatients,
-        total: patients.length,
-        message: `Found ${patients.length} patient(s)`,
+        total: limitedPatients.length,
+        message,
       };
     } catch (error) {
       if (error instanceof UnityMCPError) {
@@ -371,6 +387,7 @@ export class UnityPatientTools {
     patient?: ParsedPatient;
     message: string;
   }> {
+    const t0 = Date.now();
     try {
       if (!args.mrn) {
         throw UnityErrorHandler.createValidationError("MRN is required");
@@ -387,8 +404,10 @@ export class UnityPatientTools {
         "",
         args.target || "EHR",
       );
+      console.error(`[Unity Patient] GET_PATIENT_BY_MRN API took ${Date.now() - t0}ms`);
 
       if (!response.success) {
+        console.error(`[Unity Patient] getPatientByMRN total: ${Date.now() - t0}ms (API failed)`);
         return {
           success: false,
           message: response.error || "Patient not found",
@@ -401,18 +420,19 @@ export class UnityPatientTools {
       const hasUsableDetails =
         patient.id && (patient.firstName || patient.lastName);
       if (!hasUsableDetails) {
+        const t1 = Date.now();
         try {
           const searchResult = await this.searchPatients({
             mrn: args.mrn,
-            limit: 100,
           });
+          console.error(`[Unity Patient] Fallback search took ${Date.now() - t1}ms, found ${searchResult.total} patients`);
           const normalizedMrn = String(args.mrn || "").trim();
           const match = searchResult.patients.find(
             (p) => String(p.mrn || "").trim() === normalizedMrn,
           );
           if (match) {
             console.error(
-              `[Unity Patient] GetPatientByMRN returned no details; using search result for MRN ${args.mrn}`,
+              `[Unity Patient] Using search result for MRN ${args.mrn}`,
             );
             patient = match;
           }
@@ -425,18 +445,21 @@ export class UnityPatientTools {
       }
 
       if (this.isEmptyPatient(patient)) {
+        console.error(`[Unity Patient] getPatientByMRN total: ${Date.now() - t0}ms (not found)`);
         return {
           success: false,
           message: `No patient found with MRN ${args.mrn}.`,
         };
       }
 
+      console.error(`[Unity Patient] getPatientByMRN total: ${Date.now() - t0}ms (found)`);
       return {
         success: true,
         patient,
         message: "Patient retrieved successfully",
       };
     } catch (error) {
+      console.error(`[Unity Patient] getPatientByMRN total: ${Date.now() - t0}ms (error)`);
       if (error instanceof UnityMCPError) {
         throw error;
       }
@@ -447,6 +470,57 @@ export class UnityPatientTools {
   // ============================================
   // Helper Methods
   // ============================================
+
+  /**
+   * Client-side filter: keep patients matching the given criteria.
+   *
+   * Voice transcriptions are often inaccurate for names (e.g. "Albanese" →
+   * "Alvinis") so we use DOB as the strongest signal and only require the
+   * first 2 characters of names to match (case-insensitive).
+   */
+  private filterPatients(
+    patients: ParsedPatient[],
+    criteria: { firstName?: string; lastName?: string; dateOfBirth?: string; mrn?: string },
+  ): ParsedPatient[] {
+    const norm = (s?: string) => (s || "").trim().toLowerCase();
+    const cFirst = norm(criteria.firstName);
+    const cLast = norm(criteria.lastName);
+    const cDob = norm(criteria.dateOfBirth);
+    const cMrn = norm(criteria.mrn);
+
+    // Helper: first N chars match
+    const startsWith = (a: string, b: string, n: number) =>
+      a.slice(0, n) === b.slice(0, n);
+
+    return patients.filter((p) => {
+      // MRN: exact match
+      if (cMrn) {
+        return norm(p.mrn) === cMrn;
+      }
+
+      // DOB provided → strongest filter; name is soft (first 2 chars)
+      if (cDob) {
+        const dobMatch = norm(p.dateOfBirth) === cDob;
+        if (!dobMatch) return false;
+
+        // If name criteria also given, soft-match first 2 chars
+        if (cFirst && !startsWith(norm(p.firstName), cFirst, 2)) return false;
+        if (cLast && !startsWith(norm(p.lastName), cLast, 2)) return false;
+        return true;
+      }
+
+      // No DOB → use name with 3-char prefix match
+      let matches = false;
+      if (cFirst) {
+        matches = startsWith(norm(p.firstName), cFirst, 3);
+      }
+      if (cLast) {
+        const lastMatch = startsWith(norm(p.lastName), cLast, 3);
+        matches = cFirst ? matches && lastMatch : lastMatch;
+      }
+      return matches;
+    });
+  }
 
   /**
    * True when the parsed patient has no usable identifiers or name (treat as "not found").
@@ -801,11 +875,6 @@ export class UnityPatientTools {
       ),
     };
 
-    // Debug log
-    console.error(
-      `[Unity Patient] Parsed patient: ID=${patient.id}, Name=${patient.firstName} ${patient.lastName}`,
-    );
-
     return patient;
   }
 
@@ -820,11 +889,11 @@ export class UnityPatientTools {
   private parsePatientsList(data: any): ParsedPatient[] {
     if (!data) return [];
 
-    // Debug: Log raw data structure
-    console.error(
-      "[Unity Patient] Raw search response:",
-      JSON.stringify(data, null, 2),
-    );
+    // Debug: Log data shape only (avoid dumping full payload which is very slow)
+    const dataShape = Array.isArray(data)
+      ? `Array[${data.length}]`
+      : typeof data;
+    console.error(`[Unity Patient] Raw search response shape: ${dataShape}`);
 
     let patients: any[] = [];
 

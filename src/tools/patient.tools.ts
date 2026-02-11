@@ -23,6 +23,7 @@ export class PatientTools {
     patients: ParsedPatient[];
     total: number;
     hasMore: boolean;
+    message?: string;
   }> {
     try {
       const searchParams: Record<string, string> = {};
@@ -57,16 +58,26 @@ export class PatientTools {
       const result = await this.fhirService.search(
         "Patient",
         searchParams,
-        args.limit || 20
+        args.limit || 20,
       );
       const patients = result.resources.map((patient) =>
-        FHIRParser.parsePatient(patient)
+        FHIRParser.parsePatient(patient),
       );
+
+      // Build a helpful message when no results found
+      let message: string | undefined;
+      if (patients.length === 0 && args.mrn) {
+        message = `No patient found with MRN ${args.mrn}. The patient may be registered under a different MRN or the MRN may have leading zeros. Try searching by patient name instead.`;
+      } else if (patients.length === 0) {
+        message =
+          "No patients found matching the search criteria. Try broadening the search with fewer filters.";
+      }
 
       return {
         patients,
         total: result.total,
         hasMore: result.hasMore,
+        ...(message && { message }),
       };
     } catch (error) {
       throw ErrorHandler.handleUnknownError(error);
@@ -84,7 +95,7 @@ export class PatientTools {
 
       const patient = await this.fhirService.getResource(
         "Patient",
-        args.patientId
+        args.patientId,
       );
       return FHIRParser.parsePatient(patient);
     } catch (error) {
@@ -121,7 +132,7 @@ export class PatientTools {
         !args.mrn
       ) {
         throw ErrorHandler.createValidationError(
-          "At least one search criterion is required"
+          "At least one search criterion is required",
         );
       }
 
@@ -170,7 +181,7 @@ export class PatientTools {
       phone?: string;
       email?: string;
       mrn?: string;
-    }
+    },
   ): number {
     let score = 0;
     let totalChecks = 0;

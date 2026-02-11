@@ -28,7 +28,7 @@ app.use(
     methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With"],
     credentials: false,
-  })
+  }),
 );
 
 app.use(express.json());
@@ -276,7 +276,7 @@ app.post("/", async (req, res): Promise<void> => {
           status: "SUCCESS",
         },
         channel,
-        apiKey
+        apiKey,
       );
 
       const wantBrief =
@@ -321,17 +321,19 @@ app.post("/", async (req, res): Promise<void> => {
         (req.headers["x-channel"] as string) ||
         adminLogger.getDefaultChannel();
       const errorApiKey = req.headers["x-api-key"] as string;
-      adminLogger.logToolCall(
-        {
-          toolName: req.body.params.name,
-          requestTime: new Date(),
-          responseTime: 0,
-          status: "ERROR",
-          errorMessage: fhirError.message,
-        },
-        errorChannel,
-        errorApiKey
-      ).catch(() => {});
+      adminLogger
+        .logToolCall(
+          {
+            toolName: req.body.params.name,
+            requestTime: new Date(),
+            responseTime: 0,
+            status: "ERROR",
+            errorMessage: fhirError.message,
+          },
+          errorChannel,
+          errorApiKey,
+        )
+        .catch(() => {});
 
       // Return error as a normal result so Retell AI / voice clients
       // get a speakable response instead of a JSON-RPC error
@@ -522,7 +524,7 @@ app.post("/mcp/tools/call", async (req, res) => {
     const fhirError = ErrorHandler.handleUnknownError(error);
     ErrorHandler.logError(
       fhirError,
-      `Tool: ${req.body.params?.name || req.body.name}`
+      `Tool: ${req.body.params?.name || req.body.name}`,
     );
 
     // Return error as a normal result so voice clients get a speakable response
@@ -630,7 +632,7 @@ app.post("/tools/call", async (req, res) => {
     const fhirError = ErrorHandler.handleUnknownError(error);
     ErrorHandler.logError(
       fhirError,
-      `Tool: ${req.body.params?.name || req.body.name}`
+      `Tool: ${req.body.params?.name || req.body.name}`,
     );
 
     // Return error as a normal result so voice clients get a speakable response
@@ -974,35 +976,40 @@ app.get("/api/clinical/coverage", async (req, res) => {
 const PORT = parseInt(process.env.MCP_SERVER_PORT || "3000");
 const HOST = process.env.MCP_SERVER_HOST || "0.0.0.0";
 
-app.listen(PORT, HOST, () => {
+app.listen(PORT, HOST, async () => {
+  // Pre-warm token cache so first Retell AI call doesn't wait for token fetch
+  if (authService) {
+    authService.warmUp().catch(() => {});
+  }
+
   console.log(
-    `\n╔═══════════════════════════════════════════════════════════════╗`
+    `\n╔═══════════════════════════════════════════════════════════════╗`,
   );
   console.log(
-    `║  Veradigm FHIR MCP - Complete Test Server                    ║`
+    `║  Veradigm FHIR MCP - Complete Test Server                    ║`,
   );
   console.log(
-    `╚═══════════════════════════════════════════════════════════════╝\n`
+    `╚═══════════════════════════════════════════════════════════════╝\n`,
   );
   console.log(`🚀 Server: http://${HOST}:${PORT}`);
   console.log(`📊 Environment: ${config.nodeEnv}`);
   console.log(`🔗 FHIR URL: ${config.fhirBaseUrl}`);
   console.log(
-    `🔑 Auth: ${authService ? "✅ Configured" : "❌ Not configured"}`
+    `🔑 Auth: ${authService ? "✅ Configured" : "❌ Not configured"}`,
   );
   console.log(
     `📊 Admin Portal: ${
       process.env.ADMIN_PORTAL_URL && process.env.ADMIN_API_KEY
         ? "✅ Logging enabled → " + process.env.ADMIN_PORTAL_URL
         : "❌ Not configured"
-    }`
+    }`,
   );
   console.log(
     `🔐 Access Control: ${
       process.env.ADMIN_PORTAL_URL
         ? "✅ Enabled (API key required)"
         : "❌ Disabled (open access)"
-    }\n`
+    }\n`,
   );
 
   console.log(`📋 Available Endpoints:\n`);
