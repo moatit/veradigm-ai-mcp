@@ -33,6 +33,91 @@ chown ec2-user:ec2-user /opt/veradigm
 aws ecr get-login-password --region ${aws_region} | \
   docker login --username AWS --password-stdin ${aws_account_id}.dkr.ecr.${aws_region}.amazonaws.com
 
+# Create Nginx config directory
+mkdir -p /opt/veradigm/nginx
+
+# Create Nginx default.conf
+cat > /opt/veradigm/nginx/default.conf << 'NGINX_EOF'
+server {
+    listen 80;
+    server_name admin.veradigmai.com fhir.veradigmai.com unity.veradigmai.com;
+
+    location /.well-known/acme-challenge/ {
+        root /var/www/certbot;
+    }
+
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}
+
+server {
+    listen 443 ssl;
+    server_name admin.veradigmai.com;
+
+    ssl_certificate     /etc/letsencrypt/live/admin.veradigmai.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/admin.veradigmai.com/privkey.pem;
+    include             /etc/nginx/ssl-common.conf;
+
+    location / {
+        proxy_pass http://admin-portal:5001;
+        include    /etc/nginx/proxy-common.conf;
+    }
+}
+
+server {
+    listen 443 ssl;
+    server_name fhir.veradigmai.com;
+
+    ssl_certificate     /etc/letsencrypt/live/admin.veradigmai.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/admin.veradigmai.com/privkey.pem;
+    include             /etc/nginx/ssl-common.conf;
+
+    location / {
+        proxy_pass http://fhir-mcp:3000;
+        include    /etc/nginx/proxy-common.conf;
+    }
+}
+
+server {
+    listen 443 ssl;
+    server_name unity.veradigmai.com;
+
+    ssl_certificate     /etc/letsencrypt/live/admin.veradigmai.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/admin.veradigmai.com/privkey.pem;
+    include             /etc/nginx/ssl-common.conf;
+
+    location / {
+        proxy_pass http://unity-mcp:3001;
+        include    /etc/nginx/proxy-common.conf;
+    }
+}
+NGINX_EOF
+
+# Create ssl-common.conf
+cat > /opt/veradigm/nginx/ssl-common.conf << 'SSLCONF_EOF'
+ssl_protocols TLSv1.2 TLSv1.3;
+ssl_ciphers HIGH:!aNULL:!MD5;
+ssl_prefer_server_ciphers on;
+ssl_session_cache shared:SSL:10m;
+ssl_session_timeout 10m;
+SSLCONF_EOF
+
+# Create proxy-common.conf
+cat > /opt/veradigm/nginx/proxy-common.conf << 'PROXYCONF_EOF'
+proxy_http_version 1.1;
+proxy_set_header Host              $host;
+proxy_set_header X-Real-IP         $remote_addr;
+proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+proxy_set_header X-Forwarded-Proto $scheme;
+proxy_set_header Upgrade           $http_upgrade;
+proxy_set_header Connection        "upgrade";
+proxy_read_timeout 120s;
+proxy_send_timeout 120s;
+PROXYCONF_EOF
+
+chown -R ec2-user:ec2-user /opt/veradigm/nginx
+
 # Create docker-compose.prod.yml
 cat > /opt/veradigm/docker-compose.prod.yml << 'COMPOSE_EOF'
 services:
@@ -139,10 +224,43 @@ services:
       retries: 3
       start_period: 30s
 
+  nginx:
+    image: nginx:alpine
+    container_name: veradigm-nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./nginx/ssl-common.conf:/etc/nginx/ssl-common.conf:ro
+      - ./nginx/proxy-common.conf:/etc/nginx/proxy-common.conf:ro
+      - certbot-webroot:/var/www/certbot:ro
+      - certbot-certs:/etc/letsencrypt:ro
+    restart: unless-stopped
+    networks:
+      - mcp-network
+    depends_on:
+      - fhir-mcp
+      - unity-mcp
+      - admin-portal
+
+  certbot:
+    image: certbot/certbot
+    container_name: veradigm-certbot
+    volumes:
+      - certbot-webroot:/var/www/certbot
+      - certbot-certs:/etc/letsencrypt
+    entrypoint: "/bin/sh -c 'trap exit TERM; while :; do certbot renew --webroot -w /var/www/certbot --quiet; sleep 12h & wait $${!}; done'"
+    restart: unless-stopped
+    networks:
+      - mcp-network
+
 volumes:
   pgdata:
   fhir-logs:
   unity-logs:
+  certbot-webroot:
+  certbot-certs:
 
 networks:
   mcp-network:
@@ -226,5 +344,45 @@ SERVICE_EOF
 
 systemctl daemon-reload
 systemctl enable veradigm.service
+
+# Create SSL init script (run once to get initial certificates)
+cat > /opt/veradigm/init-ssl.sh << 'SSLINIT_EOF'
+#!/bin/bash
+set -euo pipefail
+
+DOMAINS="admin.veradigmai.com fhir.veradigmai.com unity.veradigmai.com"
+EMAIL="admin@veradigm.com"
+COMPOSE="docker compose -f /opt/veradigm/docker-compose.prod.yml"
+
+echo "=== SSL Certificate Init ==="
+
+# Stop nginx if running (certbot needs port 80)
+$COMPOSE stop nginx 2>/dev/null || true
+
+# Run certbot in standalone mode to get certs for all domains
+docker run --rm \
+  -p 80:80 \
+  -v veradigm_certbot-certs:/etc/letsencrypt \
+  -v veradigm_certbot-webroot:/var/www/certbot \
+  certbot/certbot certonly \
+    --standalone \
+    -d admin.veradigmai.com \
+    -d fhir.veradigmai.com \
+    -d unity.veradigmai.com \
+    --non-interactive \
+    --agree-tos \
+    --email "$EMAIL"
+
+echo "=== Certificates obtained, starting nginx ==="
+$COMPOSE up -d nginx certbot
+
+# Add cron job for renewal (runs twice daily)
+(crontab -l 2>/dev/null; echo "0 */12 * * * cd /opt/veradigm && docker compose -f docker-compose.prod.yml exec -T certbot certbot renew --quiet && docker compose -f docker-compose.prod.yml exec -T nginx nginx -s reload") | crontab -
+
+echo "=== SSL setup complete ==="
+SSLINIT_EOF
+
+chmod +x /opt/veradigm/init-ssl.sh
+chown ec2-user:ec2-user /opt/veradigm/init-ssl.sh
 
 echo "User data bootstrap complete"

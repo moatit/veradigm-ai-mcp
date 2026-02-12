@@ -58,6 +58,43 @@ const medicationTools = new MedicationTools(fhirService);
 const providerTools = new ProviderTools(fhirService);
 const clinicalTools = new ClinicalTools(fhirService);
 
+// Shared tool executor for all endpoints
+async function executeFhirTool(name: string, args: any): Promise<any> {
+  // Patient tools
+  if (name === "search_patient") return await patientTools.searchPatient(args);
+  if (name === "get_patient_details") return await patientTools.getPatientDetails(args);
+  if (name === "verify_patient_identity") return await patientTools.verifyPatientIdentity(args);
+
+  // Appointment tools
+  if (name === "get_upcoming_appointments") return await appointmentTools.getUpcomingAppointments(args);
+  if (name === "get_appointment_details") return await appointmentTools.getAppointmentDetails(args);
+  if (name === "check_appointment_status") return await appointmentTools.checkAppointmentStatus(args);
+  if (name === "find_patient_next_appointment") return await appointmentTools.findPatientNextAppointment(args);
+  if (name === "get_appointments_by_date_range") return await appointmentTools.getAppointmentsByDateRange(args);
+  if (name === "create_appointment") return await appointmentTools.createAppointment(args);
+
+  // Medication tools
+  if (name === "get_patient_medications") return await medicationTools.getPatientMedications(args);
+  if (name === "get_medication_requests") return await medicationTools.getMedicationRequests(args);
+  if (name === "check_refill_status") return await medicationTools.checkRefillStatus(args);
+  if (name === "get_medication_statements") return await medicationTools.getMedicationStatements(args);
+
+  // Provider tools
+  if (name === "search_providers") return await providerTools.searchProviders(args);
+  if (name === "get_provider_details") return await providerTools.getProviderDetails(args);
+  if (name === "search_locations") return await providerTools.searchLocations(args);
+  if (name === "get_location_details") return await providerTools.getLocationDetails(args);
+
+  // Clinical tools
+  if (name === "get_patient_conditions") return await clinicalTools.getPatientConditions(args);
+  if (name === "get_allergies") return await clinicalTools.getAllergies(args);
+  if (name === "get_recent_observations") return await clinicalTools.getRecentObservations(args);
+  if (name === "get_patient_procedures") return await clinicalTools.getPatientProcedures(args);
+  if (name === "get_patient_coverage") return await clinicalTools.getPatientCoverage(args);
+
+  throw ErrorHandler.createValidationError(`Unknown tool: ${name}`);
+}
+
 // Health check endpoint
 app.get("/health", (req, res) => {
   res.json({
@@ -651,6 +688,38 @@ app.post("/tools/call", async (req, res) => {
   }
 });
 
+// ═══════════════════════════════════════════════════════════════
+// Retell Custom Function endpoint (FHIR)
+// Retell sends:  { name, args, call }
+// We return:     plain text string (Retell converts to speech)
+//
+// Preferred over MCP because custom functions have the
+// "Speak After Execution" toggle in the Retell dashboard.
+// ═══════════════════════════════════════════════════════════════
+app.post("/api/retell", async (req, res): Promise<void> => {
+  const { name, args, call } = req.body;
+  const t0 = Date.now();
+
+  if (!name) {
+    res.status(400).json("Tool name is required");
+    return;
+  }
+
+  try {
+    const result = await executeFhirTool(name, args || {});
+    const responseText = toVoiceSummary(name, result);
+
+    console.log(`✅ [Retell] ${name} → ${Date.now() - t0}ms → ${responseText.slice(0, 80)}`);
+    res.json(responseText);
+  } catch (error: any) {
+    const friendlyMsg = error?.message || "Something went wrong";
+    const responseText = `Sorry, that request failed: ${friendlyMsg}. Please try again.`;
+
+    console.error(`❌ [Retell] ${name} → ${Date.now() - t0}ms → ${friendlyMsg}`);
+    res.json(responseText);
+  }
+});
+
 // Test patient search
 app.post("/test/search-patient", async (req, res) => {
   try {
@@ -1016,7 +1085,8 @@ app.listen(PORT, HOST, async () => {
   console.log(`🔧 SYSTEM (3):`);
   console.log(`   GET  /health`);
   console.log(`   GET  /test/auth`);
-  console.log(`   GET  /tools\n`);
+  console.log(`   GET  /tools`);
+  console.log(`   POST /api/retell  - Retell Custom Function\n`);
 
   console.log(`👤 PATIENT (5):`);
   console.log(`   POST /test/search-patient - Legacy test endpoint`);
