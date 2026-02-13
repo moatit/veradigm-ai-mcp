@@ -97,6 +97,8 @@ services:
   admin-portal:
     image: ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/veradigm-admin-portal:${IMAGE_TAG:-latest}
     container_name: veradigm-admin-portal
+    group_add:
+      - "993"
     ports:
       - "5001:5001"
     env_file:
