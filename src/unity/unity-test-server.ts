@@ -259,6 +259,7 @@ app.post("/", async (req: Request, res: Response): Promise<void> => {
 app.post("/api/retell", async (req: Request, res: Response): Promise<void> => {
   const { name, args, call } = req.body;
   const t0 = Date.now();
+  const requestTime = new Date();
 
   if (!name) {
     res.status(400).json("Tool name is required");
@@ -268,14 +269,33 @@ app.post("/api/retell", async (req: Request, res: Response): Promise<void> => {
   try {
     const toolResult = await executeTool(name, args || {});
     const responseText = toVoiceSummary(name, toolResult);
+    const responseTime = Date.now() - t0;
 
-    console.log(`✅ [Retell] ${name} → ${Date.now() - t0}ms → ${responseText.slice(0, 80)}`);
+    console.log(`✅ [Retell] ${name} → ${responseTime}ms → ${responseText.slice(0, 80)}`);
+
+    adminLogger.logToolCall({
+      toolName: name,
+      requestTime,
+      responseTime,
+      status: "SUCCESS",
+    }, "RETELL").catch(() => {});
+
     res.json(responseText);
   } catch (error: any) {
     const friendlyMsg = error?.message || "Something went wrong";
     const responseText = `Sorry, that request failed: ${friendlyMsg}. Please try again.`;
+    const responseTime = Date.now() - t0;
 
-    console.error(`❌ [Retell] ${name} → ${Date.now() - t0}ms → ${friendlyMsg}`);
+    console.error(`❌ [Retell] ${name} → ${responseTime}ms → ${friendlyMsg}`);
+
+    adminLogger.logToolCall({
+      toolName: name,
+      requestTime,
+      responseTime,
+      status: "ERROR",
+      errorMessage: friendlyMsg,
+    }, "RETELL").catch(() => {});
+
     res.json(responseText);
   }
 });
