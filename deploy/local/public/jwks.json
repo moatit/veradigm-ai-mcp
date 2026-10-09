@@ -1,0 +1,20 @@
+{
+  "keys": [
+    {
+      "kty": "RSA",
+      "n": "vXn4bdRDTh2OmLf79EV8ZEa--EQnJozE1qLN5tt3etxeafnCaj9OnOV6jiJYqrHZfsAHYKC1c9yTyyY-_FR7hNaW8NGS6sMe2l5TUVIYvgHnUAHQ0GkVi6fWwGcetj98Ch0xU9gyXInD65cOUJnk3SL8jUEzft5BrJcdPbo6wUD3vt9H-Liz0YjQiqgFuebt75MCN_HCZavFjPiFZxZ5h2IoJ3gM5NJ-cCZB9QE-mHZILlyp_7intw14Tf-JngMPczM3UM8hDAjrxkhYTQ4X_kSPLm72Bo289NyQdcAH0K1UotRotpjiZJPgfuH1bzAPqziyZXjM7VIFhGWV5JORCw",
+      "e": "AQAB",
+      "kid": "drawbridge-dev-2026-10-09",
+      "use": "sig",
+      "alg": "RS384"
+    },
+    {
+      "kty": "RSA",
+      "n": "vXn4bdRDTh2OmLf79EV8ZEa--EQnJozE1qLN5tt3etxeafnCaj9OnOV6jiJYqrHZfsAHYKC1c9yTyyY-_FR7hNaW8NGS6sMe2l5TUVIYvgHnUAHQ0GkVi6fWwGcetj98Ch0xU9gyXInD65cOUJnk3SL8jUEzft5BrJcdPbo6wUD3vt9H-Liz0YjQiqgFuebt75MCN_HCZavFjPiFZxZ5h2IoJ3gM5NJ-cCZB9QE-mHZILlyp_7intw14Tf-JngMPczM3UM8hDAjrxkhYTQ4X_kSPLm72Bo289NyQdcAH0K1UotRotpjiZJPgfuH1bzAPqziyZXjM7VIFhGWV5JORCw",
+      "e": "AQAB",
+      "kid": "drawbridge-dev-2026-10-09-rs256",
+      "use": "sig",
+      "alg": "RS256"
+    }
+  ]
+}
