@@ -22,6 +22,8 @@ services:
       - NODE_ENV=sandbox
       - MCP_SERVER_PORT=3000
       - MCP_SERVER_HOST=0.0.0.0
+      - ADMIN_PORTAL_URL=http://admin:5001
+      - MCP_CHANNEL=RETELL
     restart: unless-stopped
     networks: [drawbridge]
 
@@ -36,8 +38,63 @@ services:
       - UNITY_PORT=3001
       - CALL_RECORDS_DIR=/app/data
       - CLINIC_TIMEZONE=America/Boise
+      - ADMIN_PORTAL_URL=http://admin:5001
+      - MCP_CHANNEL=RETELL
     volumes:
       - drawbridge-data:/app/data
+    restart: unless-stopped
+    networks: [drawbridge]
+
+  # ---- Drawbridge Admin (moatit/veradigmai): call reports, monitoring, client API keys ----
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      - POSTGRES_DB=drawbridge_admin
+      - POSTGRES_USER=drawbridge
+      - POSTGRES_PASSWORD=${ADMIN_DB_PASSWORD:?set ADMIN_DB_PASSWORD in .env}
+    volumes:
+      - admin-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U drawbridge -d drawbridge_admin"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+    networks: [drawbridge]
+
+  # One-shot: create/alter tables and seed the admin user + clients (idempotent)
+  admin-init:
+    build:
+      context: ${ADMIN_PORTAL_SRC:-../../../veradigmai-repo}
+      target: builder
+    image: drawbridge-dev-admin-builder
+    command: ["sh", "-c", "npx tsx scripts/sync-db.ts && npx tsx scripts/seed-db.ts"]
+    environment:
+      - DATABASE_URL=postgres://drawbridge:${ADMIN_DB_PASSWORD}@postgres:5432/drawbridge_admin
+      - ADMIN_EMAIL=${ADMIN_EMAIL}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD}
+      - SEED_RETELL_API_KEY=${ADMIN_API_KEY}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+    networks: [drawbridge]
+
+  admin:
+    build:
+      context: ${ADMIN_PORTAL_SRC:-../../../veradigmai-repo}
+    image: drawbridge-dev-admin
+    environment:
+      - DATABASE_URL=postgres://drawbridge:${ADMIN_DB_PASSWORD}@postgres:5432/drawbridge_admin
+      - NEXTAUTH_URL=${ADMIN_PUBLIC_URL:-http://127.0.0.1:8096}
+      - NEXTAUTH_SECRET=${ADMIN_NEXTAUTH_SECRET:?set ADMIN_NEXTAUTH_SECRET in .env}
+      # No Docker socket: the portal's container controls would reach every container on this machine.
+      - DOCKER_SOCKET_PATH=/nonexistent/docker.sock
+    ports:
+      - "127.0.0.1:8096:5001"
+    depends_on:
+      admin-init:
+        condition: service_completed_successfully
     restart: unless-stopped
     networks: [drawbridge]
 
@@ -53,6 +110,7 @@ services:
 
 volumes:
   drawbridge-data:
+  admin-db:
 
 networks:
   drawbridge:
