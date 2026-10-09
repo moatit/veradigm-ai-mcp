@@ -60,6 +60,8 @@ services:
       - MCP_CHANNEL=RETELL
     volumes:
       - drawbridge-data:/app/data
+      # Document intake drop folder (PHI; git-ignored): put files in ./intake/inbox
+      - ./intake:/app/intake
     restart: unless-stopped
     networks: [drawbridge]
 

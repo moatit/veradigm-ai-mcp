@@ -29,6 +29,7 @@ import { moduleForTool, platformTools, platformWriteTools, ToolContext } from ".
 import { mountPlatform, requireToolKey } from "../platform/app";
 import { auditToolCall } from "../platform/audit";
 import { mountRetellWebhook } from "../platform/modules/activity";
+import { mountFaxWebhook } from "../platform/modules/intake";
 
 const app = express();
 const PORT = process.env.UNITY_PORT || 3001;
@@ -45,6 +46,8 @@ loadPlatformModules();
 
 // Retell call events: needs the raw body for verification, so it goes before express.json().
 mountRetellWebhook(app);
+// MOATiT Fax deliveries (document intake): HMAC over the raw body, so also before express.json().
+mountFaxWebhook(app);
 
 // Middleware
 app.use(cors());

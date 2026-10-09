@@ -86,6 +86,6 @@ deploy/local/.env
 deploy/local/data/
 deploy/local/secrets/
 
-# Fax/document intake drop folder (PHI, never committed)
-intake/
+# Fax/document intake drop folder (PHI, never committed). Anchored: src/platform/modules/intake/ is code.
+/intake/
 deploy/local/intake/
