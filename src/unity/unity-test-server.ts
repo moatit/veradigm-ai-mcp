@@ -20,13 +20,15 @@ import { UnityClinicalTools } from "./tools/clinical.tools";
 import { UnityPatientTools } from "./tools/patient.tools";
 import { UnityBillingTools } from "./tools/billing.tools";
 import { UnityTaskTools } from "./tools/task.tools";
-import { toToolFailure } from "./utils/tool-result";
+import { isToolFailure, toToolFailure } from "./utils/tool-result";
 import { withIdempotency } from "./utils/idempotency";
 import { callRecords } from "./oncall/call-records";
 import { currentMode } from "./oncall/call-mode";
 import { loadPlatformModules } from "../platform/modules";
 import { moduleForTool, platformTools, platformWriteTools, ToolContext } from "../platform/registry";
 import { mountPlatform, requireToolKey } from "../platform/app";
+import { auditToolCall } from "../platform/audit";
+import { mountRetellWebhook } from "../platform/modules/activity";
 
 const app = express();
 const PORT = process.env.UNITY_PORT || 3001;
@@ -40,6 +42,9 @@ const clinicalTools = new UnityClinicalTools(unityService);
 const billingTools = new UnityBillingTools(unityService);
 const taskTools = new UnityTaskTools(unityService);
 loadPlatformModules();
+
+// Retell call events: needs the raw body for verification, so it goes before express.json().
+mountRetellWebhook(app);
 
 // Middleware
 app.use(cors());
@@ -97,7 +102,16 @@ const WRITE_TOOLS = new Set<string>([
  * Run a tool. Never throws: a failure comes back as { success:false, error_code, retryable }
  * so the agent says "I'm having trouble" instead of "none found" (CLAUDE.md rule 5).
  */
-async function executeTool(name: string, args: any, callId?: string, callerPhone?: string): Promise<any> {
+async function executeTool(name: string, args: any, callId?: string, callerPhone?: string, channel = "platform"): Promise<any> {
+  // Audit log (spec §4 rule 8): metadata only, written async, never throws.
+  const t0 = Date.now();
+  const result = await executeToolUnaudited(name, args, callId, callerPhone);
+  const failed = isToolFailure(result);
+  auditToolCall({ server: "unity", tool: name, args, callId, success: !failed, errorCode: failed ? result.error_code : undefined, latencyMs: Date.now() - t0, channel });
+  return result;
+}
+
+async function executeToolUnaudited(name: string, args: any, callId?: string, callerPhone?: string): Promise<any> {
   const ctx: ToolContext = { callId, callerPhone };
   const mod = moduleForTool(name);
   const exec = () => (mod?.run ? mod.run(name, args, ctx) : runTool(name, args));
@@ -232,7 +246,7 @@ app.post("/", requireToolKey, async (req: Request, res: Response): Promise<void>
         try {
           const callId =
             (req.headers["x-call-id"] as string) || toolArgs?.call_id || undefined;
-          const toolResult = await executeTool(name, toolArgs || {}, callId);
+          const toolResult = await executeTool(name, toolArgs || {}, callId, undefined, channel);
           const toolResponseTime = Date.now() - toolStartTime;
           const failed = toolResult?.success === false && toolResult?.error_code;
 
@@ -335,7 +349,7 @@ app.post("/api/retell", requireToolKey, async (req: Request, res: Response): Pro
   }
 
   // executeTool never throws; failures come back as { success:false, error_code, retryable }.
-  const toolResult = await executeTool(name, args || {}, call?.call_id, call?.from_number);
+  const toolResult = await executeTool(name, args || {}, call?.call_id, call?.from_number, "retell");
   const responseText = toVoiceSummary(name, toolResult);
   const responseTime = Date.now() - t0;
   const failed = toolResult?.success === false && toolResult?.error_code;

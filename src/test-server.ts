@@ -20,6 +20,7 @@ import { ErrorHandler } from "./utils/error-handler";
 import { failureText, toVoiceSummary } from "./utils/response-formatter";
 import { markRedacted } from "./utils/redaction";
 import { requireToolKey } from "./platform/app";
+import { auditToolCall } from "./platform/audit";
 import { DISABLED_FHIR_TOOLS, disabledToolMessage } from "./config/disabled-tools";
 
 const app = express();
@@ -70,12 +71,22 @@ function listFhirTools() {
   ].filter((t) => !DISABLED_FHIR_TOOLS.has(t.name));
 }
 
-// Shared tool executor for all endpoints
-async function executeFhirTool(name: string, args: any): Promise<any> {
-  if (DISABLED_FHIR_TOOLS.has(name)) {
-    throw ErrorHandler.createValidationError(disabledToolMessage(name));
+// Shared tool executor for all endpoints. Every call is audited (spec §4 rule 8): metadata only, async, never throws.
+async function executeFhirTool(name: string, args: any, audit: { callId?: string; channel?: string } = {}): Promise<any> {
+  const t0 = Date.now();
+  const record = (success: boolean, errorCode?: string) =>
+    auditToolCall({ server: "fhir", tool: name, args, callId: audit.callId, success, errorCode, latencyMs: Date.now() - t0, channel: audit.channel || "http" });
+  try {
+    if (DISABLED_FHIR_TOOLS.has(name)) {
+      throw ErrorHandler.createValidationError(disabledToolMessage(name));
+    }
+    const result = markRedacted(await runFhirTool(name, args));
+    record(!(result?.success === false), result?.success === false ? result?.error_code : undefined);
+    return result;
+  } catch (error) {
+    record(false, ErrorHandler.handleUnknownError(error).code);
+    throw error;
   }
-  return markRedacted(await runFhirTool(name, args));
 }
 
 async function runFhirTool(name: string, args: any): Promise<any> {
@@ -253,7 +264,8 @@ app.post("/", requireToolKey, async (req, res): Promise<void> => {
 
       let result: any;
 
-      result = await executeFhirTool(name, args || {});
+      const callId = (req.headers["x-call-id"] as string) || args?.call_id || undefined;
+      result = await executeFhirTool(name, args || {}, { callId, channel });
 
       // Log successful call to admin portal (use request's client key so log goes to right client)
       const toolResponseTime = Date.now() - toolStartTime;
@@ -537,7 +549,7 @@ app.post("/api/retell", requireToolKey, async (req, res): Promise<void> => {
   }
 
   try {
-    const result = await executeFhirTool(name, args || {});
+    const result = await executeFhirTool(name, args || {}, { callId: call?.call_id, channel: "retell" });
     const responseText = toVoiceSummary(name, result);
     const responseTime = Date.now() - t0;
 

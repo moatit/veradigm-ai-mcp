@@ -9,6 +9,10 @@
 #   /unity/api/retell   Retell custom functions      -> unity
 #   /fhir/api/retell    Retell custom functions      -> fhir
 #   /unity/, /fhir/     MCP JSON-RPC                 -> unity / fhir
+#   /webhooks/retell    Retell call events (verified) -> unity
+#
+# Both services share the drawbridge-data volume at /app/data: call records, calls index and the
+# audit log (<dir>/audit/YYYY-MM-DD.jsonl).
 name: drawbridge-dev
 
 services:
@@ -24,6 +28,10 @@ services:
       - MCP_SERVER_HOST=0.0.0.0
       - ADMIN_PORTAL_URL=http://admin:5001
       - MCP_CHANNEL=RETELL
+      - CALL_RECORDS_DIR=/app/data
+      - CLINIC_TIMEZONE=America/Boise
+    volumes:
+      - drawbridge-data:/app/data
     restart: unless-stopped
     networks: [drawbridge]
 

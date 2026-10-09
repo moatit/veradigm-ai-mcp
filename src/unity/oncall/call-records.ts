@@ -36,6 +36,8 @@ export interface CallRecord {
   staff_task_id: string;
   alert: { sent: boolean; at?: string; to?: string; note?: string };
   transcript_ref: string;
+  /** From Retell call events (activity module). Never the transcript itself. */
+  call_meta?: { ended_at?: string; duration_ms?: number; disconnection_reason?: string; summary?: string };
 }
 
 const DIR = process.env.CALL_RECORDS_DIR || path.join(process.cwd(), 'data');
