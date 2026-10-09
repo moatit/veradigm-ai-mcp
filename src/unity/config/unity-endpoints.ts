@@ -94,7 +94,7 @@ export const UnityActions = {
     SAVE_APPOINTMENT: action('SAVE_APPOINTMENT', 'SaveAppointment'),
     CANCEL_APPOINTMENT: action('CANCEL_APPOINTMENT', 'CancelAppointment'), // verify; reference: SetAppointmentStatus
     SET_APPOINTMENT_STATUS: action('SET_APPOINTMENT_STATUS', 'SetAppointmentStatus'),
-    GET_OPEN_SLOTS: action('GET_OPEN_SLOTS', 'GetOpenSlots'), // verify; reference: GetAllAvailableAppointments
+    GET_OPEN_SLOTS: action('GET_OPEN_SLOTS', 'GetAllAvailableAppointments'), // sandbox Oct 8: GetOpenSlots = "Action is not valid for this license"
     BOOK_APPOINTMENT: action('BOOK_APPOINTMENT', 'BookAppointment'), // unused; reference: SaveAppointment
     GET_CANCELLATION_REASONS: action('GET_CANCELLATION_REASONS', 'GetAppointmentCancellationReasons'),
     GET_CONFIRMATION_RESULTS: action('GET_CONFIRMATION_RESULTS', 'GetAppointmentConfirmationResults'),
@@ -127,8 +127,8 @@ export const UnityActions = {
   Clinical: {
     GET_PATIENT_PROBLEMS: action('GET_PATIENT_PROBLEMS', 'GetPatientProblems'), // verify; reference: GetProblems
     GET_PATIENT_DIAGNOSIS: action('GET_PATIENT_DIAGNOSIS', 'GetPatientDiagnosis'),
-    GET_PATIENT_MEDICATIONS: action('GET_PATIENT_MEDICATIONS', 'GetPatientMedications'), // verify; reference: GetClinicalSummary
-    GET_PATIENT_ALLERGIES: action('GET_PATIENT_ALLERGIES', 'GetPatientAllergies') // verify; reference: GetAllergies
+    GET_PATIENT_MEDICATIONS: action('GET_PATIENT_MEDICATIONS', 'GetClinicalSummary'), // sandbox Oct 8: GetPatientMedications = not valid for license
+    GET_PATIENT_ALLERGIES: action('GET_PATIENT_ALLERGIES', 'GetAllergies') // sandbox Oct 8: GetPatientAllergies = not valid for license
   },
 
   // Staff tasks (Veradigm EHR). The ONLY EHR write the agent may make.

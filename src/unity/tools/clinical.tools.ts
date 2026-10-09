@@ -92,7 +92,11 @@ export class UnityClinicalTools {
       const response = await this.unityService.executeAction<any>(
         UnityActions.Clinical.GET_PATIENT_MEDICATIONS,
         {
-          Parameter1: args.status || "active",
+          // GetClinicalSummary takes the section name in Parameter1 (unverified until the EHR user is set)
+          Parameter1:
+            UnityActions.Clinical.GET_PATIENT_MEDICATIONS === "GetClinicalSummary"
+              ? process.env.UNITY_MEDS_SECTION || "medications"
+              : args.status || "active",
           Parameter2: "",
           Parameter3: "",
         },

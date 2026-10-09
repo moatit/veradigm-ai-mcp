@@ -157,6 +157,15 @@ export class UnityService {
    * Parse Unity response
    */
   private parseResponse<T>(data: any): UnityMagicResponse<T> {
+    // Unity often returns errors inside an array: [{ "Error": "Magic Error - ..." }]
+    if (Array.isArray(data) && data.length > 0 && data[0] && typeof data[0] === 'object' && data[0].Error) {
+      return {
+        success: false,
+        error: String(data[0].Error),
+        rawResponse: data
+      };
+    }
+
     // Check for error in response
     if (data?.Error) {
       return {
