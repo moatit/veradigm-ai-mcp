@@ -33,7 +33,7 @@ Sources: developer.veradigm.com (Certification Process Overview, Client Activati
 5. **Certified.**
 6. Billing: Billtrust set up for API fees; the subscription is paid through the portal. *Musab*
 
-**Important:** adding Unity actions or changing workflows later requires **recertification**. Submit the complete action list the first time, including the planned ones (staff task, recalls).
+**Important:** adding Unity actions or changing workflows later requires **recertification**. Submit the complete action list the first time, including the planned ones (staff task, recalls) and the **fax/document intake add-on**: `SaveDocumentImage` (file a received document to the chart), `GetDocumentType`, `GetDocuments`. See `docs/drawbridge/FAX_INTAKE_ADDON.md`.
 
 ### Before we can submit (engineering blockers)
 - [ ] **Write actions verified on the sandbox**: `SaveAppointment`, `SetAppointmentStatus` (cancel `X`, confirm), `SavePatient`, `SaveTask`. Waiting on Kanhaiya for the exact parameter layouts. No write is run without Ali's OK.
