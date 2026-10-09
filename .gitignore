@@ -77,3 +77,6 @@ infra/.env
 
 # Sandbox verification reports
 verify-sandbox-report*.json
+
+# Drawbridge call records (patient data; never commit)
+data/

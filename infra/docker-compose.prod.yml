@@ -76,8 +76,11 @@ services:
       - UNITY_MCP_SERVER_HOST=0.0.0.0
       - ADMIN_PORTAL_URL=http://admin-portal:5001
       - MCP_CHANNEL=${MCP_CHANNEL:-API}
+      - CALL_RECORDS_DIR=/app/data
+      - CLINIC_TIMEZONE=America/Boise
     volumes:
       - unity-logs:/app/logs
+      - call-records:/app/data
     restart: unless-stopped
     networks:
       - mcp-network
@@ -173,6 +176,7 @@ volumes:
   pgdata:
   fhir-logs:
   unity-logs:
+  call-records:
   certbot-webroot:
   certbot-certs:
 

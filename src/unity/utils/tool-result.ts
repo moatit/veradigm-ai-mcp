@@ -14,7 +14,8 @@ export interface ToolFailure {
   message: string;
 }
 
-const RETRYABLE = new Set(['NETWORK_ERROR', 'TIMEOUT_ERROR', 'SERVER_ERROR', 'AUTH_ERROR']);
+// AUTH_ERROR is not retryable: it is usually expired credentials, which a retry won't fix.
+const RETRYABLE = new Set(['NETWORK_ERROR', 'TIMEOUT_ERROR', 'SERVER_ERROR']);
 
 export function toToolFailure(error: unknown, tool: string): ToolFailure {
   const e: UnityMCPError =

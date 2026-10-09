@@ -207,6 +207,15 @@ export class UnityService {
       return error;
     }
 
+    if (axios.isAxiosError(error) && !error.response) {
+      // No HTTP response: Unity unreachable or too slow.
+      const timedOut = error.code === 'ECONNABORTED' || /timeout/i.test(error.message);
+      return new UnityAPIError(
+        timedOut ? 'Unity request timed out' : `Unity unreachable: ${error.code || error.message}`,
+        timedOut ? 'TIMEOUT_ERROR' : 'NETWORK_ERROR'
+      );
+    }
+
     if (axios.isAxiosError(error)) {
       const status = error.response?.status;
       const data = error.response?.data;
@@ -247,8 +256,21 @@ export class UnityService {
       }
     }
 
+    // Errors thrown by UnityAuthService are plain Errors; classify them by message.
+    const msg = String(error?.message || '');
+    if (/ECONNREFUSED|ENOTFOUND|EAI_AGAIN|ECONNRESET|socket hang up/i.test(msg)) {
+      return new UnityAPIError(`Unity unreachable during ${action}`, 'NETWORK_ERROR');
+    }
+    if (/ETIMEDOUT|timeout/i.test(msg)) {
+      return new UnityAPIError(`Unity timed out during ${action}`, 'TIMEOUT_ERROR');
+    }
+    if (/authentication failed/i.test(msg)) {
+      // Usually expired/rotated Unity service credentials or EHR/PM user password.
+      return new UnityAPIError(msg, 'AUTH_ERROR');
+    }
+
     return new UnityAPIError(
-      error.message || 'Unknown Unity error',
+      msg || 'Unknown Unity error',
       'UNKNOWN_ERROR',
       error
     );

@@ -22,6 +22,10 @@ import { UnityBillingTools } from "./tools/billing.tools";
 import { UnityTaskTools } from "./tools/task.tools";
 import { toToolFailure } from "./utils/tool-result";
 import { withIdempotency } from "./utils/idempotency";
+import { OnCallTools } from "./oncall/oncall.tools";
+import { onCallNotebook } from "./oncall/notebook";
+import { callRecords } from "./oncall/call-records";
+import { currentMode } from "./oncall/call-mode";
 
 const app = express();
 const PORT = process.env.UNITY_PORT || 3001;
@@ -34,6 +38,7 @@ const patientTools = new UnityPatientTools(unityService);
 const clinicalTools = new UnityClinicalTools(unityService);
 const billingTools = new UnityBillingTools(unityService);
 const taskTools = new UnityTaskTools(unityService);
+const onCallTools = new OnCallTools();
 
 // Middleware
 app.use(cors());
@@ -46,6 +51,9 @@ app.use((req: Request, res: Response, next: NextFunction) => {
   console.log(`📥 ${new Date().toISOString()} ${req.method} ${req.path} ${tool}`);
   next();
 });
+
+// Drawbridge on-call notebook (login required)
+app.use("/oncall", onCallNotebook());
 
 // Health check endpoint
 app.get("/health", (req: Request, res: Response) => {
@@ -72,6 +80,7 @@ const getToolDefinitions = () => {
     ...clinicalTools.getTools(),
     ...billingTools.getTools(),
     ...taskTools.getTools(),
+    ...onCallTools.getTools(),
   ];
 };
 
@@ -89,15 +98,25 @@ const WRITE_TOOLS = new Set([
  * Run a tool. Never throws: a failure comes back as { success:false, error_code, retryable }
  * so the agent says "I'm having trouble" instead of "none found" (CLAUDE.md rule 5).
  */
-async function executeTool(name: string, args: any, callId?: string): Promise<any> {
+async function executeTool(name: string, args: any, callId?: string, callerPhone?: string): Promise<any> {
+  // Drawbridge-only tools (call mode, call record): no Veradigm call involved.
+  if (name === "drawbridge_get_call_mode") return onCallTools.getCallMode();
+  if (name === "drawbridge_save_call_record") return onCallTools.saveCallRecord(args, callId, callerPhone);
+
   try {
-    if (WRITE_TOOLS.has(name)) {
-      return await withIdempotency(callId, name, args, () => runTool(name, args));
+    const result = WRITE_TOOLS.has(name)
+      ? await withIdempotency(callId, name, args, () => runTool(name, args))
+      : await runTool(name, args);
+    if (currentMode() === "after_hours" || callRecords.get(callId || "")) {
+      callRecords.recordAction(callId, currentMode(), name, true, result?.taskId ? `task ${result.taskId}` : undefined);
     }
-    return await runTool(name, args);
+    return result;
   } catch (error) {
     const failure = toToolFailure(error, name);
     console.error(`[Unity] ${name} failed: ${failure.error_code} ${failure.message}`);
+    if (currentMode() === "after_hours" || callRecords.get(callId || "")) {
+      callRecords.recordAction(callId, currentMode(), name, false, failure.error_code);
+    }
     return failure;
   }
 }
@@ -316,7 +335,7 @@ app.post("/api/retell", async (req: Request, res: Response): Promise<void> => {
   }
 
   // executeTool never throws; failures come back as { success:false, error_code, retryable }.
-  const toolResult = await executeTool(name, args || {}, call?.call_id);
+  const toolResult = await executeTool(name, args || {}, call?.call_id, call?.from_number);
   const responseText = toVoiceSummary(name, toolResult);
   const responseTime = Date.now() - t0;
   const failed = toolResult?.success === false && toolResult?.error_code;
