@@ -155,6 +155,13 @@ export class UnityAuthService {
       return cachedAuth;
     }
 
+    const login = unityLogin(target);
+    if (!login.user || !login.password || /^placeholder/i.test(login.user)) {
+      // No credentials for this system: refuse locally instead of sending a login that would fail
+      // (repeated failed logins can lock the shared sandbox account).
+      return { authenticated: false, error: `${target} user not configured (set UNITY_${target}_USERNAME/PASSWORD)` };
+    }
+
     try {
       console.error(`[Unity Auth] Authenticating EHR/PM user for ${target}...`);
 
@@ -162,10 +169,10 @@ export class UnityAuthService {
       const payload = {
         Action: 'GetUserAuthentication',
         Appname: unityConfig.appName,
-        AppUserID: unityConfig.ehrUsername,
+        AppUserID: login.user,
         PatientID: '',
         Token: token,
-        Parameter1: unityConfig.ehrPassword, // Password goes in Parameter1
+        Parameter1: login.password, // Password goes in Parameter1
         Parameter2: '',
         Parameter3: '',
         Parameter4: '',
@@ -227,7 +234,7 @@ export class UnityAuthService {
           error: `${info.ErrorMessage || 'EHR/PM user not valid'}${String(info.Lockout).toUpperCase() === 'YES' ? ' (account locked)' : ''}`
         };
       }
-      return { authenticated: true, userId: info.UserID || info.ProviderID, userName: unityConfig.ehrUsername };
+      return { authenticated: true, userId: info.UserID || info.ProviderID, userName: info.UserName || '' };
     }
 
     // Check for error in response
@@ -345,3 +352,9 @@ export class UnityAuthService {
   }
 }
 
+/** EHR/PM login for a Unity target (AppUserID + password). */
+export function unityLogin(target: UnityTargetSystem): { user: string; password: string } {
+  return target === 'PM'
+    ? { user: unityConfig.pmUsername, password: unityConfig.pmPassword }
+    : { user: unityConfig.ehrUsername, password: unityConfig.ehrPassword };
+}

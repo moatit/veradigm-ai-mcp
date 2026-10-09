@@ -1,7 +1,7 @@
 import axios, { AxiosResponse } from 'axios';
 import { unityConfig } from '../config/environment';
 import { unityEndpoints, UnityActions, UnityTargetSystem } from '../config/unity-endpoints';
-import { UnityAuthService } from './unity-auth.service';
+import { UnityAuthService, unityLogin } from './unity-auth.service';
 
 /**
  * Unity Magic Request Parameters
@@ -109,7 +109,7 @@ export class UnityService {
       const request: UnityMagicRequest = {
         Action: action,
         Appname: unityConfig.appName,
-        AppUserID: unityConfig.ehrUsername,
+        AppUserID: unityLogin(targetSystem).user,
         PatientID: patientId,
         Token: token,
         Parameter1: params.Parameter1 || '',

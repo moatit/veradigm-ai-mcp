@@ -15,6 +15,9 @@ export interface UnityEnvironmentConfig {
   // EHR/PM User Credentials (for GetUserAuthentication)
   ehrUsername: string;
   ehrPassword: string;
+  /** Veradigm PM user for GetUserAuthentication on the PM Ubiquity ID. Empty = PM calls are refused locally. */
+  pmUsername: string;
+  pmPassword: string;
 
   // Unity Endpoints
   ubiquityEndpoint: string;
@@ -67,6 +70,9 @@ function getUnityEnvironmentConfig(): UnityEnvironmentConfig {
     // EHR/PM User Credentials
     ehrUsername: process.env.UNITY_EHR_USERNAME!,
     ehrPassword: process.env.UNITY_EHR_PASSWORD!,
+    // PM has its own password in the sandbox. Only share the EHR login if explicitly told to.
+    pmUsername: process.env.UNITY_PM_USERNAME || (process.env.UNITY_PM_SHARE_EHR_LOGIN === 'true' ? process.env.UNITY_EHR_USERNAME! : ''),
+    pmPassword: process.env.UNITY_PM_PASSWORD || (process.env.UNITY_PM_SHARE_EHR_LOGIN === 'true' ? process.env.UNITY_EHR_PASSWORD! : ''),
 
     // Unity Endpoints - Default to sandbox Ubiquity endpoint
     ubiquityEndpoint:
