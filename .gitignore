@@ -80,3 +80,7 @@ verify-sandbox-report*.json
 
 # Drawbridge call records (patient data; never commit)
 data/
+
+# Local Docker dev stack secrets and data
+deploy/local/.env
+deploy/local/data/

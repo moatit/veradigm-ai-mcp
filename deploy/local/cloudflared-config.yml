@@ -1,0 +1,10 @@
+# Host tunnel for the Drawbridge dev stack (see ~/.claude/skills/cloudflare-moatit).
+# tunnel/credentials-file are filled in when the tunnel is created.
+tunnel: 544f9b73-4b63-4ecc-9488-f8eac0797357
+credentials-file: C:\Users\alisj\.cloudflared\544f9b73-4b63-4ecc-9488-f8eac0797357.json
+protocol: http2
+
+ingress:
+  - hostname: drawbridge.moatit.dev
+    service: http://localhost:8095
+  - service: http_status:404

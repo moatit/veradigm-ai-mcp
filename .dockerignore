@@ -43,3 +43,7 @@ logs/
 
 # Coverage
 coverage/
+
+# Local dev secrets
+**/.env
+deploy/local/data

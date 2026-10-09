@@ -22,10 +22,11 @@ import { UnityBillingTools } from "./tools/billing.tools";
 import { UnityTaskTools } from "./tools/task.tools";
 import { toToolFailure } from "./utils/tool-result";
 import { withIdempotency } from "./utils/idempotency";
-import { OnCallTools } from "./oncall/oncall.tools";
-import { onCallNotebook } from "./oncall/notebook";
 import { callRecords } from "./oncall/call-records";
 import { currentMode } from "./oncall/call-mode";
+import { loadPlatformModules } from "../platform/modules";
+import { moduleForTool, platformTools, platformWriteTools, ToolContext } from "../platform/registry";
+import { mountPlatform, requireToolKey } from "../platform/app";
 
 const app = express();
 const PORT = process.env.UNITY_PORT || 3001;
@@ -38,7 +39,7 @@ const patientTools = new UnityPatientTools(unityService);
 const clinicalTools = new UnityClinicalTools(unityService);
 const billingTools = new UnityBillingTools(unityService);
 const taskTools = new UnityTaskTools(unityService);
-const onCallTools = new OnCallTools();
+loadPlatformModules();
 
 // Middleware
 app.use(cors());
@@ -51,9 +52,6 @@ app.use((req: Request, res: Response, next: NextFunction) => {
   console.log(`📥 ${new Date().toISOString()} ${req.method} ${req.path} ${tool}`);
   next();
 });
-
-// Drawbridge on-call notebook (login required)
-app.use("/oncall", onCallNotebook());
 
 // Health check endpoint
 app.get("/health", (req: Request, res: Response) => {
@@ -80,12 +78,13 @@ const getToolDefinitions = () => {
     ...clinicalTools.getTools(),
     ...billingTools.getTools(),
     ...taskTools.getTools(),
-    ...onCallTools.getTools(),
+    ...platformTools(),
   ];
 };
 
 // Write tools: each carries an idempotency key so a retried request cannot double-book (spec §4 rule 3).
-const WRITE_TOOLS = new Set([
+const WRITE_TOOLS = new Set<string>([
+  ...platformWriteTools(),
   "unity_save_appointment",
   "unity_cancel_appointment",
   "unity_confirm_appointment",
@@ -99,22 +98,23 @@ const WRITE_TOOLS = new Set([
  * so the agent says "I'm having trouble" instead of "none found" (CLAUDE.md rule 5).
  */
 async function executeTool(name: string, args: any, callId?: string, callerPhone?: string): Promise<any> {
-  // Drawbridge-only tools (call mode, call record): no Veradigm call involved.
-  if (name === "drawbridge_get_call_mode") return onCallTools.getCallMode();
-  if (name === "drawbridge_save_call_record") return onCallTools.saveCallRecord(args, callId, callerPhone);
+  const ctx: ToolContext = { callId, callerPhone };
+  const mod = moduleForTool(name);
+  const exec = () => (mod?.run ? mod.run(name, args, ctx) : runTool(name, args));
 
   try {
     const result = WRITE_TOOLS.has(name)
-      ? await withIdempotency(callId, name, args, () => runTool(name, args))
-      : await runTool(name, args);
-    if (currentMode() === "after_hours" || callRecords.get(callId || "")) {
+      ? await withIdempotency(callId, name, args, exec)
+      : await exec();
+    // Record Veradigm tool calls on the call's notebook entry (platform drawbridge_* tools excluded).
+    if (!name.startsWith("drawbridge_") && (currentMode() === "after_hours" || callRecords.get(callId || ""))) {
       callRecords.recordAction(callId, currentMode(), name, true, result?.taskId ? `task ${result.taskId}` : undefined);
     }
     return result;
   } catch (error) {
     const failure = toToolFailure(error, name);
     console.error(`[Unity] ${name} failed: ${failure.error_code} ${failure.message}`);
-    if (currentMode() === "after_hours" || callRecords.get(callId || "")) {
+    if (!name.startsWith("drawbridge_") && (currentMode() === "after_hours" || callRecords.get(callId || ""))) {
       callRecords.recordAction(callId, currentMode(), name, false, failure.error_code);
     }
     return failure;
@@ -181,7 +181,7 @@ async function runTool(name: string, args: any): Promise<any> {
 }
 
 // MCP JSON-RPC 2.0 endpoint
-app.post("/", async (req: Request, res: Response): Promise<void> => {
+app.post("/", requireToolKey, async (req: Request, res: Response): Promise<void> => {
   const { jsonrpc, method, params, id } = req.body;
 
   if (jsonrpc !== "2.0") {
@@ -324,7 +324,7 @@ app.post("/", async (req: Request, res: Response): Promise<void> => {
 // This is preferred over MCP because custom functions have the
 // "Speak After Execution" toggle in the Retell dashboard.
 // ═══════════════════════════════════════════════════════════════
-app.post("/api/retell", async (req: Request, res: Response): Promise<void> => {
+app.post("/api/retell", requireToolKey, async (req: Request, res: Response): Promise<void> => {
   const { name, args, call } = req.body;
   const t0 = Date.now();
   const requestTime = new Date();
@@ -355,7 +355,7 @@ app.post("/api/retell", async (req: Request, res: Response): Promise<void> => {
 });
 
 // Test authentication endpoint
-app.get("/test/auth", async (req: Request, res: Response) => {
+app.get("/test/auth", requireToolKey, async (req: Request, res: Response) => {
   try {
     const ehrToken = await authService.getSecurityToken("EHR");
     const pmToken = await authService.getSecurityToken("PM");
@@ -378,7 +378,7 @@ app.get("/test/auth", async (req: Request, res: Response) => {
 });
 
 // Test server info endpoint
-app.get("/test/serverinfo", async (req: Request, res: Response) => {
+app.get("/test/serverinfo", requireToolKey, async (req: Request, res: Response) => {
   try {
     const serverInfo = await unityService.getServerInfo("EHR");
     res.json(serverInfo);
@@ -388,6 +388,12 @@ app.get("/test/serverinfo", async (req: Request, res: Response) => {
       timestamp: new Date().toISOString(),
     });
   }
+});
+
+// Drawbridge platform: staff app at /app, module APIs at /api/<module>
+mountPlatform(app, {
+  unity: unityService,
+  runTool: (name, args, ctx) => executeTool(name, args, ctx?.callId, ctx?.callerPhone),
 });
 
 // Start server

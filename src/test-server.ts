@@ -19,6 +19,7 @@ import { ProviderTools } from "./tools/provider.tools";
 import { ErrorHandler } from "./utils/error-handler";
 import { failureText, toVoiceSummary } from "./utils/response-formatter";
 import { markRedacted } from "./utils/redaction";
+import { requireToolKey } from "./platform/app";
 import { DISABLED_FHIR_TOOLS, disabledToolMessage } from "./config/disabled-tools";
 
 const app = express();
@@ -135,7 +136,7 @@ app.get("/tools", (req, res) => {
 // =============================================================================
 
 // Root-level JSON-RPC handler (for RetellAI base URL calls)
-app.post("/", async (req, res): Promise<void> => {
+app.post("/", requireToolKey, async (req, res): Promise<void> => {
   try {
     const method = req.body.method;
 
@@ -525,7 +526,7 @@ app.post("/tools/call", async (req, res) => {
 // Preferred over MCP because custom functions have the
 // "Speak After Execution" toggle in the Retell dashboard.
 // ═══════════════════════════════════════════════════════════════
-app.post("/api/retell", async (req, res): Promise<void> => {
+app.post("/api/retell", requireToolKey, async (req, res): Promise<void> => {
   const { name, args, call } = req.body;
   const t0 = Date.now();
   const requestTime = new Date();
