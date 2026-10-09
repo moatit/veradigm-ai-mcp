@@ -213,6 +213,23 @@ export class UnityAuthService {
    * Parse GetUserAuthentication response
    */
   private parseAuthResponse(data: any): UserAuthResult {
+    // Unity wraps results: [{ "Error": ... }] or [{ "getuserauthenticationinfo": [{ ValidUser, ErrorMessage, ... }] }]
+    const first = Array.isArray(data) ? data[0] : data;
+    if (first?.Error) {
+      return { authenticated: false, error: String(first.Error) };
+    }
+    const info = first?.getuserauthenticationinfo?.[0];
+    if (info) {
+      if (String(info.ValidUser).toUpperCase() !== 'YES') {
+        // Wrong or expired EHR/PM user password (or locked account): never treat as logged in.
+        return {
+          authenticated: false,
+          error: `${info.ErrorMessage || 'EHR/PM user not valid'}${String(info.Lockout).toUpperCase() === 'YES' ? ' (account locked)' : ''}`
+        };
+      }
+      return { authenticated: true, userId: info.UserID || info.ProviderID, userName: unityConfig.ehrUsername };
+    }
+
     // Check for error in response
     if (data?.Error) {
       return {
