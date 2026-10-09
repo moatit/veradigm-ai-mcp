@@ -4,6 +4,19 @@ import { UnityService } from "../services/unity.service";
 import { UnityErrorHandler, UnityMCPError } from "../utils/error-handler";
 import { pick, unityRows } from "../utils/unity-rows";
 
+/** Printable single-line text (sandbox rows can carry control characters and line breaks). */
+function cleanText(v: string): string {
+  return String(v || "").replace(/[^ -~]+/g, " ").replace(/\s+/g, " ").trim();
+}
+
+/** "PT (PROTHROMBIN TIME), 12 seconds Normal (11.5-13.5)" → "12 seconds Normal (11.5-13.5)"; max 120 chars. */
+function resultValue(name: string, detail: string): string {
+  let v = cleanText(detail);
+  const base = cleanText(name).replace(/\s*\(\d{4,5}\)$/, "");
+  if (base && v.toLowerCase().startsWith(base.toLowerCase())) v = v.slice(base.length).replace(/^[\s,:-]+/, "");
+  return v.length > 120 ? v.slice(0, 117) + "..." : v;
+}
+
 
 /**
  * GetClinicalSummary takes the section name ("medications", "allergies", "problems") in Parameter1
@@ -171,6 +184,63 @@ export class UnityClinicalTools {
         throw error;
       }
       throw UnityErrorHandler.handleUnknownError(error, "GetPatientAllergies");
+    }
+  }
+
+  /**
+   * Recent lab/test results and vitals (GetClinicalSummary "results" and "vitals" sections,
+   * Veradigm EHR). Newest first. Read only; never interprets values for the caller.
+   */
+  async getRecentResults(args: { patientId: string; limit?: number }): Promise<{
+    success: boolean;
+    results: Array<{ name: string; value: string; date: string; kind: string; status: string }>;
+    total: number;
+    message: string;
+  }> {
+    try {
+      if (!args.patientId) {
+        throw UnityErrorHandler.createValidationError("Patient ID is required");
+      }
+      const sections = ["results", "vitals"];
+      const responses = await Promise.all(
+        sections.map((section) =>
+          this.unityService.executeAction<any>("GetClinicalSummary", { Parameter1: section }, args.patientId, "EHR"),
+        ),
+      );
+      // A failed call is an error, never "no results" (CLAUDE.md rule 5).
+      const failed = responses.find((r) => !r.success);
+      if (failed) {
+        throw UnityErrorHandler.createAPIError(failed.error || "Failed to get results", "GetClinicalSummary");
+      }
+      const results = responses
+        .flatMap((r, i) =>
+          unityRows(r.data)
+            .filter((item) => {
+              const section = pick(item, "Section").toLowerCase();
+              return !section || section === sections[i];
+            })
+            .map((item) => ({
+              name: cleanText(pick(item, "Description", "Name")).replace(/\s*\(\d{4,5}\)$/, ""),
+              value: resultValue(pick(item, "Description", "Name"), pick(item, "Detail", "Value", "Result")),
+              date: pick(item, "DisplayDate", "Date"),
+              kind: sections[i] === "vitals" ? "vital" : "result",
+              status: pick(item, "Status"),
+            })),
+        )
+        .filter((x) => x.name)
+        .sort((a, b) => (Date.parse(b.date) || 0) - (Date.parse(a.date) || 0))
+        .slice(0, Number(args.limit) > 0 ? Number(args.limit) : 10);
+      return {
+        success: true,
+        results,
+        total: results.length,
+        message: `Found ${results.length} recent result(s)`,
+      };
+    } catch (error) {
+      if (error instanceof UnityMCPError) {
+        throw error;
+      }
+      throw UnityErrorHandler.handleUnknownError(error, "GetClinicalSummary");
     }
   }
 
@@ -369,6 +439,22 @@ export class UnityClinicalTools {
               type: "string",
               description: "chartPatientId (Veradigm EHR ID) from unity_search_patients",
             },
+          },
+          required: ["patientId"],
+        },
+      },
+      {
+        name: "unity_get_recent_results",
+        description:
+          "Recent lab/test results and vitals on file in Veradigm EHR, newest first. Read results back as recorded; never interpret them or give medical advice.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            patientId: {
+              type: "string",
+              description: "chartPatientId (Veradigm EHR ID) from unity_search_patients",
+            },
+            limit: { type: "number", description: "Most items to return (default 10)" },
           },
           required: ["patientId"],
         },

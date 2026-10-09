@@ -51,7 +51,7 @@ The result carries two IDs in brackets. Never read them aloud.
 - `patientId` (Veradigm PM): appointments, open times, booking, balance, insurance.
 - `chartPatientId` (Veradigm EHR chart): medications, allergies, problems, staff messages.
 If the ID a request needs is missing, say you can't see that part of their record by phone and offer staff. Never use one ID in place of the other.
-For chart questions (medications, allergies, conditions, recent results, refill status), also call `verify_patient_identity` with the name and birth date and use its patient ID for the chart tools in the table. If `verify_patient_identity` or a chart tool returns TOOL_ERROR, answer medications, allergies and problems from the unity_ chart tools with `chartPatientId` instead. Don't mention the switch to the caller.
+Chart questions (medications, allergies, conditions, recent results) use the unity_ chart tools with `chartPatientId` first. If one of them returns TOOL_ERROR, try the matching FHIR tool: call `verify_patient_identity` with the name and birth date and use its patient ID. Refill status is FHIR only (check_refill_status, after verify_patient_identity). Don't mention which system answered.
 
 ## Rule 3: Date/time formats
 - Dates: MM/DD/YYYY ("January 25, 1980" → 01/25/1980)
@@ -72,11 +72,11 @@ For chart questions (medications, allergies, conditions, recent results, refill 
 | Balance | unity_get_account_balance | patientId |
 | Insurance on file | unity_get_insurance_policy | patientId |
 | Message staff / refill request | unity_create_staff_task | patientId = chartPatientId, reason, message, urgency |
-| Medications | get_patient_medications (fallback unity_get_patient_medications with chartPatientId) | patientId from verify_patient_identity |
-| Allergies | get_allergies (fallback unity_get_patient_allergies with chartPatientId) | patientId from verify_patient_identity |
-| Conditions | get_patient_conditions (fallback unity_get_patient_problems with chartPatientId) | patientId from verify_patient_identity |
-| Recent results | get_recent_observations | patientId from verify_patient_identity |
-| Refill status | check_refill_status | patientId from verify_patient_identity. Report status only. |
+| Medications | unity_get_patient_medications (backup: get_patient_medications) | chartPatientId (backup: ID from verify_patient_identity) |
+| Allergies | unity_get_patient_allergies (backup: get_allergies) | chartPatientId (backup: ID from verify_patient_identity) |
+| Conditions | unity_get_patient_problems (backup: get_patient_conditions) | chartPatientId (backup: ID from verify_patient_identity) |
+| Recent results and vitals | unity_get_recent_results (backup: get_recent_observations) | chartPatientId (backup: ID from verify_patient_identity). Read values as recorded; never interpret them. |
+| Refill status | check_refill_status | ID from verify_patient_identity. Report status only. |
 | Line mode | drawbridge_get_call_mode | none (start of every call) |
 | After-hours record | drawbridge_save_call_record | verified, reason, urgency, chart context |
 
@@ -96,7 +96,7 @@ If the booking fails, do NOT cancel the old visit. Say "I couldn't finish that b
 create_appointment, get_upcoming_appointments, get_appointment_details, check_appointment_status, find_patient_next_appointment, get_appointments_by_date_range, get_medication_statements. They are disabled. Appointments always go through the unity_ tools.
 
 ## Rule 7: Refills
-Use check_refill_status to report status. To request a refill, use unity_create_staff_task (patientId = chartPatientId) with reason refill_request. Never promise the refill will be approved.
+Use check_refill_status to report status. If it returns TOOL_ERROR, say you can't see refill status right now and offer to send the request to staff. To request a refill, use unity_create_staff_task (patientId = chartPatientId) with reason refill_request. Never promise the refill will be approved.
 
 ## Rule 8: Unclear speech
 Ask them to repeat or spell it. Never guess names or numbers.

@@ -23,10 +23,12 @@ interface Resource {
 }
 
 const LOOKUP_TTL_MS = 10 * 60 * 1000;
-const lookupCache: {
+type LookupCache = {
   resources?: { at: number; value: Resource[] };
   types?: { at: number; value: Map<string, string> };
-} = {};
+};
+/** Lookup cache per Unity service instance (one per server; tests get their own). */
+const lookupCaches = new WeakMap<object, LookupCache>();
 
 /** Veradigm® PM appointment status codes. */
 const STATUS_LABELS: Record<string, string> = {
@@ -655,7 +657,14 @@ export class UnityAppointmentTools {
   }
 
   /** Scheduling resources (GetResources), cached for 10 minutes. */
+  private get lookupCache(): LookupCache {
+    let c = lookupCaches.get(this.unityService);
+    if (!c) lookupCaches.set(this.unityService, (c = {}));
+    return c;
+  }
+
   private async resources(): Promise<Resource[]> {
+    const lookupCache = this.lookupCache;
     if (lookupCache.resources && Date.now() - lookupCache.resources.at < LOOKUP_TTL_MS) return lookupCache.resources.value;
     const rows = await this.lookupList(UnityActions.Scheduling.GET_RESOURCES);
     const value = rows
@@ -680,6 +689,7 @@ export class UnityAppointmentTools {
 
   /** Appointment type ID → description (GetAppointmentTypes), cached; empty on failure. */
   private async appointmentTypeNames(): Promise<Map<string, string>> {
+    const lookupCache = this.lookupCache;
     if (lookupCache.types && Date.now() - lookupCache.types.at < LOOKUP_TTL_MS) return lookupCache.types.value;
     try {
       const rows = await this.lookupList(UnityActions.Scheduling.GET_APPOINTMENT_TYPES);

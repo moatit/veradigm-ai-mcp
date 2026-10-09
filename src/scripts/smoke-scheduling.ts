@@ -60,22 +60,34 @@ async function main(): Promise<void> {
   };
 
   const PROVIDERS = [{ getresourcesinfo: [
-    { resourceid: '101', resourcename: 'Lee, Andrew MD', resourcetype: 'Provider' },
-    { resourceid: '102', resourcename: 'Dr. Priya Patel', resourcetype: 'Provider' },
-    { resourceid: '103', resourcename: 'Lee-Wong, Grace NP', resourcetype: 'Provider' },
+    { Resource_ID: '101', Abbreviation: 'LEE', Description: 'Lee, Andrew MD', Practitioner_ID: '11', Resource_Type: 'Provider' },
+    { Resource_ID: '102', Abbreviation: 'PATEL', Description: 'Dr. Priya Patel', Practitioner_ID: '12', Resource_Type: 'Provider' },
+    { Resource_ID: '103', Abbreviation: 'LEEWON', Description: 'Lee-Wong, Grace NP', Practitioner_ID: '13', Resource_Type: 'Provider' },
   ] }];
-  const SLOTS = [{ getopenslotsinfo: [
-    { slotdate: '10/13/2026', starttime: '9:00 AM', resourceid: '101', duration: '30' },
-    { slotdate: '10/13/2026', starttime: '1:30 PM', resourceid: '101', duration: '30' },
-    { slotdate: '10/13/2026', starttime: '13:00', resourceid: '102', duration: '20' },
-    { slotdate: '10/13/2026', starttime: '2026-10-13T15:45:00', resourceid: '101', duration: '30' },
-    { slotdate: '10/13/2026', starttime: '5:15 PM', resourceid: '102', duration: '30' },
-    { slotdate: '10/14/2026', starttime: '2:00 PM', resourceid: '102', duration: '30' },
-    { slotdate: '10/15/2026', starttime: '10:00 AM', resourceid: '101', duration: '30' },
-  ] }];
-  const healthy: Fake = (action) => {
+  // GetAvailableSchedule: one row per day; Blocked_Slots1+2 = bookable template, Booked_Slots1+2 = booked,
+  // 288 five-minute cells from midnight. Each opening below is one 15-minute window.
+  const OPENINGS: Record<string, Array<[string, string]>> = {
+    LEE: [['10/13/2026', '09:00'], ['10/13/2026', '13:30'], ['10/13/2026', '15:45'], ['10/15/2026', '10:00']],
+    PATEL: [['10/13/2026', '13:00'], ['10/13/2026', '17:15'], ['10/14/2026', '14:00']],
+    LEEWON: [],
+  };
+  const dayRows = (abbr: string) => {
+    const byDay = new Map<string, string[]>();
+    for (const [date, hhmm] of OPENINGS[abbr] || []) {
+      const cells = byDay.get(date) || Array(288).fill('0');
+      const start = (Number(hhmm.slice(0, 2)) * 60 + Number(hhmm.slice(3))) / 5;
+      for (let i = start; i < start + 3; i++) cells[i] = '1';
+      byDay.set(date, cells);
+    }
+    return [...byDay].map(([date, cells]) => ({
+      Available_Date: date, Resource_Abbreviation: abbr, Scheduling_Location_ID: '1',
+      Blocked_Slots1: cells.slice(0, 144).join(''), Blocked_Slots2: cells.slice(144).join(''),
+      Booked_Slots1: '0'.repeat(144), Booked_Slots2: '0'.repeat(144),
+    }));
+  };
+  const healthy: Fake = (action, params) => {
     if (action === 'GetResources') return { success: true, data: PROVIDERS };
-    if (action === UnityActions.Scheduling.GET_OPEN_SLOTS) return { success: true, data: SLOTS };
+    if (action === UnityActions.Scheduling.GET_OPEN_SLOTS) return { success: true, data: [{ getavailablescheduleinfo: dayRows(params.Parameter1) }] };
     return { success: false, error: 'unexpected action' };
   };
   const failing: Fake = () => ({ success: false, error: 'Magic Error: service unavailable' });
@@ -152,10 +164,10 @@ async function main(): Promise<void> {
     assert.strictEqual(r.success, false);
     assert.ok(r.error_code);
     const r2 = await run('drawbridge_find_openings', { question: 'Who has an opening Tuesday afternoon?', today: '10/08/2026' });
-    assert.strictEqual(r2.success, true);
-    assert.strictEqual(r2.providerNamesUnavailable, true);
-    assert.strictEqual(r2.openings[0].providerName, 'Provider 102'); // earliest (1:00 PM) first
-    ok('provider list failure: "Dr. Lee" question fails; unnamed question still answers with IDs');
+    assert.strictEqual(r2.success, false);
+    assert.ok(r2.error_code);
+    assert.ok(!/no openings/i.test(toVoiceSummary('drawbridge_find_openings', r2)));
+    ok('provider list failure: both questions fail (open slots need the resource abbreviation), never "no openings"');
   }
 
   // ── 3. Grouping by provider ────────────────────────────────────────────────
@@ -195,7 +207,8 @@ async function main(): Promise<void> {
 
     const patel = await run('drawbridge_find_openings', { question: 'does dr patel have anything Wednesday', today: '10/08/2026' });
     const slotCall = calls.filter((c) => c.action === UnityActions.Scheduling.GET_OPEN_SLOTS).pop()!;
-    assert.strictEqual(slotCall.params.Parameter2, '102', 'single provider passed to the slot lookup');
+    assert.strictEqual(slotCall.params.Parameter1, 'PATEL', 'single provider passed to the slot lookup by abbreviation');
+    assert.strictEqual(slotCall.params.Parameter3, '10/15/2026', 'end date + 1 (Veradigm end date is exclusive)');
     assert.strictEqual(patel.total, 1);
     ok('single matched provider is passed to the open-slot lookup');
 
@@ -215,7 +228,7 @@ async function main(): Promise<void> {
     ok('bad structured date → VALIDATION_ERROR');
 
     const none = platform((a) =>
-      a === UnityActions.Scheduling.GET_OPEN_SLOTS ? { success: true, data: [{ getopenslotsinfo: [] }] } : healthy(a, {}, '', 'PM')
+      a === UnityActions.Scheduling.GET_OPEN_SLOTS ? { success: true, data: [{ getavailablescheduleinfo: [] }] } : healthy(a, {}, '', 'PM')
     );
     const empty = await none.run('drawbridge_find_openings', { question: 'tomorrow morning', today: '10/08/2026' });
     assert.strictEqual(empty.success, true);

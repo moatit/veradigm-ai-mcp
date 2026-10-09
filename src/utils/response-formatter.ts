@@ -127,6 +127,15 @@ export function toVoiceSummary(
     return truncate(`Appointment: ${appointmentLine(r.appointment as any)}.`, maxLength);
   }
 
+  // Recent results and vitals (Unity EHR)
+  if (Array.isArray(r.results) && r.success === true) {
+    const arr = r.results as Array<{ name?: string; value?: string; date?: string }>;
+    if (arr.length === 0) return "No results on file.";
+    const lines = arr.slice(0, 8).map((x) => `${x.name}${x.value ? `: ${x.value}` : ""}${x.date ? ` (${x.date})` : ""}`);
+    const more = arr.length > 8 ? ` and ${arr.length - 8} more` : "";
+    return truncate(`Recent results on file: ${lines.join("; ")}${more}.`, maxLength);
+  }
+
   // Clinical lists (Unity EHR): problems / medications / allergies / diagnoses
   for (const key of ["medications", "allergies", "problems", "diagnoses"]) {
     const arr = r[key];

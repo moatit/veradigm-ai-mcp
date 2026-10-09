@@ -177,6 +177,8 @@ async function runTool(name: string, args: any): Promise<any> {
     return await clinicalTools.getPatientAllergies(args);
   } else if (name === "unity_get_patient_diagnosis") {
     return await clinicalTools.getPatientDiagnosis(args);
+  } else if (name === "unity_get_recent_results") {
+    return await clinicalTools.getRecentResults(args);
   }
 
   // Billing tools

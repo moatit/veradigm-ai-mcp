@@ -84,14 +84,26 @@ async function main(): Promise<void> {
 
   // 4. Appointment rows parse from wrapped shape and include the ID for the next tool call
   const some = new UnityAppointmentTools(
-    svc(() => ({
-      success: true,
-      data: [{ getschedulebypatientidinfo: [{ apptid: '9001', apptdate: '10/13/2026', appttime: '09:00', resourcename: 'Dr. Lee', status: 'Scheduled' }] }],
-    }))
+    svc((a: string) =>
+      a === 'GetResources'
+        ? { success: true, data: [{ getresourcesinfo: [{ Resource_ID: '7', Abbreviation: 'LEE', Description: 'Lee, Andrew', Practitioner_ID: '3' }] }] }
+        : a === 'GetAppointmentTypes'
+          ? { success: true, data: [{ getappointmenttypesinfo: [{ Appointment_Type_ID: '2', Description: 'Follow Up Visit' }] }] }
+          : {
+              success: true,
+              data: [{ getschedulebypatientidinfo: [
+                { Appointment_ID: '9001', Patient_ID: '56500', Appointment_DateTime: '10/13/2099 9:00:00 AM', Resource_ID: '7', Appointment_Type_ID: '2', Status: 'S', Duration: '15' },
+                { Appointment_ID: '9002', Patient_ID: '56500', Appointment_DateTime: '10/14/2099 9:00:00 AM', Resource_ID: '7', Status: 'X' },
+                { Appointment_ID: '8000', Patient_ID: '56500', Appointment_DateTime: '1/2/2020 9:00:00 AM', Resource_ID: '7', Status: 'S' },
+              ] }],
+            }
+    )
   );
   const list = await some.getPatientAppointments({ patientId: '56500' });
-  assert.strictEqual(list.appointments[0].id, '9001');
-  assert.match(toVoiceSummary('unity_get_patient_appointments', list), /Dr\. Lee.*appointmentId 9001/);
+  assert.deepStrictEqual(list.appointments.map((x) => x.id), ['9001'], 'future, not cancelled');
+  assert.strictEqual(list.appointments[0].providerName, 'Andrew Lee');
+  assert.strictEqual(list.appointments[0].appointmentType, 'Follow Up Visit');
+  assert.match(toVoiceSummary('unity_get_patient_appointments', list), /10\/13\/2099 9:00 AM with Andrew Lee.*appointmentId 9001/);
   ok('appointment row parsed with provider and ID');
 
   // 5. Cancellation reasons
