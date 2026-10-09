@@ -69,18 +69,21 @@ export const UnityActions = {
     GET_PATIENT_FULL: 'GetPatientFull',
     SEARCH_PATIENTS: 'SearchPatients',
     SAVE_PATIENT: 'SavePatient',
-    UPDATE_DEMOGRAPHICS: 'UpdateDemographics',
+    // PM has no UpdateDemographics action. Demographic changes are SavePatient.
+    UPDATE_DEMOGRAPHICS: 'SavePatient',
     GET_CHANGED_PATIENTS: 'GetChangedPatients'
   },
   
   // Appointment/Scheduling Actions
   Scheduling: {
     GET_SCHEDULE: 'GetSchedule',
-    GET_APPOINTMENTS: 'GetAppointments',
+    // Patient appointment reads use GetSchedule with PatientID set.
+    GET_APPOINTMENTS: 'GetSchedule',
     SAVE_APPOINTMENT: 'SaveAppointment',
-    CANCEL_APPOINTMENT: 'CancelAppointment',
-    GET_OPEN_SLOTS: 'GetOpenSlots',
-    BOOK_APPOINTMENT: 'BookAppointment'
+    // Cancellation is a status change. PM status X means cancelled.
+    CANCEL_APPOINTMENT: 'SetAppointmentStatus',
+    GET_OPEN_SLOTS: 'GetAvailableSchedule',
+    BOOK_APPOINTMENT: 'SaveAppointment'
   },
   
   // Encounter Actions
@@ -93,11 +96,12 @@ export const UnityActions = {
   
   // Clinical Actions
   Clinical: {
-    GET_PATIENT_PROBLEMS: 'GetPatientProblems',
+    // Problems, medications, and allergies are sections of GetClinicalSummary.
+    GET_PATIENT_PROBLEMS: 'GetClinicalSummary',
     GET_PATIENT_DIAGNOSIS: 'GetPatientDiagnosis',
     SAVE_DIAGNOSIS: 'SaveDiagnosis',
-    GET_PATIENT_MEDICATIONS: 'GetPatientMedications',
-    GET_PATIENT_ALLERGIES: 'GetPatientAllergies'
+    GET_PATIENT_MEDICATIONS: 'GetClinicalSummary',
+    GET_PATIENT_ALLERGIES: 'GetClinicalSummary'
   },
   
   // Document Actions

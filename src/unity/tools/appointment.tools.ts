@@ -51,8 +51,9 @@ export interface ParsedAppointment {
  * 
  * Provides MCP tools for appointment write operations via Unity API:
  * - SaveAppointment: Create or update appointments
- * - CancelAppointment: Cancel appointments
- * - GetOpenSlots: Find available appointment slots
+ * - SetAppointmentStatus: Cancel appointments (status X)
+ * - GetAvailableSchedule: Find available appointment slots
+ * - GetSchedule: List a patient's appointments
  */
 export class UnityAppointmentTools {
   constructor(private unityService: UnityService) {}
@@ -145,14 +146,14 @@ export class UnityAppointmentTools {
 
       console.error(`[Unity Appointment] Cancelling appointment ${args.appointmentId}`);
 
-      // Execute CancelAppointment action
-      // Parameter1: Appointment ID
-      // Parameter2: Cancellation reason
+      // SetAppointmentStatus: Parameter1 is the appointment id,
+      // Parameter2 is the PM status (X = cancelled), Parameter3 is the reason.
       const response = await this.unityService.executeAction<any>(
         UnityActions.Scheduling.CANCEL_APPOINTMENT,
         {
           Parameter1: args.appointmentId,
-          Parameter2: args.cancellationReason || 'Cancelled via API'
+          Parameter2: 'X',
+          Parameter3: args.cancellationReason || 'Cancelled via API'
         },
         args.patientId,
         'PM'
@@ -161,7 +162,7 @@ export class UnityAppointmentTools {
       if (!response.success) {
         throw UnityErrorHandler.createAPIError(
           response.error || 'Failed to cancel appointment',
-          'CancelAppointment'
+          'SetAppointmentStatus'
         );
       }
 
@@ -175,7 +176,7 @@ export class UnityAppointmentTools {
       if (error instanceof UnityMCPError) {
         throw error;
       }
-      throw UnityErrorHandler.handleUnknownError(error, 'CancelAppointment');
+      throw UnityErrorHandler.handleUnknownError(error, 'SetAppointmentStatus');
     }
   }
 
@@ -206,15 +207,17 @@ export class UnityAppointmentTools {
 
       console.error(`[Unity Appointment] Getting open slots from ${args.startDate} to ${args.endDate}`);
 
-      // Build criteria for slot search
-      const criteria = this.buildSlotSearchCriteria(args);
-
+      // GetAvailableSchedule dates are Parameter2 and Parameter3.
+      // A resource abbreviation in a date parameter returns a datetime conversion error.
       const response = await this.unityService.executeAction<any>(
         UnityActions.Scheduling.GET_OPEN_SLOTS,
         {
-          Parameter1: criteria,
-          Parameter2: args.providerId || '',
-          Parameter3: args.locationId || ''
+          Parameter1: args.providerId || '',
+          Parameter2: args.startDate,
+          Parameter3: args.endDate,
+          Parameter4: args.locationId || '',
+          Parameter5: '',
+          Parameter6: args.appointmentType || ''
         },
         '',
         'PM'
@@ -234,7 +237,7 @@ export class UnityAppointmentTools {
       if (error instanceof UnityMCPError) {
         throw error;
       }
-      throw UnityErrorHandler.handleUnknownError(error, 'GetOpenSlots');
+      throw UnityErrorHandler.handleUnknownError(error, 'GetAvailableSchedule');
     }
   }
 
@@ -257,17 +260,12 @@ export class UnityAppointmentTools {
 
       console.error(`[Unity Appointment] Getting appointments for patient ${args.patientId}`);
 
-      // Build date range parameter
-      let dateRange = '';
-      if (args.startDate && args.endDate) {
-        dateRange = `${args.startDate}|${args.endDate}`;
-      }
-
+      // GetSchedule uses separate start and end dates. PatientID selects one patient.
       const response = await this.unityService.executeAction<any>(
         UnityActions.Scheduling.GET_APPOINTMENTS,
         {
-          Parameter1: dateRange,
-          Parameter2: args.status || ''
+          Parameter1: args.startDate || '',
+          Parameter2: args.endDate || ''
         },
         args.patientId,
         'PM'
@@ -277,7 +275,13 @@ export class UnityAppointmentTools {
         return { appointments: [], total: 0 };
       }
 
-      const appointments = this.parseAppointmentsList(response.data);
+      let appointments = this.parseAppointmentsList(response.data);
+      if (args.status) {
+        const wanted = args.status.toLowerCase();
+        appointments = appointments.filter(
+          (item) => (item.status || '').toLowerCase() === wanted
+        );
+      }
 
       return {
         appointments,
@@ -287,7 +291,7 @@ export class UnityAppointmentTools {
       if (error instanceof UnityMCPError) {
         throw error;
       }
-      throw UnityErrorHandler.handleUnknownError(error, 'GetAppointments');
+      throw UnityErrorHandler.handleUnknownError(error, 'GetSchedule');
     }
   }
 
@@ -327,30 +331,6 @@ export class UnityAppointmentTools {
   }
 
   /**
-   * Build slot search criteria
-   */
-  private buildSlotSearchCriteria(args: {
-    startDate: string;
-    endDate: string;
-    appointmentType?: string;
-    duration?: number;
-  }): string {
-    let xml = '<criteria>';
-    xml += `<StartDate>${this.escapeXml(args.startDate)}</StartDate>`;
-    xml += `<EndDate>${this.escapeXml(args.endDate)}</EndDate>`;
-    
-    if (args.appointmentType) {
-      xml += `<AppointmentType>${this.escapeXml(args.appointmentType)}</AppointmentType>`;
-    }
-    if (args.duration) {
-      xml += `<Duration>${args.duration}</Duration>`;
-    }
-    
-    xml += '</criteria>';
-    return xml;
-  }
-
-  /**
    * Extract appointment ID from response
    */
   private extractAppointmentId(data: any): string {
@@ -385,29 +365,45 @@ export class UnityAppointmentTools {
     };
   }
 
+  private infoRows(data: any): any[] {
+    if (!data) return [];
+    if (Array.isArray(data) && data[0] && typeof data[0] === "object") {
+      const key = Object.keys(data[0]).find(
+        (name) =>
+          name.toLowerCase().endsWith("info") && Array.isArray(data[0][name]),
+      );
+      if (key) return data[0][key];
+    }
+    if (data && typeof data === "object" && !Array.isArray(data)) {
+      const key = Object.keys(data).find(
+        (name) => name.toLowerCase().endsWith("info") && Array.isArray(data[name]),
+      );
+      if (key) return data[key];
+    }
+    return Array.isArray(data) ? data : [data];
+  }
+
   /**
    * Parse list of appointments from response
    */
   private parseAppointmentsList(data: any): ParsedAppointment[] {
-    if (!data) return [];
-    
-    const items = Array.isArray(data) ? data : [data];
-    
-    return items.map(item => ({
-      id: item.AppointmentID || item.ID || '',
-      patientId: item.PatientID || '',
-      date: item.AppointmentDate || item.Date || '',
-      time: item.AppointmentTime || item.Time || '',
-      duration: parseInt(item.Duration) || 0,
-      status: item.Status || '',
-      providerId: item.ProviderID,
-      providerName: item.ProviderName,
-      locationId: item.LocationID,
-      locationName: item.LocationName,
-      appointmentType: item.AppointmentType,
-      reasonForVisit: item.ReasonForVisit,
-      notes: item.Notes
-    }));
+    return this.infoRows(data)
+      .map((item) => ({
+        id: item.AppointmentID || item.Appointment_ID || item.ID || "",
+        patientId: item.PatientID || item.Patient_ID || "",
+        date: item.AppointmentDate || item.Appointment_Date || item.Date || "",
+        time: item.AppointmentTime || item.Appointment_Time || item.Time || "",
+        duration: parseInt(item.Duration) || 0,
+        status: item.Status || item.Appointment_Status || "",
+        providerId: item.ProviderID || item.Resource_ID,
+        providerName: item.ProviderName || item.Resource_Name,
+        locationId: item.LocationID || item.Scheduling_Location_ID,
+        locationName: item.LocationName || item.Location_Name,
+        appointmentType: item.AppointmentType || item.Appointment_Type,
+        reasonForVisit: item.ReasonForVisit || item.Comments,
+        notes: item.Notes,
+      }))
+      .filter((item) => item.id || item.date);
   }
 
   /**
@@ -420,16 +416,12 @@ export class UnityAppointmentTools {
     providerId?: string;
     locationId?: string;
   }> {
-    if (!data) return [];
-    
-    const items = Array.isArray(data) ? data : [data];
-    
-    return items.map(item => ({
-      date: item.Date || item.SlotDate || '',
-      time: item.Time || item.SlotTime || '',
+    return this.infoRows(data).map((item) => ({
+      date: item.Date || item.SlotDate || item.Available_Date || "",
+      time: item.Time || item.SlotTime || item.Available_Time || "",
       duration: parseInt(item.Duration) || 30,
-      providerId: item.ProviderID,
-      locationId: item.LocationID
+      providerId: item.ProviderID || item.Resource_Abbreviation || item.Resource_ID,
+      locationId: item.LocationID || item.Scheduling_Location_Abbreviation,
     }));
   }
 

@@ -10,6 +10,7 @@ import { unityConfig } from "./config/environment";
 import { UnityAuthService } from "./services/unity-auth.service";
 import { UnityService } from "./services/unity.service";
 import { UnityAppointmentTools } from "./tools/appointment.tools";
+import { UnityClinicalTools } from "./tools/clinical.tools";
 import { UnityPatientTools } from "./tools/patient.tools";
 import { UnityErrorHandler } from "./utils/error-handler";
 
@@ -29,6 +30,7 @@ class VeradigmUnityMCPServer {
   private unityService: UnityService;
   private appointmentTools: UnityAppointmentTools;
   private patientTools: UnityPatientTools;
+  private clinicalTools: UnityClinicalTools;
 
   constructor() {
     this.server = new Server(
@@ -50,6 +52,7 @@ class VeradigmUnityMCPServer {
     // Initialize tool classes
     this.appointmentTools = new UnityAppointmentTools(this.unityService);
     this.patientTools = new UnityPatientTools(this.unityService);
+    this.clinicalTools = new UnityClinicalTools(this.unityService);
 
     this.setupHandlers();
     this.setupShutdownHandlers();
@@ -61,6 +64,7 @@ class VeradigmUnityMCPServer {
       const allTools = [
         ...this.appointmentTools.getTools(),
         ...this.patientTools.getTools(),
+        ...this.clinicalTools.getTools(),
       ];
 
       return {
@@ -99,6 +103,14 @@ class VeradigmUnityMCPServer {
           result = await this.patientTools.searchPatients(args as any);
         } else if (name === "unity_get_patient_by_mrn") {
           result = await this.patientTools.getPatientByMRN(args as any);
+        } else if (name === "unity_get_patient_problems") {
+          result = await this.clinicalTools.getPatientProblems(args as any);
+        } else if (name === "unity_get_patient_medications") {
+          result = await this.clinicalTools.getPatientMedications(args as any);
+        } else if (name === "unity_get_patient_allergies") {
+          result = await this.clinicalTools.getPatientAllergies(args as any);
+        } else if (name === "unity_get_patient_diagnosis") {
+          result = await this.clinicalTools.getPatientDiagnosis(args as any);
         }
 
         // Unknown tool
@@ -171,7 +183,7 @@ class VeradigmUnityMCPServer {
     );
     console.error(`Unity Endpoint: ${unityConfig.ubiquityEndpoint}`);
     console.error(`App Name: ${unityConfig.appName}`);
-    console.error(`Available tools: 9 Unity write operations`);
+    console.error(`Available tools: 13 Unity operations`);
     console.error("");
     console.error("Tools available:");
     console.error("  Appointments:");
@@ -185,6 +197,11 @@ class VeradigmUnityMCPServer {
     console.error("    - unity_get_patient");
     console.error("    - unity_search_patients");
     console.error("    - unity_get_patient_by_mrn");
+    console.error("  Clinical:");
+    console.error("    - unity_get_patient_problems");
+    console.error("    - unity_get_patient_medications");
+    console.error("    - unity_get_patient_allergies");
+    console.error("    - unity_get_patient_diagnosis");
   }
 }
 
