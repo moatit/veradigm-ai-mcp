@@ -135,6 +135,9 @@ services:
   nginx:
     image: nginx:alpine
     container_name: veradigm-nginx
+    # Reload every 6h so certificates renewed by the certbot container are picked up.
+    # Without this nginx keeps serving the old cert until restart (the Jul 12, 2026 expiry).
+    command: "/bin/sh -c 'while :; do sleep 6h & wait $${!}; nginx -s reload; done & exec nginx -g \"daemon off;\"'"
     ports:
       - "80:80"
       - "443:443"
