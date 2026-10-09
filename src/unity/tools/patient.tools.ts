@@ -226,7 +226,7 @@ export class UnityPatientTools {
         };
       }
 
-      // Execute UpdateDemographics action
+      // PM records demographic changes with SavePatient, not a separate action.
       const response = await this.unityService.executeAction<any>(
         UnityActions.Patient.UPDATE_DEMOGRAPHICS,
         {
@@ -239,7 +239,7 @@ export class UnityPatientTools {
       if (!response.success) {
         throw UnityErrorHandler.createAPIError(
           response.error || "Failed to update demographics",
-          "UpdateDemographics",
+          "SavePatient",
         );
       }
 
@@ -253,7 +253,7 @@ export class UnityPatientTools {
       if (error instanceof UnityMCPError) {
         throw error;
       }
-      throw UnityErrorHandler.handleUnknownError(error, "UpdateDemographics");
+      throw UnityErrorHandler.handleUnknownError(error, "SavePatient");
     }
   }
 
@@ -780,6 +780,18 @@ export class UnityPatientTools {
         firstName: "",
         lastName: "",
       };
+    }
+
+    if (Array.isArray(data) && data[0] && typeof data[0] === "object") {
+      const infoKey = Object.keys(data[0]).find(
+        (key) =>
+          key.toLowerCase().endsWith("info") && Array.isArray(data[0][key]),
+      );
+      if (infoKey && data[0][infoKey][0]) {
+        data = data[0][infoKey][0];
+      } else {
+        data = data[0];
+      }
     }
 
     // Helper to find a value with case-insensitive key matching

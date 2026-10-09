@@ -310,14 +310,14 @@ export class UnityAppointmentTools {
 
       console.error(`[Unity Appointment] Cancelling appointment ${args.appointmentId}`);
 
-      // Execute CancelAppointment action
-      // Parameter1: Appointment ID
-      // Parameter2: Cancellation reason
+      // SetAppointmentStatus: Parameter1 = appointment ID, Parameter2 = PM status (X = cancelled),
+      // Parameter3 = reason from GetAppointmentCancellationReasons (Kanhaiya, main 0a4e3c4).
       const response = await this.unityService.executeAction<any>(
         UnityActions.Scheduling.CANCEL_APPOINTMENT,
         {
           Parameter1: args.appointmentId,
-          Parameter2: args.cancellationReason || 'Cancelled via API'
+          Parameter2: process.env.UNITY_CANCELLED_STATUS || 'X',
+          Parameter3: args.cancellationReason || 'Cancelled via API'
         },
         args.patientId,
         'PM'
@@ -326,7 +326,7 @@ export class UnityAppointmentTools {
       if (!response.success) {
         throw UnityErrorHandler.createAPIError(
           response.error || 'Failed to cancel appointment',
-          'CancelAppointment'
+          UnityActions.Scheduling.CANCEL_APPOINTMENT
         );
       }
 
@@ -340,7 +340,7 @@ export class UnityAppointmentTools {
       if (error instanceof UnityMCPError) {
         throw error;
       }
-      throw UnityErrorHandler.handleUnknownError(error, 'CancelAppointment');
+      throw UnityErrorHandler.handleUnknownError(error, UnityActions.Scheduling.CANCEL_APPOINTMENT);
     }
   }
 

@@ -82,7 +82,8 @@ export const UnityActions = {
     GET_PATIENT_FULL: action('GET_PATIENT_FULL', 'GetPatientFull'),
     SEARCH_PATIENTS: action('SEARCH_PATIENTS', 'SearchPatients'),
     SAVE_PATIENT: action('SAVE_PATIENT', 'SavePatient'),
-    UPDATE_DEMOGRAPHICS: action('UPDATE_DEMOGRAPHICS', 'UpdateDemographics'), // verify; reference: SavePatient
+    // PM has no UpdateDemographics action; demographic changes are SavePatient (Kanhaiya, main 0a4e3c4).
+    UPDATE_DEMOGRAPHICS: action('UPDATE_DEMOGRAPHICS', 'SavePatient'),
     GET_CHANGED_PATIENTS: action('GET_CHANGED_PATIENTS', 'GetChangedPatients')
   },
 
@@ -94,7 +95,8 @@ export const UnityActions = {
     GET_APPOINTMENTS: action('GET_APPOINTMENTS', 'GetScheduleByPatientID'),
     GET_APPOINTMENT_BY_ID: action('GET_APPOINTMENT_BY_ID', 'GetAppointmentById'),
     SAVE_APPOINTMENT: action('SAVE_APPOINTMENT', 'SaveAppointment'),
-    CANCEL_APPOINTMENT: action('CANCEL_APPOINTMENT', 'CancelAppointment'), // verify; reference: SetAppointmentStatus
+    // Cancellation is a status change: SetAppointmentStatus(appointmentId, 'X', reason) (Kanhaiya, main 0a4e3c4; not yet run on the sandbox).
+    CANCEL_APPOINTMENT: action('CANCEL_APPOINTMENT', 'SetAppointmentStatus'),
     SET_APPOINTMENT_STATUS: action('SET_APPOINTMENT_STATUS', 'SetAppointmentStatus'),
     // Sandbox Oct 9: GetAvailableSchedule(resource ABBREVIATION, start, end) returns one row per day with
     // 5-minute bitmaps (see decodeAvailability). GetOpenSlots is not licensed; a numeric resource ID returns 0 rows.
