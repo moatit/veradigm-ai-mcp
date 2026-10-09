@@ -124,7 +124,11 @@ input,select,textarea{width:100%;padding:8px;border:1px solid var(--line);border
 export function page(title: string, body: string, opts: { user?: string | null; active?: string } = {}): string {
   const tabs = opts.user
     ? `<nav class="tabs">${navItems()
-        .map((n) => `<a href="${APP_BASE}${n.path}" class="${opts.active === n.path ? 'on' : ''}">${esc(n.label)}</a>`)
+        .map((n) =>
+          /^https?:\/\//.test(n.path)
+            ? `<a href="${esc(n.path)}" target="_blank" rel="noopener">${esc(n.label)} ↗</a>`
+            : `<a href="${APP_BASE}${n.path}" class="${opts.active === n.path ? 'on' : ''}">${esc(n.label)}</a>`
+        )
         .join('')}</nav>`
     : '';
   const who = opts.user

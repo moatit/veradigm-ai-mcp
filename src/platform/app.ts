@@ -39,15 +39,18 @@ export function mountPlatform(app: Express, deps: PlatformDeps): void {
   const modules = platformModules();
   for (const m of modules) if (m.nav) registerNav(m.nav);
   registerNav({ path: '', label: 'Overview', order: 0 });
+  // Drawbridge Admin (call reports, monitoring, client API keys): separate Next.js app
+  if (process.env.ADMIN_PUBLIC_URL) registerNav({ path: process.env.ADMIN_PUBLIC_URL, label: 'Admin console', order: 90 });
 
   app.use(APP_BASE, shellRouter());
 
   app.get(APP_BASE, requireLogin, (req, res) => {
     const cards = navItems()
       .filter((n) => n.path)
-      .map(
-        (n) => `<a class="card row" href="${APP_BASE}${n.path}" style="text-decoration:none"><strong>${esc(n.label)}</strong></a>`
-      )
+      .map((n) => {
+        const href = /^https?:\/\//.test(n.path) ? n.path : `${APP_BASE}${n.path}`;
+        return `<a class="card row" href="${esc(href)}" style="text-decoration:none"><strong>${esc(n.label)}</strong></a>`;
+      })
       .join('');
     res.send(
       page(
