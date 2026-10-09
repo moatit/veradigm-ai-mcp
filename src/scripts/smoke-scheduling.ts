@@ -15,6 +15,7 @@ import assert from 'assert';
 type Fake = (action: string, params: any, patientId: string, target: string) => any;
 
 async function main(): Promise<void> {
+  const { UnityActions } = await import('../unity/config/unity-endpoints');
   const { UnityAppointmentTools } = await import('../unity/tools/appointment.tools');
   const { toToolFailure } = await import('../unity/utils/tool-result');
   const { toVoiceSummary } = await import('../utils/response-formatter');
@@ -74,7 +75,7 @@ async function main(): Promise<void> {
   ] }];
   const healthy: Fake = (action) => {
     if (action === 'GetResources') return { success: true, data: PROVIDERS };
-    if (action === 'GetOpenSlots') return { success: true, data: SLOTS };
+    if (action === UnityActions.Scheduling.GET_OPEN_SLOTS) return { success: true, data: SLOTS };
     return { success: false, error: 'unexpected action' };
   };
   const failing: Fake = () => ({ success: false, error: 'Magic Error: service unavailable' });
@@ -133,7 +134,7 @@ async function main(): Promise<void> {
 
   // Providers fine, open-slot lookup fails → failure (not "no openings")
   {
-    const { run } = platform((a, p, pid, t) => (a === 'GetOpenSlots' ? failing(a, p, pid, t) : healthy(a, p, pid, t)));
+    const { run } = platform((a, p, pid, t) => (a === UnityActions.Scheduling.GET_OPEN_SLOTS ? failing(a, p, pid, t) : healthy(a, p, pid, t)));
     const r = await run('drawbridge_find_openings', { question: 'Who has an opening Tuesday afternoon?', today: '10/08/2026' });
     assert.strictEqual(r.success, false);
     assert.strictEqual(r.error_code, 'API_ERROR');
@@ -193,7 +194,7 @@ async function main(): Promise<void> {
     ok(`provider match "Dr. Lee" → ${lee.message}`);
 
     const patel = await run('drawbridge_find_openings', { question: 'does dr patel have anything Wednesday', today: '10/08/2026' });
-    const slotCall = calls.filter((c) => c.action === 'GetOpenSlots').pop()!;
+    const slotCall = calls.filter((c) => c.action === UnityActions.Scheduling.GET_OPEN_SLOTS).pop()!;
     assert.strictEqual(slotCall.params.Parameter2, '102', 'single provider passed to the slot lookup');
     assert.strictEqual(patel.total, 1);
     ok('single matched provider is passed to the open-slot lookup');
@@ -214,7 +215,7 @@ async function main(): Promise<void> {
     ok('bad structured date → VALIDATION_ERROR');
 
     const none = platform((a) =>
-      a === 'GetOpenSlots' ? { success: true, data: [{ getopenslotsinfo: [] }] } : healthy(a, {}, '', 'PM')
+      a === UnityActions.Scheduling.GET_OPEN_SLOTS ? { success: true, data: [{ getopenslotsinfo: [] }] } : healthy(a, {}, '', 'PM')
     );
     const empty = await none.run('drawbridge_find_openings', { question: 'tomorrow morning', today: '10/08/2026' });
     assert.strictEqual(empty.success, true);
