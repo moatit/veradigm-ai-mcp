@@ -1,0 +1,47 @@
+client_name,repo_tool_name,system,api,veradigm_call,repo_currently_sends,read_write,status,demo_priority,notes
+search_patient,search_patient,Veradigm EHR,FHIR R4,GET /Patient,GET /Patient,R,Built,P0,
+get_patient_details,get_patient_details,Veradigm EHR,FHIR R4,GET /Patient/{id},GET /Patient/{id},R,Built,P0,
+verify_patient_identity,verify_patient_identity,Veradigm EHR,FHIR R4,GET /Patient (name+birthdate),GET /Patient,R,Built,P0,Gate for all FHIR flows
+get_patient_medications,get_patient_medications,Veradigm EHR,FHIR R4,GET /MedicationRequest?patient=,GET /MedicationRequest,R,Built,P0,
+get_medication_requests,get_medication_requests,Veradigm EHR,FHIR R4,GET /MedicationRequest,GET /MedicationRequest,R,Built,P1,
+check_refill_status,check_refill_status,Veradigm EHR,FHIR R4,GET /MedicationRequest,GET /MedicationRequest,R,Built,P1,Reports status only; never approves a refill
+search_providers,search_providers,Veradigm EHR,FHIR R4,GET /Practitioner,GET /Practitioner,R,Built,P2,
+get_provider_details,get_provider_details,Veradigm EHR,FHIR R4,GET /Practitioner/{id},GET /Practitioner/{id},R,Built,P2,
+search_locations,search_locations,Veradigm EHR,FHIR R4,GET /Location,GET /Location,R,Built,P2,
+get_location_details,get_location_details,Veradigm EHR,FHIR R4,GET /Location/{id},GET /Location/{id},R,Built,P2,
+get_patient_conditions,get_patient_conditions,Veradigm EHR,FHIR R4,GET /Condition?patient=,GET /Condition,R,Built,P1,
+get_allergies,get_allergies,Veradigm EHR,FHIR R4,GET /AllergyIntolerance?patient=,GET /AllergyIntolerance,R,Built,P0,
+get_recent_observations,get_recent_observations,Veradigm EHR,FHIR R4,GET /Observation?patient=,GET /Observation,R,Built,P1,Never interpret results
+get_patient_procedures,get_patient_procedures,Veradigm EHR,FHIR R4,GET /Procedure?patient=,GET /Procedure,R,Built,P2,
+get_patient_coverage,get_patient_coverage,Veradigm EHR,FHIR R4,GET /Coverage?patient=,GET /Coverage,R,Built,P2,
+(disabled) create_appointment,create_appointment,Veradigm EHR,FHIR R4,none (FHIR is read only),POST /Appointment,W,Disable,—,Use unity_save_appointment
+(disabled) get_upcoming_appointments,get_upcoming_appointments,Veradigm EHR,FHIR R4,none (no Appointment resource),GET /Appointment,R,Disable,—,Use unity_get_patient_appointments
+(disabled) get_appointment_details,get_appointment_details,Veradigm EHR,FHIR R4,none (no Appointment resource),GET /Appointment/{id},R,Disable,—,Name collides with planned Unity tool; Unity tool uses unity_ prefix
+(disabled) check_appointment_status,check_appointment_status,Veradigm EHR,FHIR R4,none (no Appointment resource),GET /Appointment/{id},R,Disable,—,Use Unity GetAppointmentById
+(disabled) find_patient_next_appointment,find_patient_next_appointment,Veradigm EHR,FHIR R4,none (no Appointment resource),GET /Appointment,R,Disable,—,Use unity_get_patient_appointments
+(disabled) get_appointments_by_date_range,get_appointments_by_date_range,Veradigm EHR,FHIR R4,none (no Appointment resource),GET /Appointment,R,Disable,—,Use Unity GetSchedule
+(disabled) get_medication_statements,get_medication_statements,Veradigm EHR,FHIR R4,none (no MedicationStatement resource),GET /MedicationStatement,R,Disable,—,MedicationDispense available if history needed
+search_patients,unity_search_patients,Veradigm PM,Unity,SearchPatients,SearchPatients,R,Built,P0,Gate for all Unity flows; fix Parameter1 format after demo
+save_patient,unity_save_patient,Veradigm PM,Unity,SavePatient,SavePatient,W,Built,P2,Call SearchPatients first to avoid duplicates
+update_demographics,unity_update_demographics,Veradigm PM,Unity,SavePatient,UpdateDemographics,W,Built (verify action),P2,UpdateDemographics not in PM reference
+get_patient_appointments,unity_get_patient_appointments,Veradigm PM,Unity,GetScheduleByPatientID,GetAppointments,R,Built (verify action),P0,GetAppointments not in PM reference; returns [] on error today
+get_appointment_details,unity_get_appointment_details,Veradigm PM,Unity,GetAppointmentById,—,R,Planned,P1,
+get_open_slots,unity_get_open_slots,Veradigm PM,Unity,GetAllAvailableAppointments,GetOpenSlots,R,Built (verify action),P0,GetOpenSlots not in PM reference; returns [] on error today
+save_appointment,unity_save_appointment,Veradigm PM,Unity,SaveAppointment,SaveAppointment,W,Built,P0,Read back and confirm before calling
+cancel_appointment,unity_cancel_appointment,Veradigm PM,Unity,SetAppointmentStatus,CancelAppointment,W,Built (verify action),P0,CancelAppointment not in PM reference; reason from get_cancellation_reasons
+confirm_appointment,unity_confirm_appointment,Veradigm PM,Unity,SetAppointmentStatus,—,W,Planned,P2,Confirmation values from GetAppointmentConfirmationResults
+get_cancellation_reasons,unity_get_cancellation_reasons,Veradigm PM,Unity,GetAppointmentCancellationReasons,—,R,Planned,P0,
+get_appointment_types,unity_get_appointment_types,Veradigm PM,Unity,GetAppointmentTypes,—,R,Planned,P1,
+get_day_schedule,unity_get_day_schedule,Veradigm PM,Unity,GetSchedule,—,R,Planned,P2,Huddle brief; staff assistant
+get_changed_appointments,unity_get_changed_appointments,Veradigm PM,Unity,GetAppointmentsByChangeDTTM,—,R,Planned,later,No-show follow-up
+get_patient_recalls,unity_get_patient_recalls,Veradigm PM,Unity,GetRecalls,—,R,Planned,later,Recall outreach
+get_account_balance,unity_get_account_balance,Veradigm PM,Unity,GetPatientAccountBalance,—,R,Planned,P1,Returns one row per voucher; sum them
+get_insurance_policy,unity_get_insurance_policy,Veradigm PM,Unity,GetPatientPolicy,—,R,Planned,P1,
+get_patient,unity_get_patient,Veradigm EHR,Unity,GetPatient,GetPatient,R,Built,P1,
+get_patient_by_mrn,unity_get_patient_by_mrn,Veradigm EHR,Unity,GetPatientByMRN,GetPatientByMRN,R,Built,P1,MRN may match multiple patients
+get_patient_problems,unity_get_patient_problems,Veradigm EHR,Unity,GetProblems,GetPatientProblems,R,Built (verify action),P1,GetPatientProblems not in EHR reference
+get_patient_allergies,unity_get_patient_allergies,Veradigm EHR,Unity,GetAllergies,GetPatientAllergies,R,Built (verify action),P1,GetPatientAllergies not in EHR reference
+get_patient_diagnosis,unity_get_patient_diagnosis,Veradigm EHR,Unity,GetPatientDiagnosis,GetPatientDiagnosis,R,Built,P2,
+get_patient_medications_ehr,unity_get_patient_medications,Veradigm EHR,Unity,GetClinicalSummary (or GetPatientSections),GetPatientMedications,R,Built (verify action),P1,GetPatientMedications not in EHR reference
+create_staff_task,unity_create_staff_task,Veradigm EHR,Unity,SaveTask,—,W (task only),Planned,P1,Refill/callback requests and after-hours follow-up; never writes to the chart
+get_location_hours,unity_get_location_hours,Veradigm EHR,Unity,GetLocation,—,R,Planned,P2,

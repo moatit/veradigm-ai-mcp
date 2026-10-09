@@ -74,3 +74,6 @@ infra/terraform/terraform.tfvars
 # Infra environment files with real secrets
 infra/.env.prod
 infra/.env
+
+# Sandbox verification reports
+verify-sandbox-report*.json
