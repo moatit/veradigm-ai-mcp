@@ -31,7 +31,7 @@ services:
       - FHIR_BASE_URL_SANDBOX=https://fhir.fhirpoint.open.allscripts.com/fhirroute/fhir/CP00101
       - AUTH_URL_SANDBOX=https://fhir.fhirpoint.open.allscripts.com/fhirroute/authorizationV2/CP00101/connect/authorize
       - TOKEN_URL_SANDBOX=https://fhir.fhirpoint.open.allscripts.com/fhirroute/authorizationV2/CP00101/connect/token
-      - FHIR_AUTH_MODE=private_key_jwt
+      - FHIR_AUTH_MODE=${FHIR_AUTH_MODE:-client_secret}
       - FHIR_JWT_PRIVATE_KEY_PATH=/run/drawbridge/fhir-jwt-private.pem
       - FHIR_JWT_KID=drawbridge-dev-2026-10-09-rs256
       - FHIR_JWT_ALG=RS256
