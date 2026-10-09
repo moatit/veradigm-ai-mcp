@@ -1,6 +1,7 @@
 import { registerModule } from './registry';
 import { onCallModule } from '../unity/oncall/notebook';
 import { schedulingModule } from './modules/scheduling';
+import { outreachModule } from './modules/outreach';
 
 /**
  * Every Drawbridge platform module, registered once at startup.
@@ -12,4 +13,5 @@ export function loadPlatformModules(): void {
   loaded = true;
   registerModule(onCallModule);
   registerModule(schedulingModule);
+  registerModule(outreachModule);
 }

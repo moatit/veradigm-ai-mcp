@@ -23,7 +23,8 @@
     "docker:compose:logs": "docker-compose logs -f",
     "verify:sandbox": "ts-node src/scripts/verify-sandbox.ts",
     "smoke": "ts-node src/scripts/smoke-offline.ts",
-    "smoke:scheduling": "ts-node src/scripts/smoke-scheduling.ts"
+    "smoke:scheduling": "ts-node src/scripts/smoke-scheduling.ts",
+    "smoke:outreach": "ts-node src/scripts/smoke-outreach.ts"
   },
   "keywords": [
     "mcp",
