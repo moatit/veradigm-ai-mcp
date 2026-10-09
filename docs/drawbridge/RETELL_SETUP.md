@@ -35,3 +35,10 @@ Paste `retell-prompts/unity-healthcare-agent.md` as the agent prompt.
 ## Staff app
 
 `https://drawbridge.moatit.dev/app`. The login is `DRAWBRIDGE_USERNAME` / `DRAWBRIDGE_PASSWORD` in `deploy/local/.env`.
+
+## Current state (Oct 8, 2026, night)
+
+- Agent `drawbridge-healthcare-agent` (`agent_972b0d5df0a066741f4fe81cc8`, LLM `llm_6f0eb9c3edb1f2d62cb7fe5b02fe`) was created by `deploy/local/retell/build_agent.py` from the live tool list. It is published as v0.
+- The test number (208) 904-3641 answers with it.
+- **Rollback:** `PATCH https://api.retellai.com/update-phone-number/+12089043641` with `{"inbound_agents":[{"agent_id":"agent_050307fbc07b09d456a538fa44","agent_version":36,"weight":1}]}`. This is Kanhaiya's `unity-healthcare-agent`, which is unchanged.
+- Cloudflare Bot Fight Mode is **off** on `moatit.dev`. With it on, Retell's server requests got a 403 challenge.
