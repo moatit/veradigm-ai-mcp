@@ -1,5 +1,6 @@
 import { registerModule } from './registry';
 import { onCallModule } from '../unity/oncall/notebook';
+import { huddleModule } from './modules/huddle';
 
 /**
  * Every Drawbridge platform module, registered once at startup.
@@ -10,4 +11,5 @@ export function loadPlatformModules(): void {
   if (loaded) return;
   loaded = true;
   registerModule(onCallModule);
+  registerModule(huddleModule);
 }
