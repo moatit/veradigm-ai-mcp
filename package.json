@@ -26,7 +26,8 @@
     "smoke:scheduling": "ts-node src/scripts/smoke-scheduling.ts",
     "smoke:outreach": "ts-node src/scripts/smoke-outreach.ts",
     "smoke:huddle": "ts-node src/scripts/smoke-huddle.ts",
-    "smoke:activity": "ts-node src/scripts/smoke-activity.ts"
+    "smoke:activity": "ts-node src/scripts/smoke-activity.ts",
+    "smoke:intake": "ts-node src/scripts/smoke-intake.ts"
   },
   "keywords": [
     "mcp",
