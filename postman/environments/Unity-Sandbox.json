@@ -22,25 +22,25 @@
     },
     {
       "key": "unity_svc_username",
-      "value": "MOATi-0ff5-MOATiTCast-test",
+      "value": "set-in-local-env",
       "type": "secret",
       "enabled": true
     },
     {
       "key": "unity_svc_password",
-      "value": "M!4T#tMd@T6t-cbStle-@GcnTt%St3",
+      "value": "set-in-local-env",
       "type": "secret",
       "enabled": true
     },
     {
       "key": "unity_ehr_username",
-      "value": "Kanhaiya.K.MOATiT",
+      "value": "set-in-local-env",
       "type": "secret",
       "enabled": true
     },
     {
       "key": "unity_ehr_password",
-      "value": "VeradigmConnectTest7371!&",
+      "value": "set-in-local-env",
       "type": "secret",
       "enabled": true
     },
