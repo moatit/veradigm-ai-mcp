@@ -100,7 +100,13 @@ export const UnityActions = {
     GET_CONFIRMATION_RESULTS: action('GET_CONFIRMATION_RESULTS', 'GetAppointmentConfirmationResults'),
     GET_APPOINTMENT_TYPES: action('GET_APPOINTMENT_TYPES', 'GetAppointmentTypes'),
     GET_APPOINTMENTS_BY_CHANGE: action('GET_APPOINTMENTS_BY_CHANGE', 'GetAppointmentsByChangeDTTM'),
-    GET_RECALLS: action('GET_RECALLS', 'GetRecalls')
+    GET_RECALLS: action('GET_RECALLS', 'GetRecalls'),
+    GET_RECALL_TYPES: action('GET_RECALL_TYPES', 'GetRecallTypes'),
+    GET_FIRST_AVAILABLE: action('GET_FIRST_AVAILABLE', 'GetFirstAvailableAppointments'),
+    GET_AVAILABLE_SCHEDULE: action('GET_AVAILABLE_SCHEDULE', 'GetAvailableSchedule'),
+    GET_RESOURCES: action('GET_RESOURCES', 'GetResources'),
+    GET_SCHEDULING_LOCATIONS: action('GET_SCHEDULING_LOCATIONS', 'GetSchedulingLocations'),
+    GET_SCHEDULING_DEPARTMENTS: action('GET_SCHEDULING_DEPARTMENTS', 'GetSchedulingDepartments')
   },
 
   // Billing Actions (Veradigm PM)
@@ -132,7 +138,8 @@ export const UnityActions = {
 
   // Practice info (Veradigm EHR)
   Practice: {
-    GET_LOCATION: action('GET_LOCATION', 'GetLocation')
+    GET_LOCATION: action('GET_LOCATION', 'GetLocation'),
+    GET_PATIENT_DEMOGRAPHICS: action('GET_PATIENT_DEMOGRAPHICS', 'GetPatientDemographics')
   },
 
   // Provider Actions
