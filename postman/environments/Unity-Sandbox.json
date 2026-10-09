@@ -22,13 +22,13 @@
     },
     {
       "key": "unity_svc_username",
-      "value": "MOATi-0ff5-MOATiTCast-test",
+      "value": "MOATi-dd12-MOATiTCast-test",
       "type": "secret",
       "enabled": true
     },
     {
       "key": "unity_svc_password",
-      "value": "M!4T#tMd@T6t-cbStle-@GcnTt%St3",
+      "value": "M!8T#tMf@Tet-c1Stl3-@G2nTt%St3",
       "type": "secret",
       "enabled": true
     },

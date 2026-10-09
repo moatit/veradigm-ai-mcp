@@ -38,9 +38,7 @@ export class UnityClinicalTools {
       const response = await this.unityService.executeAction<any>(
         UnityActions.Clinical.GET_PATIENT_PROBLEMS,
         {
-          Parameter1: args.status || "active",
-          Parameter2: "",
-          Parameter3: "",
+          Parameter1: "problems",
         },
         args.patientId,
         "EHR",
@@ -55,7 +53,13 @@ export class UnityClinicalTools {
         };
       }
 
-      const problems = this.parseProblems(response.data);
+      let problems = this.parseProblems(response.data);
+      if (args.status && args.status !== "all") {
+        const wanted = args.status.toLowerCase();
+        problems = problems.filter(
+          (item) => String(item.status || "active").toLowerCase() === wanted,
+        );
+      }
 
       return {
         success: true,
@@ -95,9 +99,7 @@ export class UnityClinicalTools {
       const response = await this.unityService.executeAction<any>(
         UnityActions.Clinical.GET_PATIENT_MEDICATIONS,
         {
-          Parameter1: args.status || "active",
-          Parameter2: "",
-          Parameter3: "",
+          Parameter1: "medications",
         },
         args.patientId,
         "EHR",
@@ -112,7 +114,12 @@ export class UnityClinicalTools {
         };
       }
 
-      const medications = this.parseMedications(response.data);
+      let medications = this.parseMedications(response.data);
+      if (args.status === "active") {
+        medications = medications.filter(
+          (item) => String(item.status || "active").toLowerCase() === "active",
+        );
+      }
 
       return {
         success: true,
@@ -152,9 +159,7 @@ export class UnityClinicalTools {
       const response = await this.unityService.executeAction<any>(
         UnityActions.Clinical.GET_PATIENT_ALLERGIES,
         {
-          Parameter1: "",
-          Parameter2: "",
-          Parameter3: "",
+          Parameter1: "allergies",
         },
         args.patientId,
         "EHR",
@@ -206,12 +211,23 @@ export class UnityClinicalTools {
         `[Unity Clinical] Getting diagnoses for patient ${args.patientId}`,
       );
 
+      const encounterId = await this.resolveEncounterId(
+        args.patientId,
+        args.encounterId,
+      );
+      if (!encounterId) {
+        return {
+          success: false,
+          diagnoses: [],
+          total: 0,
+          message: "No encounter was found for this patient.",
+        };
+      }
+
       const response = await this.unityService.executeAction<any>(
         UnityActions.Clinical.GET_PATIENT_DIAGNOSIS,
         {
-          Parameter1: args.encounterId || "",
-          Parameter2: "",
-          Parameter3: "",
+          Parameter1: encounterId,
         },
         args.patientId,
         "EHR",
@@ -246,48 +262,82 @@ export class UnityClinicalTools {
   // Helper Methods
   // ============================================
 
-  private parseProblems(data: any): any[] {
+  private async resolveEncounterId(
+    patientId: string,
+    encounterId?: string,
+  ): Promise<string> {
+    if (encounterId) return encounterId;
+
+    const response = await this.unityService.executeAction<any>(
+      "GetEncounter",
+      {},
+      patientId,
+      "EHR",
+    );
+    if (!response.success) return "";
+
+    const rows = this.rows(response.data, "getencounterinfo");
+    return String(rows[0]?.EncounterID || rows[0]?.encounterID || "");
+  }
+
+  private rows(data: any, ...keys: string[]): any[] {
     if (!data) return [];
 
-    // Handle various Unity response formats
-    const problems = data.getpatientproblemsinfo || data.problems || data;
-    if (!problems) return [];
+    let node = data;
+    if (Array.isArray(node) && node[0] && typeof node[0] === "object") {
+      const key = keys.find((name) => node[0][name] != null);
+      if (key) node = node[0][key];
+    } else if (node && typeof node === "object") {
+      const key = keys.find((name) => node[name] != null);
+      if (key) node = node[key];
+    }
 
-    const items = Array.isArray(problems) ? problems : [problems];
+    if (!node) return [];
+    return Array.isArray(node) ? node : [node];
+  }
+
+  private parseProblems(data: any): any[] {
+    const items = this.rows(
+      data,
+      "getclinicalsummaryinfo",
+      "getproblemsinfo",
+      "problems",
+    );
 
     return items
       .map((item: any) => ({
-        id: item.ProblemID || item.ID,
-        code: item.Code || item.ICD10Code || item.ICD9Code,
-        description: item.Description || item.ProblemDescription || item.Name,
-        status: item.Status || "active",
-        onsetDate: item.OnsetDate || item.StartDate,
+        id: item.transid || item.ProblemID || item.ID,
+        code: item.code || item.Code || item.entrycode || item.ICD10Code,
+        description:
+          item.description || item.Description || item.detail || item.Name,
+        status: item.status || item.Status || "active",
+        onsetDate: item.displaydate || item.OnsetDate || item.StartDate,
         resolvedDate: item.ResolvedDate || item.EndDate,
         severity: item.Severity,
-        type: item.Type || item.ProblemType,
+        type: item.section || item.Type || item.ProblemType,
       }))
       .filter((p: any) => p.id || p.code || p.description);
   }
 
   private parseMedications(data: any): any[] {
-    if (!data) return [];
-
-    const medications =
-      data.getpatientmedicationsinfo || data.medications || data;
-    if (!medications) return [];
-
-    const items = Array.isArray(medications) ? medications : [medications];
+    const items = this.rows(
+      data,
+      "getclinicalsummaryinfo",
+      "getmedicationsinfo",
+      "medications",
+    );
 
     return items
       .map((item: any) => ({
-        id: item.MedicationID || item.ID,
-        name: item.MedicationName || item.DrugName || item.Name,
-        dose: item.Dose || item.Dosage,
+        id: item.transid || item.MedicationID || item.ID,
+        name:
+          item.description || item.MedicationName || item.DrugName || item.Name,
+        dose: item.Dose || item.Dosage || item.detail,
         unit: item.Unit || item.DoseUnit,
         frequency: item.Frequency || item.Sig,
         route: item.Route,
-        status: item.Status || "active",
-        startDate: item.StartDate || item.OrderDate,
+        status: item.status || item.Status || "active",
+        startDate: item.displaydate || item.StartDate || item.OrderDate,
         endDate: item.EndDate || item.StopDate,
         prescriber: item.Prescriber || item.OrderingProvider,
         pharmacy: item.Pharmacy,
@@ -297,46 +347,47 @@ export class UnityClinicalTools {
   }
 
   private parseAllergies(data: any): any[] {
-    if (!data) return [];
-
-    const allergies = data.getpatientallergiesinfo || data.allergies || data;
-    if (!allergies) return [];
-
-    const items = Array.isArray(allergies) ? allergies : [allergies];
+    const items = this.rows(
+      data,
+      "getclinicalsummaryinfo",
+      "getallergiesinfo",
+      "allergies",
+    );
 
     return items
       .map((item: any) => ({
-        id: item.AllergyID || item.ID,
-        allergen: item.Allergen || item.AllergyName || item.Name,
-        type: item.Type || item.AllergyType,
+        id: item.transid || item.AllergyID || item.ID,
+        allergen:
+          item.description || item.Allergen || item.AllergyName || item.Name,
+        type: item.section || item.Type || item.AllergyType,
         severity: item.Severity,
-        reaction: item.Reaction || item.ReactionDescription,
-        status: item.Status || "active",
-        onsetDate: item.OnsetDate,
+        reaction: item.detail || item.Reaction || item.ReactionDescription,
+        status: item.status || item.Status || "active",
+        onsetDate: item.displaydate || item.OnsetDate,
         source: item.Source || item.ReportedBy,
       }))
       .filter((a: any) => a.id || a.allergen);
   }
 
   private parseDiagnoses(data: any): any[] {
-    if (!data) return [];
-
-    const diagnoses = data.getpatientdiagnosisinfo || data.diagnoses || data;
-    if (!diagnoses) return [];
-
-    const items = Array.isArray(diagnoses) ? diagnoses : [diagnoses];
+    const items = this.rows(data, "getpatientdiagnosisinfo", "diagnoses");
 
     return items
       .map((item: any) => ({
-        id: item.DiagnosisID || item.ID,
-        code: item.Code || item.ICD10Code || item.DiagnosisCode,
-        description: item.Description || item.DiagnosisDescription,
-        type: item.Type || item.DiagnosisType,
+        id: item.DiagnosisID || item.AssessmentId || item.ID,
+        code: item.ICD10 || item.Code || item.ICD10Code || item.DiagnosisCode,
+        description: item.Diagnosis || item.Description || item.DiagnosisDescription,
+        type: item.Source || item.Type || item.DiagnosisType,
         status: item.Status,
         date: item.Date || item.DiagnosisDate,
         provider: item.Provider || item.DiagnosingProvider,
+        encounterId: item.encounterID || item.EncounterID,
       }))
-      .filter((d: any) => d.id || d.code || d.description);
+      .filter(
+        (d: any) =>
+          (d.id || d.code || d.description) &&
+          !String(d.status || "").toLowerCase().includes("problem getting"),
+      );
   }
 
   /**
