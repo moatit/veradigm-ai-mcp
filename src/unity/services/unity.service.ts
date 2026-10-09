@@ -124,12 +124,24 @@ export class UnityService {
       console.error(`[Unity Service] Executing action: ${action}`);
       console.error(`[Unity Service] Target: ${targetSystem}, PatientID: ${patientId || 'N/A'}`);
 
-      // Execute the request
-      const response = await this.sendMagicRequest(request);
-      
+      // Execute the request. Reads get one retry when Veradigm's gateway blips (502/503/504, reset);
+      // writes (Save*/Set*) never retry here, so a slow success can't be sent twice.
+      let response: any;
+      try {
+        response = await this.sendMagicRequest(request);
+      } catch (first: any) {
+        const status = first?.response?.status;
+        const transient = [502, 503, 504].includes(status) || ['ECONNRESET', 'ETIMEDOUT', 'EAI_AGAIN'].includes(first?.code);
+        if (!transient || /^(Save|Set)/.test(action)) throw first;
+        console.error(`[Unity Service] ${action} transient ${status || first?.code}; retrying once`);
+        await new Promise((r) => setTimeout(r, 400));
+        response = await this.sendMagicRequest(request);
+      }
+
       return this.parseResponse<T>(response);
-    } catch (error) {
-      console.error(`[Unity Service] Action ${action} failed:`, error);
+    } catch (error: any) {
+      // Message only: the full axios error carries the request body, including the session token.
+      console.error(`[Unity Service] Action ${action} failed: ${error?.response?.status || error?.code || ''} ${String(error?.message || error).slice(0, 200)}`);
       throw this.handleError(error, action);
     }
   }
@@ -324,40 +336,19 @@ export class UnityService {
     },
     target?: UnityTargetSystem
   ): Promise<UnityMagicResponse> {
-    // Build XML search criteria for SearchPatients action
-    const xmlCriteria = this.buildPatientSearchXml(searchCriteria);
-    
+    // SearchPatients takes plain search text: "Last, First", "Last" or an MRN. Verified on the PM and
+    // EHR sandboxes Oct 9; XML criteria return a single "No patients found" row. DOB is filtered by the caller.
     return this.executeAction(UnityActions.Patient.SEARCH_PATIENTS, {
-      Parameter1: xmlCriteria
+      Parameter1: this.patientSearchText(searchCriteria)
     }, '', target);
   }
 
-  /**
-   * Build XML search criteria for patient search
-   */
-  private buildPatientSearchXml(criteria: {
-    lastName?: string;
-    firstName?: string;
-    dob?: string;
-    mrn?: string;
-  }): string {
-    let xml = '<searchcriteria>';
-    
-    if (criteria.lastName) {
-      xml += `<LastName>${this.escapeXml(criteria.lastName)}</LastName>`;
-    }
-    if (criteria.firstName) {
-      xml += `<FirstName>${this.escapeXml(criteria.firstName)}</FirstName>`;
-    }
-    if (criteria.dob) {
-      xml += `<DOB>${this.escapeXml(criteria.dob)}</DOB>`;
-    }
-    if (criteria.mrn) {
-      xml += `<MRN>${this.escapeXml(criteria.mrn)}</MRN>`;
-    }
-    
-    xml += '</searchcriteria>';
-    return xml;
+  /** Plain SearchPatients text: "Last, First", "Last", "First" or an MRN. */
+  private patientSearchText(criteria: { lastName?: string; firstName?: string; dob?: string; mrn?: string }): string {
+    const last = (criteria.lastName || '').trim();
+    const first = (criteria.firstName || '').trim();
+    if (last && first) return `${last}, ${first}`;
+    return last || first || (criteria.mrn || '').trim();
   }
 
   /**

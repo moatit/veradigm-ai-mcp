@@ -28,13 +28,20 @@ export function unityRows(data: any): Record<string, any>[] {
   return rows;
 }
 
-/** Read the first present field from a row, matching names case-insensitively. */
+/** Field-name key: case- and underscore-insensitive ("Appointment_ID" == "AppointmentID"). */
+const fieldKey = (k: string) => k.toLowerCase().replace(/_/g, '');
+
+/** Read the first present field from a row, matching names case- and underscore-insensitively. */
 export function pick(row: Record<string, any> | undefined, ...names: string[]): string {
   if (!row) return '';
   const lower: Record<string, any> = {};
-  for (const k of Object.keys(row)) lower[k.toLowerCase()] = row[k];
+  for (const k of Object.keys(row)) {
+    const key = fieldKey(k);
+    const cur = lower[key];
+    if (cur === undefined || cur === null || String(cur).trim() === '') lower[key] = row[k];
+  }
   for (const n of names) {
-    const v = lower[n.toLowerCase()];
+    const v = lower[fieldKey(n)];
     if (v !== undefined && v !== null && String(v).trim() !== '') return String(v).trim();
   }
   return '';

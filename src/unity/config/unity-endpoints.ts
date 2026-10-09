@@ -89,12 +89,16 @@ export const UnityActions = {
   // Appointment/Scheduling Actions (Veradigm PM)
   Scheduling: {
     GET_SCHEDULE: action('GET_SCHEDULE', 'GetSchedule'),
-    GET_APPOINTMENTS: action('GET_APPOINTMENTS', 'GetAppointments'), // verify; reference: GetScheduleByPatientID
+    // Sandbox Oct 9: GetScheduleByPatientID returns one patient's full history (filter future here).
+    // Never GetSchedule with a PatientID: it ignores the patient and returns everyone's visits for the day.
+    GET_APPOINTMENTS: action('GET_APPOINTMENTS', 'GetScheduleByPatientID'),
     GET_APPOINTMENT_BY_ID: action('GET_APPOINTMENT_BY_ID', 'GetAppointmentById'),
     SAVE_APPOINTMENT: action('SAVE_APPOINTMENT', 'SaveAppointment'),
     CANCEL_APPOINTMENT: action('CANCEL_APPOINTMENT', 'CancelAppointment'), // verify; reference: SetAppointmentStatus
     SET_APPOINTMENT_STATUS: action('SET_APPOINTMENT_STATUS', 'SetAppointmentStatus'),
-    GET_OPEN_SLOTS: action('GET_OPEN_SLOTS', 'GetAllAvailableAppointments'), // sandbox Oct 8: GetOpenSlots = "Action is not valid for this license"
+    // Sandbox Oct 9: GetAvailableSchedule(resource ABBREVIATION, start, end) returns one row per day with
+    // 5-minute bitmaps (see decodeAvailability). GetOpenSlots is not licensed; a numeric resource ID returns 0 rows.
+    GET_OPEN_SLOTS: action('GET_OPEN_SLOTS', 'GetAvailableSchedule'),
     BOOK_APPOINTMENT: action('BOOK_APPOINTMENT', 'BookAppointment'), // unused; reference: SaveAppointment
     GET_CANCELLATION_REASONS: action('GET_CANCELLATION_REASONS', 'GetAppointmentCancellationReasons'),
     GET_CONFIRMATION_RESULTS: action('GET_CONFIRMATION_RESULTS', 'GetAppointmentConfirmationResults'),
@@ -125,10 +129,12 @@ export const UnityActions = {
 
   // Clinical Actions (Veradigm EHR, read only)
   Clinical: {
-    GET_PATIENT_PROBLEMS: action('GET_PATIENT_PROBLEMS', 'GetPatientProblems'), // verify; reference: GetProblems
+    // Sandbox Oct 9: GetClinicalSummary with a section name (Parameter1) returns the chart summary rows for
+    // medications / allergies / problems. GetProblems returns the full history (250 rows), GetAllergies 0 rows.
+    GET_PATIENT_PROBLEMS: action('GET_PATIENT_PROBLEMS', 'GetClinicalSummary'),
     GET_PATIENT_DIAGNOSIS: action('GET_PATIENT_DIAGNOSIS', 'GetPatientDiagnosis'),
     GET_PATIENT_MEDICATIONS: action('GET_PATIENT_MEDICATIONS', 'GetClinicalSummary'), // sandbox Oct 8: GetPatientMedications = not valid for license
-    GET_PATIENT_ALLERGIES: action('GET_PATIENT_ALLERGIES', 'GetAllergies') // sandbox Oct 8: GetPatientAllergies = not valid for license
+    GET_PATIENT_ALLERGIES: action('GET_PATIENT_ALLERGIES', 'GetClinicalSummary') // sandbox Oct 8: GetPatientAllergies = not valid for license
   },
 
   // Staff tasks (Veradigm EHR). The ONLY EHR write the agent may make.

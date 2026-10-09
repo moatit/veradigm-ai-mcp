@@ -19,11 +19,18 @@ function patientLine(p: {
   lastName?: string;
   dateOfBirth?: string;
   mrn?: string;
+  patientId?: string;
+  chartPatientId?: string;
 }): string {
   const name = [p.firstName, p.lastName].filter(Boolean).join(" ") || "Unknown";
   const dob = p.dateOfBirth ? `, DOB ${p.dateOfBirth}` : "";
   const mrn = p.mrn ? ` (MRN ${p.mrn})` : "";
-  return `${name}${dob}${mrn}`;
+  // IDs are for the agent's next tool calls; they are not read to the caller.
+  const ids = [
+    p.patientId ? `patientId ${p.patientId}` : "",
+    p.chartPatientId ? `chartPatientId ${p.chartPatientId}` : "",
+  ].filter(Boolean);
+  return `${name}${dob}${mrn}${ids.length ? ` [${ids.join(", ")}]` : ""}`;
 }
 
 function slotLine(s: {
@@ -143,6 +150,8 @@ export function toVoiceSummary(
         lastName?: string;
         dateOfBirth?: string;
         mrn?: string;
+        patientId?: string;
+        chartPatientId?: string;
       }>
     )
       .slice(0, 5)

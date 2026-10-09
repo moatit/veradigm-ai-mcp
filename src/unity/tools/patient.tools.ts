@@ -100,6 +100,17 @@ export interface ParsedPatient {
   ethnicity?: string;
   language?: string;
   maritalStatus?: string;
+  /** Search only: Veradigm® PM patient ID (appointments, balance, insurance). */
+  patientId?: string;
+  /** Search only: Veradigm® EHR patient ID (medications, allergies, problems, staff tasks). */
+  chartPatientId?: string;
+}
+
+/** MM/DD/YYYY with zero padding ("3/5/1979" → "03/05/1979"); '' when not a date. */
+function normalizeDob(v?: string): string {
+  const m = String(v || "").trim().match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})/);
+  if (!m) return "";
+  return `${m[1].padStart(2, "0")}/${m[2].padStart(2, "0")}/${m[3]}`;
 }
 
 /**
@@ -302,7 +313,12 @@ export class UnityPatientTools {
   }
 
   /**
-   * Search for patients
+   * Search for patients in Veradigm® PM and Veradigm® EHR (same practice, separate patient IDs).
+   *
+   * SearchPatients takes plain "Last, First" text and returns name matches; date of birth is
+   * filtered here. Each result carries `patientId` (PM: appointments, balance, insurance) and
+   * `chartPatientId` (EHR: medications, allergies, problems). A system that fails is an error only
+   * when both fail; a PM-only failure still returns chart matches without a PM ID.
    */
   async searchPatients(args: {
     lastName?: string;
@@ -316,58 +332,60 @@ export class UnityPatientTools {
     message: string;
   }> {
     try {
-      // At least one search criterion is required
-      if (!args.lastName && !args.firstName && !args.dateOfBirth && !args.mrn) {
+      if (!args.lastName && !args.firstName && !args.mrn) {
         throw UnityErrorHandler.createValidationError(
-          "At least one search criterion is required (lastName, firstName, dateOfBirth, or mrn)",
+          "A last name, first name or MRN is required to search",
         );
       }
 
-      console.error(`[Unity Patient] Searching patients`);
+      console.error(`[Unity Patient] Searching patients (PM + EHR)`);
 
-      const response = await this.unityService.searchPatients({
-        lastName: args.lastName,
-        firstName: args.firstName,
-        dob: args.dateOfBirth,
-        mrn: args.mrn,
-      });
+      const criteria = { lastName: args.lastName, firstName: args.firstName, mrn: args.mrn };
+      const [pmRes, ehrRes] = await Promise.all(
+        (["PM", "EHR"] as UnityTargetSystem[]).map((t) =>
+          this.unityService.searchPatients(criteria, t).catch((e) => ({ success: false, error: String(e?.message || e) }) as any),
+        ),
+      );
 
       // A failed search is an error, not "no match" (CLAUDE.md rule 5).
-      if (!response.success) {
+      if (!pmRes.success && !ehrRes.success) {
         throw UnityErrorHandler.createAPIError(
-          response.error || "Patient search failed",
+          pmRes.error || ehrRes.error || "Patient search failed",
           UnityActions.Patient.SEARCH_PATIENTS,
         );
       }
 
-      let patients = this.parsePatientsList(response.data);
+      const filter = (list: ParsedPatient[]) =>
+        this.filterPatients(
+          list.filter((p) => p.id),
+          { ...args, dateOfBirth: normalizeDob(args.dateOfBirth) || args.dateOfBirth },
+        );
+      const pm = pmRes.success ? filter(this.parsePatientsList(pmRes.data)) : [];
+      const ehr = ehrRes.success ? filter(this.parsePatientsList(ehrRes.data)) : [];
 
-      // Unity API often returns ALL patients regardless of filters.
-      // Apply client-side filtering so only relevant results come through.
-      const hasFilter = args.firstName || args.lastName || args.dateOfBirth || args.mrn;
-      if (hasFilter && patients.length > 10) {
-        patients = this.filterPatients(patients, args);
-        console.error(`[Unity Patient] Client-side filter: ${patients.length} match(es)`);
+      // One person per name + DOB: PM record first, EHR chart ID attached.
+      const key = (p: ParsedPatient) =>
+        `${(p.lastName || "").trim().toLowerCase()}|${(p.firstName || "").trim().toLowerCase()}|${normalizeDob(p.dateOfBirth)}`;
+      const merged = new Map<string, ParsedPatient>();
+      for (const p of pm) merged.set(key(p), { ...p, patientId: p.id });
+      for (const p of ehr) {
+        const k = key(p);
+        const existing = merged.get(k);
+        if (existing) existing.chartPatientId = p.id;
+        else merged.set(k, { ...p, chartPatientId: p.id });
       }
+      let patients = [...merged.values()];
+      if (args.limit) patients = patients.slice(0, args.limit);
 
-      // Apply limit if specified
-      const limitedPatients = args.limit
-        ? patients.slice(0, args.limit)
-        : patients;
-
-      const noResults = limitedPatients.length === 0;
-      let message = `Found ${limitedPatients.length} patient(s)`;
-      if (noResults && args.mrn) {
-        message = `No patient found with MRN ${args.mrn}. Try searching by patient name instead.`;
-      } else if (noResults) {
-        message = "No patients found matching the search criteria. Try broadening the search with fewer filters.";
+      let message = `Found ${patients.length} patient(s)`;
+      if (patients.length === 0) {
+        message = args.mrn
+          ? `No patient found with MRN ${args.mrn}. Try searching by patient name instead.`
+          : "No patient matched that name and date of birth.";
       }
+      if (!pmRes.success) message += " (Veradigm PM could not be reached, so appointment and billing IDs are missing.)";
 
-      return {
-        patients: limitedPatients,
-        total: limitedPatients.length,
-        message,
-      };
+      return { patients, total: patients.length, message };
     } catch (error) {
       if (error instanceof UnityMCPError) {
         throw error;
@@ -501,7 +519,7 @@ export class UnityPatientTools {
 
       // DOB provided → strongest filter; name is soft (first 2 chars)
       if (cDob) {
-        const dobMatch = norm(p.dateOfBirth) === cDob;
+        const dobMatch = (normalizeDob(p.dateOfBirth) || norm(p.dateOfBirth)) === (normalizeDob(cDob) || cDob);
         if (!dobMatch) return false;
 
         // If name criteria also given, soft-match first 2 chars
@@ -1149,7 +1167,10 @@ export class UnityPatientTools {
       },
       {
         name: "unity_search_patients",
-        description: "Search for patients in Veradigm via Unity API",
+        description:
+          "Find a patient in Veradigm PM and Veradigm EHR by last name, first name and date of birth. " +
+          "Each match returns patientId (Veradigm PM: appointments, balance, insurance) and chartPatientId " +
+          "(Veradigm EHR: medications, allergies, problems, staff messages). The caller is verified only when exactly one patient matches all three.",
         inputSchema: {
           type: "object",
           properties: {

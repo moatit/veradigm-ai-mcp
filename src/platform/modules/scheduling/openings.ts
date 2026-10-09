@@ -344,6 +344,7 @@ export async function findOpenings(deps: Pick<PlatformDeps, 'runTool'>, args: Fi
 
   const slotArgs: Record<string, string> = { startDate: q.startDate, endDate: q.endDate };
   if (providerIds?.length === 1) slotArgs.providerId = providerIds[0];
+  slotArgs.maxPerDay = '0'; // staff see every opening, not the phone agent's short list
   const res = await deps.runTool('unity_get_open_slots', slotArgs, ctx);
   if (isToolFailure(res)) rethrow(res);
   if (!res || !Array.isArray(res.slots)) {

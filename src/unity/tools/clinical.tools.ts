@@ -4,6 +4,18 @@ import { UnityService } from "../services/unity.service";
 import { UnityErrorHandler, UnityMCPError } from "../utils/error-handler";
 import { pick, unityRows } from "../utils/unity-rows";
 
+
+/**
+ * GetClinicalSummary takes the section name ("medications", "allergies", "problems") in Parameter1
+ * and returns only that section (verified on the EHR sandbox Oct 9). Other actions keep their own Parameter1.
+ */
+function summaryParams(action: string, section: string, otherParameter1: string) {
+  return {
+    Parameter1: action === "GetClinicalSummary" ? section : otherParameter1,
+    Parameter2: "",
+    Parameter3: "",
+  };
+}
 /**
  * Unity Clinical Tools
  *
@@ -38,11 +50,7 @@ export class UnityClinicalTools {
 
       const response = await this.unityService.executeAction<any>(
         UnityActions.Clinical.GET_PATIENT_PROBLEMS,
-        {
-          Parameter1: args.status || "active",
-          Parameter2: "",
-          Parameter3: "",
-        },
+        summaryParams(UnityActions.Clinical.GET_PATIENT_PROBLEMS, "problems", args.status || "active"),
         args.patientId,
         "EHR",
       );
@@ -91,15 +99,7 @@ export class UnityClinicalTools {
 
       const response = await this.unityService.executeAction<any>(
         UnityActions.Clinical.GET_PATIENT_MEDICATIONS,
-        {
-          // GetClinicalSummary takes the section name in Parameter1 (unverified until the EHR user is set)
-          Parameter1:
-            UnityActions.Clinical.GET_PATIENT_MEDICATIONS === "GetClinicalSummary"
-              ? process.env.UNITY_MEDS_SECTION || "medications"
-              : args.status || "active",
-          Parameter2: "",
-          Parameter3: "",
-        },
+        summaryParams(UnityActions.Clinical.GET_PATIENT_MEDICATIONS, process.env.UNITY_MEDS_SECTION || "medications", args.status || "active"),
         args.patientId,
         "EHR",
       );
@@ -148,11 +148,7 @@ export class UnityClinicalTools {
 
       const response = await this.unityService.executeAction<any>(
         UnityActions.Clinical.GET_PATIENT_ALLERGIES,
-        {
-          Parameter1: "",
-          Parameter2: "",
-          Parameter3: "",
-        },
+        summaryParams(UnityActions.Clinical.GET_PATIENT_ALLERGIES, "allergies", ""),
         args.patientId,
         "EHR",
       );
@@ -241,12 +237,16 @@ export class UnityClinicalTools {
 
   private parseProblems(data: any): any[] {
     return unityRows(data)
+      .filter((item) => {
+        const section = pick(item, "Section", "SectionName").toLowerCase();
+        return !section || section.includes("problem");
+      })
       .map((item) => ({
         id: pick(item, "ProblemID", "ID"),
         code: pick(item, "Code", "ICD10Code", "ICD9Code"),
         description: pick(item, "Description", "ProblemDescription", "Name", "DisplayName"),
         status: pick(item, "Status") || "active",
-        onsetDate: pick(item, "OnsetDate", "StartDate"),
+        onsetDate: pick(item, "OnsetDate", "StartDate", "DisplayDate"),
         resolvedDate: pick(item, "ResolvedDate", "EndDate"),
         severity: pick(item, "Severity"),
         type: pick(item, "Type", "ProblemType"),
@@ -266,10 +266,10 @@ export class UnityClinicalTools {
         name: pick(item, "MedicationName", "DrugName", "Name", "Description", "DisplayName"),
         dose: pick(item, "Dose", "Dosage"),
         unit: pick(item, "Unit", "DoseUnit"),
-        frequency: pick(item, "Frequency", "Sig"),
+        frequency: pick(item, "Frequency", "Sig", "Detail"),
         route: pick(item, "Route"),
         status: pick(item, "Status") || "active",
-        startDate: pick(item, "StartDate", "OrderDate"),
+        startDate: pick(item, "StartDate", "OrderDate", "DisplayDate"),
         endDate: pick(item, "EndDate", "StopDate"),
         prescriber: pick(item, "Prescriber", "OrderingProvider"),
         pharmacy: pick(item, "Pharmacy"),
@@ -280,6 +280,10 @@ export class UnityClinicalTools {
 
   private parseAllergies(data: any): any[] {
     return unityRows(data)
+      .filter((item) => {
+        const section = pick(item, "Section", "SectionName").toLowerCase();
+        return !section || section.includes("allerg");
+      })
       .map((item) => ({
         id: pick(item, "AllergyID", "ID"),
         allergen: pick(item, "Allergen", "AllergyName", "Name", "Description", "DisplayName"),
@@ -321,7 +325,7 @@ export class UnityClinicalTools {
           properties: {
             patientId: {
               type: "string",
-              description: "Patient ID to retrieve problems for",
+              description: "chartPatientId (Veradigm EHR ID) from unity_search_patients",
             },
             status: {
               type: "string",
@@ -342,7 +346,7 @@ export class UnityClinicalTools {
           properties: {
             patientId: {
               type: "string",
-              description: "Patient ID to retrieve medications for",
+              description: "chartPatientId (Veradigm EHR ID) from unity_search_patients",
             },
             status: {
               type: "string",
@@ -363,7 +367,7 @@ export class UnityClinicalTools {
           properties: {
             patientId: {
               type: "string",
-              description: "Patient ID to retrieve allergies for",
+              description: "chartPatientId (Veradigm EHR ID) from unity_search_patients",
             },
           },
           required: ["patientId"],
@@ -378,7 +382,7 @@ export class UnityClinicalTools {
           properties: {
             patientId: {
               type: "string",
-              description: "Patient ID to retrieve diagnoses for",
+              description: "chartPatientId (Veradigm EHR ID) from unity_search_patients",
             },
             encounterId: {
               type: "string",
