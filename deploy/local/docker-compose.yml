@@ -26,12 +26,22 @@ services:
       - NODE_ENV=sandbox
       - MCP_SERVER_PORT=3000
       - MCP_SERVER_HOST=0.0.0.0
+      # Veradigm FHIR R4 sandbox (practice CP00101, same as the Unity EHR sandbox), system app "MVA"
+      - CLIENT_ID=${VERADIGM_FHIR_CLIENT_ID}
+      - FHIR_BASE_URL_SANDBOX=https://fhir.fhirpoint.open.allscripts.com/fhirroute/fhir/CP00101
+      - AUTH_URL_SANDBOX=https://fhir.fhirpoint.open.allscripts.com/fhirroute/authorizationV2/CP00101/connect/authorize
+      - TOKEN_URL_SANDBOX=https://fhir.fhirpoint.open.allscripts.com/fhirroute/authorizationV2/CP00101/connect/token
+      - FHIR_AUTH_MODE=private_key_jwt
+      - FHIR_JWT_PRIVATE_KEY_PATH=/run/drawbridge/fhir-jwt-private.pem
+      - FHIR_JWT_KID=drawbridge-dev-2026-10-09-rs256
+      - FHIR_JWT_ALG=RS256
       - ADMIN_PORTAL_URL=http://admin:5001
       - MCP_CHANNEL=RETELL
       - CALL_RECORDS_DIR=/app/data
       - CLINIC_TIMEZONE=America/Boise
     volumes:
       - drawbridge-data:/app/data
+      - ./secrets/fhir-jwt-private.pem:/run/drawbridge/fhir-jwt-private.pem:ro
     restart: unless-stopped
     networks: [drawbridge]
 
