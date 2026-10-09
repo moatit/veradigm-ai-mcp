@@ -21,7 +21,8 @@
     "docker:compose:up": "docker-compose up -d",
     "docker:compose:down": "docker-compose down",
     "docker:compose:logs": "docker-compose logs -f",
-    "verify:sandbox": "ts-node src/scripts/verify-sandbox.ts"
+    "verify:sandbox": "ts-node src/scripts/verify-sandbox.ts",
+    "smoke": "ts-node src/scripts/smoke-offline.ts"
   },
   "keywords": [
     "mcp",

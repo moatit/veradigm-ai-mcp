@@ -271,11 +271,12 @@ export class UnityPatientTools {
         args.target || "EHR",
       );
 
+      // A failed call is an error, not "patient not found" (CLAUDE.md rule 5).
       if (!response.success) {
-        return {
-          success: false,
-          message: response.error || "Patient not found",
-        };
+        throw UnityErrorHandler.createAPIError(
+          response.error || "Failed to get patient",
+          UnityActions.Patient.GET_PATIENT,
+        );
       }
 
       const patient = this.parsePatientFromUnity(response.data);
@@ -331,12 +332,12 @@ export class UnityPatientTools {
         mrn: args.mrn,
       });
 
+      // A failed search is an error, not "no match" (CLAUDE.md rule 5).
       if (!response.success) {
-        return {
-          patients: [],
-          total: 0,
-          message: response.error || "Search failed",
-        };
+        throw UnityErrorHandler.createAPIError(
+          response.error || "Patient search failed",
+          UnityActions.Patient.SEARCH_PATIENTS,
+        );
       }
 
       let patients = this.parsePatientsList(response.data);
@@ -408,10 +409,10 @@ export class UnityPatientTools {
 
       if (!response.success) {
         console.error(`[Unity Patient] getPatientByMRN total: ${Date.now() - t0}ms (API failed)`);
-        return {
-          success: false,
-          message: response.error || "Patient not found",
-        };
+        throw UnityErrorHandler.createAPIError(
+          response.error || "Failed to get patient by MRN",
+          UnityActions.Patient.GET_PATIENT_BY_MRN,
+        );
       }
 
       let patient = this.parsePatientFromUnity(response.data);

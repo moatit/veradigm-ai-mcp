@@ -18,6 +18,10 @@ import { UnityService } from "./services/unity.service";
 import { UnityAppointmentTools } from "./tools/appointment.tools";
 import { UnityClinicalTools } from "./tools/clinical.tools";
 import { UnityPatientTools } from "./tools/patient.tools";
+import { UnityBillingTools } from "./tools/billing.tools";
+import { UnityTaskTools } from "./tools/task.tools";
+import { toToolFailure } from "./utils/tool-result";
+import { withIdempotency } from "./utils/idempotency";
 
 const app = express();
 const PORT = process.env.UNITY_PORT || 3001;
@@ -28,6 +32,8 @@ const unityService = new UnityService(authService);
 const appointmentTools = new UnityAppointmentTools(unityService);
 const patientTools = new UnityPatientTools(unityService);
 const clinicalTools = new UnityClinicalTools(unityService);
+const billingTools = new UnityBillingTools(unityService);
+const taskTools = new UnityTaskTools(unityService);
 
 // Middleware
 app.use(cors());
@@ -35,10 +41,9 @@ app.use(express.json());
 
 // Request logging
 app.use((req: Request, res: Response, next: NextFunction) => {
-  console.log(`📥 ${new Date().toISOString()} ${req.method} ${req.path}`);
-  if (req.method === "POST" && req.body) {
-    console.log("Request:", JSON.stringify(req.body, null, 2));
-  }
+  // Never log request bodies: they carry names, birth dates and patient IDs (spec §4 rule 8).
+  const tool = req.body?.name || req.body?.params?.name || req.body?.method || "";
+  console.log(`📥 ${new Date().toISOString()} ${req.method} ${req.path} ${tool}`);
   next();
 });
 
@@ -56,12 +61,7 @@ app.get("/health", (req: Request, res: Response) => {
 
 // List all tools
 app.get("/tools", (req: Request, res: Response) => {
-  const allTools = [
-    ...appointmentTools.getTools(),
-    ...patientTools.getTools(),
-    ...clinicalTools.getTools(),
-  ];
-  res.json({ tools: allTools });
+  res.json({ tools: getToolDefinitions() });
 });
 
 // Get all tool definitions
@@ -70,16 +70,52 @@ const getToolDefinitions = () => {
     ...appointmentTools.getTools(),
     ...patientTools.getTools(),
     ...clinicalTools.getTools(),
+    ...billingTools.getTools(),
+    ...taskTools.getTools(),
   ];
 };
 
-// Handle tool execution
-async function executeTool(name: string, args: any): Promise<any> {
+// Write tools: each carries an idempotency key so a retried request cannot double-book (spec §4 rule 3).
+const WRITE_TOOLS = new Set([
+  "unity_save_appointment",
+  "unity_cancel_appointment",
+  "unity_confirm_appointment",
+  "unity_save_patient",
+  "unity_update_demographics",
+  "unity_create_staff_task",
+]);
+
+/**
+ * Run a tool. Never throws: a failure comes back as { success:false, error_code, retryable }
+ * so the agent says "I'm having trouble" instead of "none found" (CLAUDE.md rule 5).
+ */
+async function executeTool(name: string, args: any, callId?: string): Promise<any> {
+  try {
+    if (WRITE_TOOLS.has(name)) {
+      return await withIdempotency(callId, name, args, () => runTool(name, args));
+    }
+    return await runTool(name, args);
+  } catch (error) {
+    const failure = toToolFailure(error, name);
+    console.error(`[Unity] ${name} failed: ${failure.error_code} ${failure.message}`);
+    return failure;
+  }
+}
+
+async function runTool(name: string, args: any): Promise<any> {
   // Appointment tools
   if (name === "unity_save_appointment") {
     return await appointmentTools.saveAppointment(args);
   } else if (name === "unity_cancel_appointment") {
     return await appointmentTools.cancelAppointment(args);
+  } else if (name === "unity_confirm_appointment") {
+    return await appointmentTools.confirmAppointment(args);
+  } else if (name === "unity_get_cancellation_reasons") {
+    return await appointmentTools.getCancellationReasons();
+  } else if (name === "unity_get_appointment_types") {
+    return await appointmentTools.getAppointmentTypes();
+  } else if (name === "unity_get_appointment_details") {
+    return await appointmentTools.getAppointmentDetails(args);
   } else if (name === "unity_get_open_slots") {
     return await appointmentTools.getOpenSlots(args);
   } else if (name === "unity_get_patient_appointments") {
@@ -108,6 +144,18 @@ async function executeTool(name: string, args: any): Promise<any> {
     return await clinicalTools.getPatientAllergies(args);
   } else if (name === "unity_get_patient_diagnosis") {
     return await clinicalTools.getPatientDiagnosis(args);
+  }
+
+  // Billing tools
+  else if (name === "unity_get_account_balance") {
+    return await billingTools.getAccountBalance(args);
+  } else if (name === "unity_get_insurance_policy") {
+    return await billingTools.getInsurancePolicy(args);
+  }
+
+  // Staff task (the only EHR write)
+  else if (name === "unity_create_staff_task") {
+    return await taskTools.createStaffTask(args);
   }
 
   throw new Error(`Unknown tool: ${name}`);
@@ -163,15 +211,19 @@ app.post("/", async (req: Request, res: Response): Promise<void> => {
           adminLogger.getDefaultChannel();
 
         try {
-          const toolResult = await executeTool(name, toolArgs || {});
+          const callId =
+            (req.headers["x-call-id"] as string) || toolArgs?.call_id || undefined;
+          const toolResult = await executeTool(name, toolArgs || {}, callId);
           const toolResponseTime = Date.now() - toolStartTime;
+          const failed = toolResult?.success === false && toolResult?.error_code;
 
           adminLogger.logToolCall(
             {
               toolName: name,
               requestTime: toolRequestTime,
               responseTime: toolResponseTime,
-              status: "SUCCESS",
+              status: failed ? "ERROR" : "SUCCESS",
+              errorMessage: failed ? toolResult.error_code : undefined,
               metadata: { server: "unity" },
             },
             channel,
@@ -205,14 +257,12 @@ app.post("/", async (req: Request, res: Response): Promise<void> => {
             apiKey,
           ).catch(() => {});
 
-          // Return error as a normal result so Retell AI / voice clients
-          // get a speakable response instead of a JSON-RPC error object
-          const friendlyMsg = toolError?.message || "Something went wrong";
+          // Return a structured failure the agent can act on; never raw error text.
           result = {
             content: [
               {
                 type: "text",
-                text: `Sorry, that request failed: ${friendlyMsg}. Please try again.`,
+                text: toVoiceSummary(name, toToolFailure(toolError, name)),
               },
             ],
           };
@@ -230,7 +280,6 @@ app.post("/", async (req: Request, res: Response): Promise<void> => {
     }
 
     const response = { jsonrpc: "2.0", id, result };
-    console.log("📤 Response:", JSON.stringify(response, null, 2));
     res.json(response);
   } catch (error: any) {
     console.error("Error:", error.message);
@@ -266,38 +315,24 @@ app.post("/api/retell", async (req: Request, res: Response): Promise<void> => {
     return;
   }
 
-  try {
-    const toolResult = await executeTool(name, args || {});
-    const responseText = toVoiceSummary(name, toolResult);
-    const responseTime = Date.now() - t0;
+  // executeTool never throws; failures come back as { success:false, error_code, retryable }.
+  const toolResult = await executeTool(name, args || {}, call?.call_id);
+  const responseText = toVoiceSummary(name, toolResult);
+  const responseTime = Date.now() - t0;
+  const failed = toolResult?.success === false && toolResult?.error_code;
 
-    console.log(`✅ [Retell] ${name} → ${responseTime}ms → ${responseText.slice(0, 80)}`);
+  // Log outcome only, never response text (it can contain chart data).
+  console.log(`${failed ? "❌" : "✅"} [Retell] ${name} → ${responseTime}ms${failed ? ` → ${toolResult.error_code}` : ""}`);
 
-    adminLogger.logToolCall({
-      toolName: name,
-      requestTime,
-      responseTime,
-      status: "SUCCESS",
-    }, "RETELL").catch(() => {});
+  adminLogger.logToolCall({
+    toolName: name,
+    requestTime,
+    responseTime,
+    status: failed ? "ERROR" : "SUCCESS",
+    errorMessage: failed ? toolResult.error_code : undefined,
+  }, "RETELL").catch(() => {});
 
-    res.json(responseText);
-  } catch (error: any) {
-    const friendlyMsg = error?.message || "Something went wrong";
-    const responseText = `Sorry, that request failed: ${friendlyMsg}. Please try again.`;
-    const responseTime = Date.now() - t0;
-
-    console.error(`❌ [Retell] ${name} → ${responseTime}ms → ${friendlyMsg}`);
-
-    adminLogger.logToolCall({
-      toolName: name,
-      requestTime,
-      responseTime,
-      status: "ERROR",
-      errorMessage: friendlyMsg,
-    }, "RETELL").catch(() => {});
-
-    res.json(responseText);
-  }
+  res.json(responseText);
 });
 
 // Test authentication endpoint
@@ -357,7 +392,7 @@ app.listen(PORT, () => {
   console.log(`📱 App Name: ${unityConfig.appName}`);
   console.log(`🔧 Environment: ${unityConfig.nodeEnv}`);
   console.log("");
-  console.log("📋 Available Tools (13):");
+  console.log(`📋 Available Tools (${getToolDefinitions().length}):`);
   console.log("   Patient Operations (5):");
   console.log("     • unity_search_patients - Search patients by name/DOB");
   console.log("     • unity_get_patient - Get patient details");
@@ -374,6 +409,11 @@ app.listen(PORT, () => {
   console.log("     • unity_get_patient_medications - Get medications");
   console.log("     • unity_get_patient_allergies - Get allergies");
   console.log("     • unity_get_patient_diagnosis - Get diagnoses");
+  console.log("   Added for the Oct 9 demo:");
+  console.log("     • unity_get_cancellation_reasons, unity_get_appointment_types,");
+  console.log("       unity_get_appointment_details, unity_confirm_appointment,");
+  console.log("       unity_get_account_balance, unity_get_insurance_policy,");
+  console.log("       unity_create_staff_task");
   console.log("");
   console.log("🔗 Endpoints:");
   console.log(`   POST http://localhost:${PORT}/        - MCP JSON-RPC 2.0`);

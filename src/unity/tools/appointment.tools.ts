@@ -2,6 +2,7 @@ import { Tool } from '@modelcontextprotocol/sdk/types.js';
 import { UnityService, UnityMagicResponse } from '../services/unity.service';
 import { UnityErrorHandler, UnityMCPError } from '../utils/error-handler';
 import { UnityActions } from '../config/unity-endpoints';
+import { unityRows, pick } from '../utils/unity-rows';
 
 /**
  * Appointment Data Structure for Save/Update operations
@@ -220,8 +221,12 @@ export class UnityAppointmentTools {
         'PM'
       );
 
+      // A failed call is an error, never "no openings" (CLAUDE.md rule 5).
       if (!response.success) {
-        return { slots: [], total: 0 };
+        throw UnityErrorHandler.createAPIError(
+          response.error || 'Failed to get open slots',
+          UnityActions.Scheduling.GET_OPEN_SLOTS
+        );
       }
 
       const slots = this.parseOpenSlots(response.data);
@@ -273,8 +278,12 @@ export class UnityAppointmentTools {
         'PM'
       );
 
+      // A failed call is an error, never "no appointments" (CLAUDE.md rule 5).
       if (!response.success) {
-        return { appointments: [], total: 0 };
+        throw UnityErrorHandler.createAPIError(
+          response.error || 'Failed to get appointments',
+          UnityActions.Scheduling.GET_APPOINTMENTS
+        );
       }
 
       const appointments = this.parseAppointmentsList(response.data);
@@ -288,6 +297,139 @@ export class UnityAppointmentTools {
         throw error;
       }
       throw UnityErrorHandler.handleUnknownError(error, 'GetAppointments');
+    }
+  }
+
+  /**
+   * Valid cancellation reasons (GetAppointmentCancellationReasons).
+   * cancel_appointment must use one of these (spec §4 rule 4).
+   */
+  async getCancellationReasons(): Promise<{
+    success: true;
+    reasons: Array<{ id: string; description: string }>;
+    total: number;
+  }> {
+    const rows = await this.lookupList(UnityActions.Scheduling.GET_CANCELLATION_REASONS);
+    const reasons = rows
+      .map(r => ({
+        id: pick(r, 'ID', 'ReasonID', 'CancelReasonID', 'Code', 'Value'),
+        description: pick(r, 'Description', 'Reason', 'CancelReason', 'Name', 'DisplayName', 'Entry')
+      }))
+      .filter(r => r.id || r.description);
+    return { success: true, reasons, total: reasons.length };
+  }
+
+  /**
+   * Appointment type codes (GetAppointmentTypes).
+   */
+  async getAppointmentTypes(): Promise<{
+    success: true;
+    appointmentTypes: Array<{ id: string; description: string; duration?: number }>;
+    total: number;
+  }> {
+    const rows = await this.lookupList(UnityActions.Scheduling.GET_APPOINTMENT_TYPES);
+    const appointmentTypes = rows
+      .map(r => ({
+        id: pick(r, 'ID', 'AppointmentTypeID', 'ApptTypeID', 'Code', 'Abbreviation'),
+        description: pick(r, 'Description', 'AppointmentType', 'Name', 'DisplayName'),
+        duration: parseInt(pick(r, 'Duration', 'DefaultDuration')) || undefined
+      }))
+      .filter(t => t.id || t.description);
+    return { success: true, appointmentTypes, total: appointmentTypes.length };
+  }
+
+  /**
+   * Details for one appointment (GetAppointmentById).
+   */
+  async getAppointmentDetails(args: { appointmentId: string; patientId?: string }): Promise<{
+    success: boolean;
+    appointment?: ParsedAppointment;
+    message: string;
+  }> {
+    try {
+      if (!args.appointmentId) {
+        throw UnityErrorHandler.createValidationError('Appointment ID is required');
+      }
+      const response = await this.unityService.executeAction<any>(
+        UnityActions.Scheduling.GET_APPOINTMENT_BY_ID,
+        { Parameter1: args.appointmentId },
+        args.patientId || '',
+        'PM'
+      );
+      if (!response.success) {
+        throw UnityErrorHandler.createAPIError(
+          response.error || 'Failed to get appointment',
+          UnityActions.Scheduling.GET_APPOINTMENT_BY_ID
+        );
+      }
+      const rows = unityRows(response.data);
+      if (rows.length === 0) {
+        return { success: false, message: 'No appointment found with that ID.' };
+      }
+      const appointment = this.parseAppointmentRow(rows[0]);
+      if (!appointment.id) appointment.id = args.appointmentId;
+      // Never return another patient's appointment to a verified caller.
+      if (args.patientId && appointment.patientId && appointment.patientId !== String(args.patientId)) {
+        return { success: false, message: 'That appointment does not belong to this patient.' };
+      }
+      return { success: true, appointment, message: 'Appointment retrieved' };
+    } catch (error) {
+      if (error instanceof UnityMCPError) throw error;
+      throw UnityErrorHandler.handleUnknownError(error, UnityActions.Scheduling.GET_APPOINTMENT_BY_ID);
+    }
+  }
+
+  /**
+   * Confirm an appointment (SetAppointmentStatus).
+   * Parameter layout is UNVERIFIED against the sandbox: Parameter1 = appointment ID,
+   * Parameter2 = status, Parameter3 = confirmation result from GetAppointmentConfirmationResults.
+   */
+  async confirmAppointment(args: { appointmentId: string; patientId: string; confirmationResult?: string }): Promise<{
+    success: boolean;
+    message: string;
+    appointmentId: string;
+  }> {
+    try {
+      if (!args.appointmentId) {
+        throw UnityErrorHandler.createValidationError('Appointment ID is required');
+      }
+      if (!args.patientId) {
+        throw UnityErrorHandler.createValidationError('Patient ID is required');
+      }
+      const response = await this.unityService.executeAction<any>(
+        UnityActions.Scheduling.SET_APPOINTMENT_STATUS,
+        {
+          Parameter1: args.appointmentId,
+          Parameter2: process.env.UNITY_CONFIRMED_STATUS || 'Confirmed',
+          Parameter3: args.confirmationResult || ''
+        },
+        args.patientId,
+        'PM'
+      );
+      if (!response.success) {
+        throw UnityErrorHandler.createAPIError(
+          response.error || 'Failed to confirm appointment',
+          UnityActions.Scheduling.SET_APPOINTMENT_STATUS
+        );
+      }
+      return { success: true, message: 'Appointment confirmed', appointmentId: args.appointmentId };
+    } catch (error) {
+      if (error instanceof UnityMCPError) throw error;
+      throw UnityErrorHandler.handleUnknownError(error, UnityActions.Scheduling.SET_APPOINTMENT_STATUS);
+    }
+  }
+
+  /** Run a parameterless PM lookup action and return its rows; failures throw. */
+  private async lookupList(action: string): Promise<Record<string, any>[]> {
+    try {
+      const response = await this.unityService.executeAction<any>(action, {}, '', 'PM');
+      if (!response.success) {
+        throw UnityErrorHandler.createAPIError(response.error || `${action} failed`, action);
+      }
+      return unityRows(response.data);
+    } catch (error) {
+      if (error instanceof UnityMCPError) throw error;
+      throw UnityErrorHandler.handleUnknownError(error, action);
     }
   }
 
@@ -389,25 +531,26 @@ export class UnityAppointmentTools {
    * Parse list of appointments from response
    */
   private parseAppointmentsList(data: any): ParsedAppointment[] {
-    if (!data) return [];
-    
-    const items = Array.isArray(data) ? data : [data];
-    
-    return items.map(item => ({
-      id: item.AppointmentID || item.ID || '',
-      patientId: item.PatientID || '',
-      date: item.AppointmentDate || item.Date || '',
-      time: item.AppointmentTime || item.Time || '',
-      duration: parseInt(item.Duration) || 0,
-      status: item.Status || '',
-      providerId: item.ProviderID,
-      providerName: item.ProviderName,
-      locationId: item.LocationID,
-      locationName: item.LocationName,
-      appointmentType: item.AppointmentType,
-      reasonForVisit: item.ReasonForVisit,
-      notes: item.Notes
-    }));
+    return unityRows(data).map(item => this.parseAppointmentRow(item));
+  }
+
+  /** One Unity appointment row → ParsedAppointment (field names vary by action/product). */
+  private parseAppointmentRow(item: Record<string, any>): ParsedAppointment {
+    return {
+      id: pick(item, 'AppointmentID', 'ApptID', 'AppointmentId', 'ID'),
+      patientId: pick(item, 'PatientID', 'PatientId'),
+      date: pick(item, 'AppointmentDate', 'ApptDate', 'Date', 'StartDate'),
+      time: pick(item, 'AppointmentTime', 'ApptTime', 'Time', 'StartTime'),
+      duration: parseInt(pick(item, 'Duration', 'ApptDuration')) || 0,
+      status: pick(item, 'Status', 'AppointmentStatus', 'ApptStatus'),
+      providerId: pick(item, 'ProviderID', 'ResourceID', 'ResourceId') || undefined,
+      providerName: pick(item, 'ProviderName', 'ResourceName', 'Resource', 'Provider') || undefined,
+      locationId: pick(item, 'LocationID', 'LocationId') || undefined,
+      locationName: pick(item, 'LocationName', 'Location') || undefined,
+      appointmentType: pick(item, 'AppointmentType', 'ApptType', 'AppointmentTypeDescription') || undefined,
+      reasonForVisit: pick(item, 'ReasonForVisit', 'Reason', 'Comment') || undefined,
+      notes: pick(item, 'Notes') || undefined
+    };
   }
 
   /**
@@ -420,16 +563,12 @@ export class UnityAppointmentTools {
     providerId?: string;
     locationId?: string;
   }> {
-    if (!data) return [];
-    
-    const items = Array.isArray(data) ? data : [data];
-    
-    return items.map(item => ({
-      date: item.Date || item.SlotDate || '',
-      time: item.Time || item.SlotTime || '',
-      duration: parseInt(item.Duration) || 30,
-      providerId: item.ProviderID,
-      locationId: item.LocationID
+    return unityRows(data).map(item => ({
+      date: pick(item, 'Date', 'SlotDate', 'AppointmentDate', 'ApptDate'),
+      time: pick(item, 'Time', 'SlotTime', 'StartTime', 'AppointmentTime'),
+      duration: parseInt(pick(item, 'Duration', 'SlotDuration')) || 30,
+      providerId: pick(item, 'ProviderID', 'ResourceID') || undefined,
+      locationId: pick(item, 'LocationID') || undefined
     }));
   }
 
@@ -512,7 +651,7 @@ export class UnityAppointmentTools {
             },
             cancellationReason: {
               type: 'string',
-              description: 'Reason for cancellation (optional)'
+              description: 'Cancellation reason from unity_get_cancellation_reasons that matches what the caller said'
             }
           },
           required: ['appointmentId', 'patientId']
@@ -576,6 +715,41 @@ export class UnityAppointmentTools {
             }
           },
           required: ['patientId']
+        }
+      },
+      {
+        name: 'unity_get_cancellation_reasons',
+        description: 'List valid appointment cancellation reasons in Veradigm Practice Management. Call before unity_cancel_appointment and pass the matching reason.',
+        inputSchema: { type: 'object', properties: {}, required: [] }
+      },
+      {
+        name: 'unity_get_appointment_types',
+        description: 'List appointment type codes in Veradigm Practice Management',
+        inputSchema: { type: 'object', properties: {}, required: [] }
+      },
+      {
+        name: 'unity_get_appointment_details',
+        description: 'Get details for one appointment by ID from Veradigm Practice Management',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            appointmentId: { type: 'string', description: 'Appointment ID' },
+            patientId: { type: 'string', description: 'Verified patient ID (the appointment must belong to this patient)' }
+          },
+          required: ['appointmentId']
+        }
+      },
+      {
+        name: 'unity_confirm_appointment',
+        description: 'Confirm an existing appointment in Veradigm Practice Management. Read back the appointment and get a clear yes first.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            appointmentId: { type: 'string', description: 'Appointment ID to confirm' },
+            patientId: { type: 'string', description: 'Patient ID associated with the appointment' },
+            confirmationResult: { type: 'string', description: 'Confirmation result code (optional)' }
+          },
+          required: ['appointmentId', 'patientId']
         }
       }
     ];

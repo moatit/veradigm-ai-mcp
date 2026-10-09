@@ -1,6 +1,6 @@
 import axios, { AxiosResponse } from 'axios';
 import { unityConfig } from '../config/environment';
-import { unityEndpoints, UnityTargetSystem } from '../config/unity-endpoints';
+import { unityEndpoints, UnityActions, UnityTargetSystem } from '../config/unity-endpoints';
 import { UnityAuthService } from './unity-auth.service';
 
 /**
@@ -263,7 +263,7 @@ export class UnityService {
    */
   async testConnection(target?: UnityTargetSystem): Promise<boolean> {
     try {
-      const response = await this.executeAction('Echo', {
+      const response = await this.executeAction(UnityActions.Admin.ECHO, {
         Parameter1: 'ConnectionTest',
         Parameter2: new Date().toISOString()
       }, '', target);
@@ -278,7 +278,7 @@ export class UnityService {
    * Get server information
    */
   async getServerInfo(target?: UnityTargetSystem): Promise<UnityMagicResponse> {
-    return this.executeAction('GetServerInfo', {}, '', target);
+    return this.executeAction(UnityActions.Admin.GET_SERVER_INFO, {}, '', target);
   }
 
   /**
@@ -296,7 +296,7 @@ export class UnityService {
     // Build XML search criteria for SearchPatients action
     const xmlCriteria = this.buildPatientSearchXml(searchCriteria);
     
-    return this.executeAction('SearchPatients', {
+    return this.executeAction(UnityActions.Patient.SEARCH_PATIENTS, {
       Parameter1: xmlCriteria
     }, '', target);
   }
@@ -337,7 +337,7 @@ export class UnityService {
     includePicture: boolean = false,
     target?: UnityTargetSystem
   ): Promise<UnityMagicResponse> {
-    return this.executeAction('GetPatient', {
+    return this.executeAction(UnityActions.Patient.GET_PATIENT, {
       Parameter1: includePicture ? 'Y' : 'N'
     }, patientId, target);
   }
@@ -350,7 +350,7 @@ export class UnityService {
     mrn?: string,
     target?: UnityTargetSystem
   ): Promise<UnityMagicResponse> {
-    return this.executeAction('GetPatientFull', {
+    return this.executeAction(UnityActions.Patient.GET_PATIENT_FULL, {
       Parameter1: mrn || '',
       Parameter2: '' // Organization
     }, patientId, target);

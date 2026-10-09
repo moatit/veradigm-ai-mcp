@@ -38,13 +38,35 @@ function slotLine(s: {
 }
 
 function appointmentLine(a: {
+  id?: string;
   date?: string;
   time?: string;
   patientId?: string;
   status?: string;
+  providerName?: string;
+  appointmentType?: string;
 }): string {
   return (
-    `${a.date || "?"} ${a.time || "?"}` + (a.status ? `, ${a.status}` : "")
+    `${a.date || "?"} ${a.time || "?"}` +
+    (a.providerName ? ` with ${a.providerName}` : "") +
+    (a.appointmentType ? ` (${a.appointmentType})` : "") +
+    (a.status ? `, ${a.status}` : "") +
+    // The ID is for the agent's next tool call (cancel/details); it is not read to the caller.
+    (a.id ? ` [appointmentId ${a.id}]` : "")
+  );
+}
+
+/**
+ * Text the agent gets when a tool failed. It must never sound like an empty result
+ * (CLAUDE.md rule 5) and never carries raw error text to be read to a caller.
+ */
+export function failureText(r: { error_code?: string; retryable?: boolean }): string {
+  return (
+    `TOOL_ERROR (${r.error_code || "UNKNOWN"}, retryable=${r.retryable ? "yes" : "no"}). ` +
+    `The lookup FAILED; this is NOT an empty result. Do not say there is nothing on file. ` +
+    `Say: "I'm having trouble pulling that up right now." ` +
+    (r.retryable ? "You may retry once, then " : "Then ") +
+    `offer to transfer the caller or take a message for staff.`
   );
 }
 
@@ -57,12 +79,58 @@ export function toVoiceSummary(
   result: unknown,
   maxLength: number = DEFAULT_MAX_LENGTH,
 ): string {
-  if (result == null) return "No result.";
+  if (result == null) return failureText({ error_code: "NO_RESULT" });
   const r = result as Record<string, unknown>;
 
-  // Error-like
-  if (typeof r.message === "string" && (r.success === false || r.error)) {
+  // Structured tool failure (Veradigm call failed): never an empty-sounding answer.
+  if (r.success === false && typeof r.error_code === "string") {
+    return failureText(r as { error_code: string; retryable?: boolean });
+  }
+
+  // Withheld (redacted) data: never "none on file" (spec §4 rule 6).
+  if (r.redacted === true) {
+    return (
+      "RESTRICTED: part of this record is restricted and cannot be shared by phone. " +
+      'Do not say there is nothing on file. Say: "I\'m not able to share that by phone," and offer a transfer.'
+    );
+  }
+
+  // Genuine negative answer from a successful call (e.g. "No patient found with MRN ...")
+  if (typeof r.message === "string" && r.success === false) {
     return truncate(r.message, maxLength);
+  }
+  if (r.error) {
+    return failureText({ error_code: String(r.error) });
+  }
+
+  // Cancellation reasons / appointment types (lookup lists)
+  const lookup = (r.reasons || r.appointmentTypes) as
+    | Array<{ id?: string; description?: string }>
+    | undefined;
+  if (Array.isArray(lookup)) {
+    if (lookup.length === 0) return "The list came back empty.";
+    return truncate(
+      `Options: ${lookup.map((x) => `${x.description || x.id}${x.id && x.description ? ` [id ${x.id}]` : ""}`).join("; ")}.`,
+      maxLength * 2,
+    );
+  }
+
+  // Single appointment
+  if (r.appointment && typeof r.appointment === "object" && !Array.isArray(r.appointments)) {
+    return truncate(`Appointment: ${appointmentLine(r.appointment as any)}.`, maxLength);
+  }
+
+  // Clinical lists (Unity EHR): problems / medications / allergies / diagnoses
+  for (const key of ["medications", "allergies", "problems", "diagnoses"]) {
+    const arr = r[key];
+    if (Array.isArray(arr) && r.success === true) {
+      if (arr.length === 0) return `No ${key} on file.`;
+      const names = (arr as Array<Record<string, string>>)
+        .slice(0, 8)
+        .map((x) => x.name || x.allergen || x.description || x.code || "?");
+      const more = arr.length > 8 ? ` and ${arr.length - 8} more` : "";
+      return truncate(`${key[0].toUpperCase()}${key.slice(1)} on file: ${names.join("; ")}${more}.`, maxLength);
+    }
   }
 
   // Unity: search_patients / unity_search_patients → patients array + total

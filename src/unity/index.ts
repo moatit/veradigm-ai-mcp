@@ -11,6 +11,10 @@ import { UnityAuthService } from "./services/unity-auth.service";
 import { UnityService } from "./services/unity.service";
 import { UnityAppointmentTools } from "./tools/appointment.tools";
 import { UnityPatientTools } from "./tools/patient.tools";
+import { UnityClinicalTools } from "./tools/clinical.tools";
+import { UnityBillingTools } from "./tools/billing.tools";
+import { UnityTaskTools } from "./tools/task.tools";
+import { toToolFailure } from "./utils/tool-result";
 import { UnityErrorHandler } from "./utils/error-handler";
 
 /**
@@ -29,6 +33,9 @@ class VeradigmUnityMCPServer {
   private unityService: UnityService;
   private appointmentTools: UnityAppointmentTools;
   private patientTools: UnityPatientTools;
+  private clinicalTools: UnityClinicalTools;
+  private billingTools: UnityBillingTools;
+  private taskTools: UnityTaskTools;
 
   constructor() {
     this.server = new Server(
@@ -50,6 +57,9 @@ class VeradigmUnityMCPServer {
     // Initialize tool classes
     this.appointmentTools = new UnityAppointmentTools(this.unityService);
     this.patientTools = new UnityPatientTools(this.unityService);
+    this.clinicalTools = new UnityClinicalTools(this.unityService);
+    this.billingTools = new UnityBillingTools(this.unityService);
+    this.taskTools = new UnityTaskTools(this.unityService);
 
     this.setupHandlers();
     this.setupShutdownHandlers();
@@ -61,6 +71,9 @@ class VeradigmUnityMCPServer {
       const allTools = [
         ...this.appointmentTools.getTools(),
         ...this.patientTools.getTools(),
+        ...this.clinicalTools.getTools(),
+        ...this.billingTools.getTools(),
+        ...this.taskTools.getTools(),
       ];
 
       return {
@@ -80,6 +93,14 @@ class VeradigmUnityMCPServer {
           result = await this.appointmentTools.saveAppointment(args as any);
         } else if (name === "unity_cancel_appointment") {
           result = await this.appointmentTools.cancelAppointment(args as any);
+        } else if (name === "unity_confirm_appointment") {
+          result = await this.appointmentTools.confirmAppointment(args as any);
+        } else if (name === "unity_get_cancellation_reasons") {
+          result = await this.appointmentTools.getCancellationReasons();
+        } else if (name === "unity_get_appointment_types") {
+          result = await this.appointmentTools.getAppointmentTypes();
+        } else if (name === "unity_get_appointment_details") {
+          result = await this.appointmentTools.getAppointmentDetails(args as any);
         } else if (name === "unity_get_open_slots") {
           result = await this.appointmentTools.getOpenSlots(args as any);
         } else if (name === "unity_get_patient_appointments") {
@@ -99,6 +120,26 @@ class VeradigmUnityMCPServer {
           result = await this.patientTools.searchPatients(args as any);
         } else if (name === "unity_get_patient_by_mrn") {
           result = await this.patientTools.getPatientByMRN(args as any);
+        }
+
+        // Clinical tools (read only)
+        else if (name === "unity_get_patient_problems") {
+          result = await this.clinicalTools.getPatientProblems(args as any);
+        } else if (name === "unity_get_patient_medications") {
+          result = await this.clinicalTools.getPatientMedications(args as any);
+        } else if (name === "unity_get_patient_allergies") {
+          result = await this.clinicalTools.getPatientAllergies(args as any);
+        } else if (name === "unity_get_patient_diagnosis") {
+          result = await this.clinicalTools.getPatientDiagnosis(args as any);
+        }
+
+        // Billing and staff task
+        else if (name === "unity_get_account_balance") {
+          result = await this.billingTools.getAccountBalance(args as any);
+        } else if (name === "unity_get_insurance_policy") {
+          result = await this.billingTools.getInsurancePolicy(args as any);
+        } else if (name === "unity_create_staff_task") {
+          result = await this.taskTools.createStaffTask(args as any);
         }
 
         // Unknown tool
@@ -124,17 +165,7 @@ class VeradigmUnityMCPServer {
           content: [
             {
               type: "text",
-              text: JSON.stringify(
-                {
-                  error: unityError.code,
-                  message: unityError.message,
-                  details: unityError.details,
-                  action: unityError.action,
-                  timestamp: unityError.timestamp,
-                },
-                null,
-                2
-              ),
+              text: JSON.stringify(toToolFailure(unityError, name), null, 2),
             },
           ],
           isError: true,
@@ -171,7 +202,7 @@ class VeradigmUnityMCPServer {
     );
     console.error(`Unity Endpoint: ${unityConfig.ubiquityEndpoint}`);
     console.error(`App Name: ${unityConfig.appName}`);
-    console.error(`Available tools: 9 Unity write operations`);
+    console.error(`Available tools: 20 Unity tools (Veradigm PM and EHR)`);
     console.error("");
     console.error("Tools available:");
     console.error("  Appointments:");

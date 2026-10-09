@@ -45,82 +45,100 @@ function getUnityEndpoints(): UnityEndpoints {
 export const unityEndpoints = getUnityEndpoints();
 
 /**
+ * Resolve a Unity action name. Every name can be overridden per environment/client with
+ * UNITY_ACTION_<KEY> (e.g. UNITY_ACTION_GET_APPOINTMENTS=GetScheduleByPatientID) so a
+ * product difference between Veradigm environments is a config change, not a code change.
+ *
+ * Defaults marked "verify" are what the Feb 13 code sent and are NOT in Veradigm's PM/EHR
+ * API references; the reference name is in the comment. Switch them once
+ * `npm run verify:sandbox` shows which name the sandbox accepts (docs/handover/02_REPO_AUDIT.md §3).
+ */
+function action(key: string, fallback: string): string {
+  return process.env[`UNITY_ACTION_${key}`] || fallback;
+}
+
+/**
  * Unity Action Categories
  * Organized by functionality for easy reference
  */
 export const UnityActions = {
   // Admin Actions
   Admin: {
-    ECHO: 'Echo',
-    GET_SERVER_INFO: 'GetServerInfo',
-    LAST_LOG: 'LastLog'
+    ECHO: action('ECHO', 'Echo'),
+    GET_SERVER_INFO: action('GET_SERVER_INFO', 'GetServerInfo'),
+    LAST_LOG: action('LAST_LOG', 'LastLogs')
   },
-  
+
   // Authentication Actions
   Auth: {
-    GET_USER_AUTHENTICATION: 'GetUserAuthentication',
-    GET_TOKEN_VALIDATION: 'GetTokenValidation'
+    GET_USER_AUTHENTICATION: action('GET_USER_AUTHENTICATION', 'GetUserAuthentication'),
+    GET_TOKEN_VALIDATION: action('GET_TOKEN_VALIDATION', 'GetTokenValidation')
   },
-  
+
   // Patient/Demographic Actions
   Patient: {
-    GET_PATIENT: 'GetPatient',
-    GET_PATIENT_BY_MRN: 'GetPatientByMRN',
-    GET_PATIENT_FULL: 'GetPatientFull',
-    SEARCH_PATIENTS: 'SearchPatients',
-    SAVE_PATIENT: 'SavePatient',
-    UPDATE_DEMOGRAPHICS: 'UpdateDemographics',
-    GET_CHANGED_PATIENTS: 'GetChangedPatients'
+    GET_PATIENT: action('GET_PATIENT', 'GetPatient'),
+    GET_PATIENT_BY_MRN: action('GET_PATIENT_BY_MRN', 'GetPatientByMRN'),
+    GET_PATIENT_FULL: action('GET_PATIENT_FULL', 'GetPatientFull'),
+    SEARCH_PATIENTS: action('SEARCH_PATIENTS', 'SearchPatients'),
+    SAVE_PATIENT: action('SAVE_PATIENT', 'SavePatient'),
+    UPDATE_DEMOGRAPHICS: action('UPDATE_DEMOGRAPHICS', 'UpdateDemographics'), // verify; reference: SavePatient
+    GET_CHANGED_PATIENTS: action('GET_CHANGED_PATIENTS', 'GetChangedPatients')
   },
-  
-  // Appointment/Scheduling Actions
+
+  // Appointment/Scheduling Actions (Veradigm PM)
   Scheduling: {
-    GET_SCHEDULE: 'GetSchedule',
-    GET_APPOINTMENTS: 'GetAppointments',
-    SAVE_APPOINTMENT: 'SaveAppointment',
-    CANCEL_APPOINTMENT: 'CancelAppointment',
-    GET_OPEN_SLOTS: 'GetOpenSlots',
-    BOOK_APPOINTMENT: 'BookAppointment'
+    GET_SCHEDULE: action('GET_SCHEDULE', 'GetSchedule'),
+    GET_APPOINTMENTS: action('GET_APPOINTMENTS', 'GetAppointments'), // verify; reference: GetScheduleByPatientID
+    GET_APPOINTMENT_BY_ID: action('GET_APPOINTMENT_BY_ID', 'GetAppointmentById'),
+    SAVE_APPOINTMENT: action('SAVE_APPOINTMENT', 'SaveAppointment'),
+    CANCEL_APPOINTMENT: action('CANCEL_APPOINTMENT', 'CancelAppointment'), // verify; reference: SetAppointmentStatus
+    SET_APPOINTMENT_STATUS: action('SET_APPOINTMENT_STATUS', 'SetAppointmentStatus'),
+    GET_OPEN_SLOTS: action('GET_OPEN_SLOTS', 'GetOpenSlots'), // verify; reference: GetAllAvailableAppointments
+    BOOK_APPOINTMENT: action('BOOK_APPOINTMENT', 'BookAppointment'), // unused; reference: SaveAppointment
+    GET_CANCELLATION_REASONS: action('GET_CANCELLATION_REASONS', 'GetAppointmentCancellationReasons'),
+    GET_CONFIRMATION_RESULTS: action('GET_CONFIRMATION_RESULTS', 'GetAppointmentConfirmationResults'),
+    GET_APPOINTMENT_TYPES: action('GET_APPOINTMENT_TYPES', 'GetAppointmentTypes'),
+    GET_APPOINTMENTS_BY_CHANGE: action('GET_APPOINTMENTS_BY_CHANGE', 'GetAppointmentsByChangeDTTM'),
+    GET_RECALLS: action('GET_RECALLS', 'GetRecalls')
   },
-  
-  // Encounter Actions
+
+  // Billing Actions (Veradigm PM)
+  Billing: {
+    GET_ACCOUNT_BALANCE: action('GET_ACCOUNT_BALANCE', 'GetPatientAccountBalance'),
+    GET_PATIENT_POLICY: action('GET_PATIENT_POLICY', 'GetPatientPolicy')
+  },
+
+  // Encounter Actions (not in the Veradigm references; not used by any tool)
   Encounter: {
-    GET_ENCOUNTER: 'GetEncounter',
-    GET_ENCOUNTER_LIST: 'GetEncounterList',
-    SAVE_SIMPLE_ENCOUNTER: 'SaveSimpleEncounter',
-    GET_ENCOUNTER_SUMMARY: 'GetEncounterSummary'
+    GET_ENCOUNTER: action('GET_ENCOUNTER', 'GetEncounter'),
+    GET_ENCOUNTER_LIST: action('GET_ENCOUNTER_LIST', 'GetEncounterList'),
+    SAVE_SIMPLE_ENCOUNTER: action('SAVE_SIMPLE_ENCOUNTER', 'SaveSimpleEncounter'),
+    GET_ENCOUNTER_SUMMARY: action('GET_ENCOUNTER_SUMMARY', 'GetEncounterSummary')
   },
-  
-  // Clinical Actions
+
+  // Clinical Actions (Veradigm EHR, read only)
   Clinical: {
-    GET_PATIENT_PROBLEMS: 'GetPatientProblems',
-    GET_PATIENT_DIAGNOSIS: 'GetPatientDiagnosis',
-    SAVE_DIAGNOSIS: 'SaveDiagnosis',
-    GET_PATIENT_MEDICATIONS: 'GetPatientMedications',
-    GET_PATIENT_ALLERGIES: 'GetPatientAllergies'
+    GET_PATIENT_PROBLEMS: action('GET_PATIENT_PROBLEMS', 'GetPatientProblems'), // verify; reference: GetProblems
+    GET_PATIENT_DIAGNOSIS: action('GET_PATIENT_DIAGNOSIS', 'GetPatientDiagnosis'),
+    GET_PATIENT_MEDICATIONS: action('GET_PATIENT_MEDICATIONS', 'GetPatientMedications'), // verify; reference: GetClinicalSummary
+    GET_PATIENT_ALLERGIES: action('GET_PATIENT_ALLERGIES', 'GetPatientAllergies') // verify; reference: GetAllergies
   },
-  
-  // Document Actions
-  Document: {
-    GET_DOCUMENTS: 'GetDocuments',
-    GET_DOCUMENT_IMAGE: 'GetDocumentImage',
-    SAVE_DOCUMENT_IMAGE: 'SaveDocumentImage',
-    SAVE_NOTE: 'SaveNote',
-    GET_CCDA: 'GetCCDA'
+
+  // Staff tasks (Veradigm EHR). The ONLY EHR write the agent may make.
+  Task: {
+    SAVE_TASK: action('SAVE_TASK', 'SaveTask')
   },
-  
-  // Order Actions
-  Orders: {
-    GET_ORDERS: 'GetOrders',
-    SAVE_ORDER: 'SaveOrder',
-    GET_ORDER_HISTORY: 'GetOrderHistory'
+
+  // Practice info (Veradigm EHR)
+  Practice: {
+    GET_LOCATION: action('GET_LOCATION', 'GetLocation')
   },
-  
+
   // Provider Actions
   Provider: {
-    GET_PROVIDER: 'GetProvider',
-    GET_PROVIDERS: 'GetProviders',
-    SEARCH_PROVIDERS: 'SearchProviders'
+    GET_PROVIDER: action('GET_PROVIDER', 'GetProvider'),
+    GET_PROVIDERS: action('GET_PROVIDERS', 'GetProviders')
   }
 } as const;
 

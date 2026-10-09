@@ -2,6 +2,7 @@ import { Tool } from "@modelcontextprotocol/sdk/types.js";
 import { UnityActions } from "../config/unity-endpoints";
 import { UnityService } from "../services/unity.service";
 import { UnityErrorHandler, UnityMCPError } from "../utils/error-handler";
+import { pick, unityRows } from "../utils/unity-rows";
 
 /**
  * Unity Clinical Tools
@@ -46,13 +47,9 @@ export class UnityClinicalTools {
         "EHR",
       );
 
+      // A failed call is an error, never an empty problems list (CLAUDE.md rule 5).
       if (!response.success) {
-        return {
-          success: false,
-          problems: [],
-          total: 0,
-          message: response.error || "Failed to get problems",
-        };
+        throw UnityErrorHandler.createAPIError(response.error || "Failed to get problems");
       }
 
       const problems = this.parseProblems(response.data);
@@ -103,13 +100,9 @@ export class UnityClinicalTools {
         "EHR",
       );
 
+      // A failed call is an error, never an empty medications list (CLAUDE.md rule 5).
       if (!response.success) {
-        return {
-          success: false,
-          medications: [],
-          total: 0,
-          message: response.error || "Failed to get medications",
-        };
+        throw UnityErrorHandler.createAPIError(response.error || "Failed to get medications");
       }
 
       const medications = this.parseMedications(response.data);
@@ -160,13 +153,9 @@ export class UnityClinicalTools {
         "EHR",
       );
 
+      // A failed call is an error, never an empty allergies list (CLAUDE.md rule 5).
       if (!response.success) {
-        return {
-          success: false,
-          allergies: [],
-          total: 0,
-          message: response.error || "Failed to get allergies",
-        };
+        throw UnityErrorHandler.createAPIError(response.error || "Failed to get allergies");
       }
 
       const allergies = this.parseAllergies(response.data);
@@ -217,13 +206,9 @@ export class UnityClinicalTools {
         "EHR",
       );
 
+      // A failed call is an error, never an empty diagnoses list (CLAUDE.md rule 5).
       if (!response.success) {
-        return {
-          success: false,
-          diagnoses: [],
-          total: 0,
-          message: response.error || "Failed to get diagnoses",
-        };
+        throw UnityErrorHandler.createAPIError(response.error || "Failed to get diagnoses");
       }
 
       const diagnoses = this.parseDiagnoses(response.data);
@@ -246,97 +231,76 @@ export class UnityClinicalTools {
   // Helper Methods
   // ============================================
 
+  // Parsers flatten Unity's [{ "<action>info": [rows] }] wrapper and read fields
+  // case-insensitively, so they work with both the repo action names and the
+  // Veradigm reference actions (GetProblems, GetAllergies, GetClinicalSummary).
+
   private parseProblems(data: any): any[] {
-    if (!data) return [];
-
-    // Handle various Unity response formats
-    const problems = data.getpatientproblemsinfo || data.problems || data;
-    if (!problems) return [];
-
-    const items = Array.isArray(problems) ? problems : [problems];
-
-    return items
-      .map((item: any) => ({
-        id: item.ProblemID || item.ID,
-        code: item.Code || item.ICD10Code || item.ICD9Code,
-        description: item.Description || item.ProblemDescription || item.Name,
-        status: item.Status || "active",
-        onsetDate: item.OnsetDate || item.StartDate,
-        resolvedDate: item.ResolvedDate || item.EndDate,
-        severity: item.Severity,
-        type: item.Type || item.ProblemType,
+    return unityRows(data)
+      .map((item) => ({
+        id: pick(item, "ProblemID", "ID"),
+        code: pick(item, "Code", "ICD10Code", "ICD9Code"),
+        description: pick(item, "Description", "ProblemDescription", "Name", "DisplayName"),
+        status: pick(item, "Status") || "active",
+        onsetDate: pick(item, "OnsetDate", "StartDate"),
+        resolvedDate: pick(item, "ResolvedDate", "EndDate"),
+        severity: pick(item, "Severity"),
+        type: pick(item, "Type", "ProblemType"),
       }))
-      .filter((p: any) => p.id || p.code || p.description);
+      .filter((p) => p.id || p.code || p.description);
   }
 
   private parseMedications(data: any): any[] {
-    if (!data) return [];
-
-    const medications =
-      data.getpatientmedicationsinfo || data.medications || data;
-    if (!medications) return [];
-
-    const items = Array.isArray(medications) ? medications : [medications];
-
-    return items
-      .map((item: any) => ({
-        id: item.MedicationID || item.ID,
-        name: item.MedicationName || item.DrugName || item.Name,
-        dose: item.Dose || item.Dosage,
-        unit: item.Unit || item.DoseUnit,
-        frequency: item.Frequency || item.Sig,
-        route: item.Route,
-        status: item.Status || "active",
-        startDate: item.StartDate || item.OrderDate,
-        endDate: item.EndDate || item.StopDate,
-        prescriber: item.Prescriber || item.OrderingProvider,
-        pharmacy: item.Pharmacy,
-        refillsRemaining: item.RefillsRemaining || item.RefillsLeft,
+    return unityRows(data)
+      // GetClinicalSummary returns every section; keep medication rows only when a section is labelled.
+      .filter((item) => {
+        const section = pick(item, "Section", "SectionName").toLowerCase();
+        return !section || section.includes("med");
+      })
+      .map((item) => ({
+        id: pick(item, "MedicationID", "ID", "TransID"),
+        name: pick(item, "MedicationName", "DrugName", "Name", "Description", "DisplayName"),
+        dose: pick(item, "Dose", "Dosage"),
+        unit: pick(item, "Unit", "DoseUnit"),
+        frequency: pick(item, "Frequency", "Sig"),
+        route: pick(item, "Route"),
+        status: pick(item, "Status") || "active",
+        startDate: pick(item, "StartDate", "OrderDate"),
+        endDate: pick(item, "EndDate", "StopDate"),
+        prescriber: pick(item, "Prescriber", "OrderingProvider"),
+        pharmacy: pick(item, "Pharmacy"),
+        refillsRemaining: pick(item, "RefillsRemaining", "RefillsLeft"),
       }))
-      .filter((m: any) => m.id || m.name);
+      .filter((m) => m.id || m.name);
   }
 
   private parseAllergies(data: any): any[] {
-    if (!data) return [];
-
-    const allergies = data.getpatientallergiesinfo || data.allergies || data;
-    if (!allergies) return [];
-
-    const items = Array.isArray(allergies) ? allergies : [allergies];
-
-    return items
-      .map((item: any) => ({
-        id: item.AllergyID || item.ID,
-        allergen: item.Allergen || item.AllergyName || item.Name,
-        type: item.Type || item.AllergyType,
-        severity: item.Severity,
-        reaction: item.Reaction || item.ReactionDescription,
-        status: item.Status || "active",
-        onsetDate: item.OnsetDate,
-        source: item.Source || item.ReportedBy,
+    return unityRows(data)
+      .map((item) => ({
+        id: pick(item, "AllergyID", "ID"),
+        allergen: pick(item, "Allergen", "AllergyName", "Name", "Description", "DisplayName"),
+        type: pick(item, "Type", "AllergyType"),
+        severity: pick(item, "Severity"),
+        reaction: pick(item, "Reaction", "ReactionDescription"),
+        status: pick(item, "Status") || "active",
+        onsetDate: pick(item, "OnsetDate"),
+        source: pick(item, "Source", "ReportedBy"),
       }))
-      .filter((a: any) => a.id || a.allergen);
+      .filter((a) => a.id || a.allergen);
   }
 
   private parseDiagnoses(data: any): any[] {
-    if (!data) return [];
-
-    const diagnoses = data.getpatientdiagnosisinfo || data.diagnoses || data;
-    if (!diagnoses) return [];
-
-    const items = Array.isArray(diagnoses) ? diagnoses : [diagnoses];
-
-    return items
-      .map((item: any) => ({
-        id: item.DiagnosisID || item.ID,
-        code: item.Code || item.ICD10Code || item.DiagnosisCode,
-        description: item.Description || item.DiagnosisDescription,
-        type: item.Type || item.DiagnosisType,
-        status: item.Status,
-        date: item.Date || item.DiagnosisDate,
-        provider: item.Provider || item.DiagnosingProvider,
+    return unityRows(data)
+      .map((item) => ({
+        id: pick(item, "DiagnosisID", "ID"),
+        code: pick(item, "Code", "ICD10Code", "DiagnosisCode"),
+        description: pick(item, "Description", "DiagnosisDescription"),
+        type: pick(item, "Type", "DiagnosisType"),
+        status: pick(item, "Status"),
+        date: pick(item, "Date", "DiagnosisDate"),
+        provider: pick(item, "Provider", "DiagnosingProvider"),
       }))
-      .filter((d: any) => d.id || d.code || d.description);
+      .filter((d) => d.id || d.code || d.description);
   }
 
   /**
