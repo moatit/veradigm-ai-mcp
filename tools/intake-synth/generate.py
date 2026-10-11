@@ -157,7 +157,7 @@ def plan_doc(i: int, seed: int, roster: list[Patient], outside: list[Patient]) -
     if case in tag_for_case:
         pts = [rng.choice(by_tag[tag_for_case[case]])]
     elif case == "hyphen_apostrophe":
-        pts = [rng.choice(by_tag["hyphen"] + by_tag["apostrophe"])]
+        pts = [rng.choice(by_tag.get("hyphen", []) + by_tag.get("apostrophe", []))]
     elif case == "not_in_roster":
         pts = [rng.choice(outside)]
     elif case == "multi_patient":
@@ -286,12 +286,46 @@ def build_one(args: tuple) -> dict:
     return {"id": doc_id, "layout": plan["layout"], "quality": plan["quality"], "decision": decision}
 
 
+# Cases the small Veradigm sandbox roster can produce (see load_sandbox_roster).
+SANDBOX_CASE_WEIGHTS = {
+    "normal": 50, "no_mrn": 10, "wrong_mrn": 6, "not_in_roster": 8, "same_name_diff_dob": 8,
+    "hyphen_apostrophe": 8, "dob_typo": 3, "multi_patient": 5,
+}
+
+
+def load_sandbox_roster(path: str) -> list[Patient]:
+    """Synthetic patients that exist in the Veradigm sandbox (JSON from the sandbox setup script)."""
+    rows = json.load(open(path, encoding="utf-8"))
+    names: dict[str, int] = {}
+    for r in rows:
+        names[(r["first"] + " " + r["last"]).lower()] = names.get((r["first"] + " " + r["last"]).lower(), 0) + 1
+    roster = []
+    for r in rows:
+        y, m, d = r["dob"].split("-")
+        tags = []
+        if names[(r["first"] + " " + r["last"]).lower()] > 1:
+            tags.append("same_name_diff_dob")
+        if "-" in r["last"] or " " in r["last"]:
+            tags.append("hyphen")
+        roster.append(Patient(
+            key=r["key"], patient_id=str(r.get("pmId") or ""), chart_patient_id=str(r["ehrId"]),
+            first=r["first"], middle="", last=r["last"], dob=f"{m}/{d}/{y}", sex=r["sex"],
+            pm_mrn=str(r.get("pmMrn") or ""), ehr_mrn=str(r.get("ehrMrn") or r.get("patientNumber") or ""),
+            home_phone=r["phone"], cell_phone="", tags=tags,
+        ))
+    return roster
+
+
 def generate(args: argparse.Namespace) -> int:
+    global CASE_WEIGHTS
     out = os.path.abspath(args.out)
     for sub in ("docs", "truth"):
         os.makedirs(os.path.join(out, sub), exist_ok=True)
     sender_numbers()
-    roster, outside = build_roster(args.roster, random.Random(args.seed))
+    roster, outside = build_roster(max(args.roster, 80), random.Random(args.seed))
+    if args.roster_file:
+        roster = load_sandbox_roster(args.roster_file)
+        CASE_WEIGHTS = SANDBOX_CASE_WEIGHTS
     with open(os.path.join(out, "roster.json"), "w", encoding="utf-8") as f:
         json.dump([p.to_json() for p in roster], f, indent=1)
     with open(os.path.join(out, "outside.json"), "w", encoding="utf-8") as f:
@@ -323,8 +357,9 @@ def main() -> int:
     g.add_argument("--seed", type=int, default=42)
     g.add_argument("--out", required=True)
     g.add_argument("--workers", type=int, default=max(1, (os.cpu_count() or 2) - 1))
+    g.add_argument("--roster-file", default="", help="JSON roster of sandbox patients (documents use only these, plus outside people)")
     args = ap.parse_args()
-    if args.roster < 80:
+    if args.roster < 80 and not args.roster_file:
         print("--roster must be at least 80 (hard cases take ~70 slots)", file=sys.stderr)
         return 2
     return generate(args)
