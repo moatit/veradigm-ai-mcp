@@ -64,6 +64,10 @@ export interface IntakeItem {
   note?: string;
   reviewed_by?: string;
   reviewed_at?: string;
+  /** Filing attempt marker: set before the Veradigm write, finished when it answered (duplicate guard). */
+  filing?: { target: 'chart' | 'indexing'; started_at: string; finished_at?: string };
+  /** What was written to the Veradigm® EHR chart. */
+  filed?: { document_id: string; document_type: string; doc_status: string; task_id?: string; at: string; by: string };
   /** Times processing waited for MOATiT Fax OCR. */
   ocr_waits?: number;
   /** Set when Drawbridge's own OCR container (ocr.ts) read the file. */
