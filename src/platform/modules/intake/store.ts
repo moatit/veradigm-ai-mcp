@@ -4,6 +4,7 @@ import * as path from 'path';
 import type { ExtractedFields } from './extract';
 import type { MatchResult } from './match';
 import type { DocTypeSuggestion } from './doctypes';
+import type { GroundTruth, ShadowDecision } from './shadow';
 
 /**
  * Intake working store: one JSON file of items plus the original files.
@@ -82,6 +83,10 @@ export interface IntakeItem {
   /** Part of a split file: the parent item and which of its pages this part holds. */
   parent_id?: string;
   part?: { index: number; of: number; pages: number[] };
+  /** Shadow mode (INTAKE_MODE=shadow): what Drawbridge would have done. Nothing is filed. */
+  shadow?: ShadowDecision;
+  /** Shadow mode: what staff confirmed (patient and category, or not an IKI patient / unreadable / several). */
+  truth?: GroundTruth;
   history: IntakeHistory[];
 }
 

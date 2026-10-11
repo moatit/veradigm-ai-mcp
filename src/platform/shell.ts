@@ -1,4 +1,5 @@
-import { createHmac, randomBytes, timingSafeEqual } from 'crypto';
+import { createHmac, randomBytes, scryptSync, timingSafeEqual } from 'crypto';
+import * as fs from 'fs';
 import express, { NextFunction, Request, Response, Router } from 'express';
 
 /**
@@ -6,11 +7,60 @@ import express, { NextFunction, Request, Response, Router } from 'express';
  * Feature modules render their body HTML with `esc()` and hand it to `page()`.
  *
  *   DRAWBRIDGE_USERNAME / DRAWBRIDGE_PASSWORD   staff login (falls back to ONCALL_USERNAME / ONCALL_PASSWORD)
+ *   DRAWBRIDGE_USERS_FILE                        named staff logins instead: one "username:scrypt$N$r$p$salt$hash"
+ *                                                line per person (npm run staff:user), re-read when it changes;
+ *                                                when set, the single login above is not accepted
  *   DRAWBRIDGE_SESSION_SECRET                    cookie signing key (falls back to ONCALL_SESSION_SECRET, else random per process)
  *   CLINIC_TIMEZONE                              display timezone (default America/Boise)
  */
 const USERNAME = () => process.env.DRAWBRIDGE_USERNAME || process.env.ONCALL_USERNAME || '';
 const PASSWORD = () => process.env.DRAWBRIDGE_PASSWORD || process.env.ONCALL_PASSWORD || '';
+const USERS_FILE = () => String(process.env.DRAWBRIDGE_USERS_FILE || '').trim();
+
+/** "username:scrypt$N$r$p$salt$hash" for one staff member (salt and hash base64). */
+export function hashStaffPassword(username: string, password: string, salt: Buffer = randomBytes(16)): string {
+  if (!/^[A-Za-z0-9._@-]{2,64}$/.test(username)) throw new Error('username: 2-64 letters, digits, . _ @ -');
+  if (password.length < 12) throw new Error('password: at least 12 characters');
+  const [N, r, p] = [16384, 8, 1];
+  const hash = scryptSync(password, salt, 32, { N, r, p });
+  return `${username}:scrypt$${N}$${r}$${p}$${salt.toString('base64')}$${hash.toString('base64')}`;
+}
+
+let usersCache: { file: string; stamp: string; users: Map<string, string> } | null = null;
+/** Named staff from DRAWBRIDGE_USERS_FILE; null when unset. An unreadable file means nobody can sign in. */
+function staffUsers(): Map<string, string> | null {
+  const file = USERS_FILE();
+  if (!file) return null;
+  try {
+    const st = fs.statSync(file);
+    const stamp = `${st.size}:${st.mtimeMs}`;
+    if (usersCache && usersCache.file === file && usersCache.stamp === stamp) return usersCache.users;
+    const users = new Map<string, string>();
+    for (const line of fs.readFileSync(file, 'utf8').split(/\r?\n/)) {
+      const m = line.trim().match(/^([A-Za-z0-9._@-]{2,64}):(scrypt\$\d+\$\d+\$\d+\$[A-Za-z0-9+/=]+\$[A-Za-z0-9+/=]+)$/);
+      if (m) users.set(m[1].toLowerCase(), m[2]);
+    }
+    usersCache = { file, stamp, users };
+    return users;
+  } catch {
+    usersCache = null;
+    return new Map();
+  }
+}
+
+/** Constant-time check of one staff member's password against the users file entry. */
+function checkStaffPassword(entry: string, password: string): boolean {
+  const [, n, r, p, salt, hash] = entry.split('$');
+  try {
+    const want = Buffer.from(hash, 'base64');
+    const got = scryptSync(password, Buffer.from(salt, 'base64'), want.length, { N: +n, r: +r, p: +p, maxmem: 64 * 1024 * 1024 });
+    return want.length >= 16 && timingSafeEqual(got, want);
+  } catch {
+    return false;
+  }
+}
+
+const loginConfigured = (): boolean => (USERS_FILE() ? true : !!USERNAME() && !!PASSWORD());
 const SECRET =
   process.env.DRAWBRIDGE_SESSION_SECRET || process.env.ONCALL_SESSION_SECRET || randomBytes(32).toString('hex');
 const COOKIE = 'drawbridge_session';
@@ -79,7 +129,10 @@ function sameSecret(a: string, b: string): boolean {
 export function currentUser(req: Request): string | null {
   const value = verify(readCookie(req, COOKIE));
   const [user, exp] = (value || '').split('|');
-  return user && Number(exp) > Date.now() ? user : null;
+  if (!user || !(Number(exp) > Date.now())) return null;
+  // Named staff: someone taken out of the users file is signed out at once.
+  const staff = staffUsers();
+  return !staff || staff.has(user) ? user : null;
 }
 
 /** Express middleware: staff login required. */
@@ -152,10 +205,10 @@ export function shellRouter(): Router {
   });
 
   router.get('/login', (req, res) => {
-    if (!USERNAME() || !PASSWORD()) {
+    if (!loginConfigured()) {
       res
         .status(503)
-        .send(page('Drawbridge', '<div class="card">Login is not configured. Set DRAWBRIDGE_USERNAME and DRAWBRIDGE_PASSWORD.</div>'));
+        .send(page('Drawbridge', '<div class="card">Login is not configured. Set DRAWBRIDGE_USERNAME and DRAWBRIDGE_PASSWORD, or DRAWBRIDGE_USERS_FILE.</div>'));
       return;
     }
     const next = typeof req.query.next === 'string' && req.query.next.startsWith(APP_BASE) ? req.query.next : APP_BASE;
@@ -172,10 +225,18 @@ export function shellRouter(): Router {
   });
 
   router.post('/login', (req, res) => {
-    const u = String(req.body?.u || '');
+    let u = String(req.body?.u || '');
     const p = String(req.body?.p || '');
-    const ok = !!USERNAME() && !!PASSWORD() && sameSecret(u, USERNAME()) && sameSecret(p, PASSWORD());
-    if (!ok) {
+    const staff = staffUsers();
+    let ok: boolean;
+    if (staff) {
+      const entry = staff.get(u.trim().toLowerCase());
+      ok = !!entry && checkStaffPassword(entry, p);
+      u = u.trim().toLowerCase();
+    } else {
+      ok = !!USERNAME() && !!PASSWORD() && sameSecret(u, USERNAME()) && sameSecret(p, PASSWORD());
+    }
+    if (!ok || u.includes('|')) {
       setTimeout(() => res.redirect(`${APP_BASE}/login?e=1`), 800);
       return;
     }

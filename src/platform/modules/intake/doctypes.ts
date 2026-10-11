@@ -1,3 +1,4 @@
+import * as fs from 'fs';
 import type { UnityService } from '../../../unity/services/unity.service';
 import { UnityActions } from '../../../unity/config/unity-endpoints';
 import { UnityErrorHandler, UnityMCPError } from '../../../unity/utils/error-handler';
@@ -184,5 +185,107 @@ export class DocTypeCache {
       if (e instanceof UnityMCPError) throw e;
       throw UnityErrorHandler.handleUnknownError(e, action);
     }
+  }
+}
+
+/** What the pipeline and the staff screens need from a category source (Veradigm® EHR or a list). */
+export type DocTypeSource = Pick<DocTypeCache, 'list' | 'suggest'>;
+
+/**
+ * Live categories first, a list as the fallback (shadow mode: GetDocumentType when Veradigm® is
+ * reachable, INTAKE_CATEGORIES_CSV when it isn't or isn't configured yet). Throws only when both fail.
+ */
+export class FallbackDocTypes {
+  constructor(
+    private primary: DocTypeSource | null,
+    private fallback: DocTypeSource | null
+  ) {}
+
+  async list(): Promise<DocType[]> {
+    if (this.primary) {
+      try {
+        return await this.primary.list();
+      } catch (e) {
+        if (!this.fallback) throw e;
+      }
+    }
+    if (!this.fallback) throw UnityErrorHandler.createAPIError('No category source', 'GetDocumentType');
+    return this.fallback.list();
+  }
+
+  async suggest(kind: DocumentKind, subtype?: DocumentSubtype): Promise<DocTypeSuggestion | null> {
+    return mapKindToType(kind, await this.list(), subtype);
+  }
+}
+
+/** Header words a category list may start with (skipped). */
+const CATEGORY_HEADERS = new Set(['name', 'category', 'categories', 'documenttype', 'documenttypes', 'displayname', 'categoryname', 'type']);
+
+/**
+ * Chart categories from a list (shadow mode, INTAKE_CATEGORIES_CSV): one category name per line,
+ * as the clinic's Veradigm® EHR shows them (e.g. "Labs/Procedures", "Consultant Letter",
+ * "(ready for indexing)"). Blank lines, "#" comments, surrounding quotes and a header line are
+ * ignored; so is anything after a first comma (a one-column export with extra columns). The name
+ * is also the ID. Mapping is the same as for GetDocumentType (mapKindToType, the clinic map
+ * INTAKE_CATEGORY_MAP), so a shadow suggestion is the one live mode would make with the same names.
+ * Re-read when the file changes; a missing, unreadable or empty list throws (never an empty list).
+ */
+export class CsvDocTypes {
+  private types: DocType[] | null = null;
+  private stamp = '';
+
+  constructor(readonly file: string) {}
+
+  /** From INTAKE_CATEGORIES_CSV; null when unset. */
+  static fromEnv(): CsvDocTypes | null {
+    const f = String(process.env.INTAKE_CATEGORIES_CSV || '').trim();
+    return f ? new CsvDocTypes(f) : null;
+  }
+
+  static parse(text: string): DocType[] {
+    const seen = new Set<string>();
+    const out: DocType[] = [];
+    let first = true;
+    for (const line of text.replace(/^﻿/, '').split(/\r?\n/)) {
+      const raw = line.trim();
+      if (!raw || raw.startsWith('#')) continue;
+      const name = (raw.startsWith('"') ? raw.replace(/^"((?:[^"]|"")*)".*$/, '$1').replace(/""/g, '"') : raw.split(',')[0]).trim();
+      const header = first && CATEGORY_HEADERS.has(name.toLowerCase().replace(/[^a-z]/g, ''));
+      first = false;
+      if (!name || header || seen.has(name.toLowerCase())) continue;
+      seen.add(name.toLowerCase());
+      out.push({ id: name, name, entryCode: /ready for indexing/i.test(name) ? READY_FOR_INDEXING_CODE : '', format: '', archived: false });
+    }
+    return out;
+  }
+
+  async list(): Promise<DocType[]> {
+    const action = 'INTAKE_CATEGORIES_CSV';
+    const unreadable = () => {
+      this.types = null;
+      return UnityErrorHandler.createAPIError('The category list file is missing or unreadable', action);
+    };
+    let st: fs.Stats;
+    try {
+      st = fs.statSync(this.file);
+    } catch {
+      throw unreadable();
+    }
+    const stamp = `${st.size}:${st.mtimeMs}`;
+    if (this.types && stamp === this.stamp) return this.types;
+    let types: DocType[];
+    try {
+      types = CsvDocTypes.parse(fs.readFileSync(this.file, 'utf8'));
+    } catch {
+      throw unreadable();
+    }
+    if (!types.length) throw UnityErrorHandler.createAPIError('The category list is empty', action);
+    this.types = types;
+    this.stamp = stamp;
+    return types;
+  }
+
+  async suggest(kind: DocumentKind, subtype?: DocumentSubtype): Promise<DocTypeSuggestion | null> {
+    return mapKindToType(kind, await this.list(), subtype);
   }
 }

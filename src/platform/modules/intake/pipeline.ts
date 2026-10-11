@@ -1,12 +1,13 @@
 import * as fs from 'fs';
 import type { PlatformDeps } from '../../registry';
-import { DocTypeCache } from './doctypes';
+import type { DocTypeSource } from './doctypes';
 import { fileToChart, filingMode, filingStatus, IntakeFilingError } from './file';
 import { extractFields } from './extract';
 import { matchPatient } from './match';
 import { FaxApiError, isOcrPending, MoatitFaxClient } from './moatit-fax';
 import { OcrClient, OcrError, ocrReviewReason } from './ocr';
 import { isListedSender, partOcr, segmentItem, splitPages, type PageSegmentation } from './pages';
+import { shadowDecision, shadowMode, shadowSummary } from './shadow';
 import { IntakeItem, IntakeStore } from './store';
 
 export { partOcr, segmentItem, splitEnabled } from './pages';
@@ -31,6 +32,8 @@ export { partOcr, segmentItem, splitEnabled } from './pages';
  *    chart category is not the "(ready for indexing)" fallback, the page check passed (always
  *    required for batch senders), the file is not a duplicate, and the sender is not in
  *    INTAKE_NO_AUTO_SENDERS. Everything else waits for staff.
+ *    Shadow mode (INTAKE_MODE=shadow, shadow.ts): this step never runs. The decision it would have
+ *    made is recorded on the item instead (`shadow`), for every finished item and split parent.
  *
  * One item at a time (a serial queue), so a burst of faxes never floods Veradigm or MOATiT Fax.
  * Without platform deps (before the module starts) items stop at 'read' and are resumed at start.
@@ -42,7 +45,7 @@ export const OCR_MAX_WAITS = 5;
 export interface PipelineOptions {
   store: () => IntakeStore;
   fax?: () => MoatitFaxClient | null;
-  docTypes?: DocTypeCache | null;
+  docTypes?: DocTypeSource | null;
   deps?: Pick<PlatformDeps, 'runTool'> | null;
   /** Local OCR for files without text (default: OcrClient.fromEnv(); null = OCR off). */
   ocr?: () => OcrClient | null;
@@ -59,7 +62,7 @@ export class IntakePipeline {
 
   constructor(private opts: PipelineOptions) {}
 
-  setDeps(deps: Pick<PlatformDeps, 'runTool'>, docTypes: DocTypeCache | null): void {
+  setDeps(deps: Pick<PlatformDeps, 'runTool'>, docTypes: DocTypeSource | null): void {
     this.opts.deps = deps;
     this.opts.docTypes = docTypes;
   }
@@ -120,6 +123,7 @@ export class IntakePipeline {
         ? 'OCR found no readable text in this document. Review it and pick the patient by hand.'
         : 'No readable text in this document. Review it and pick the patient by hand.';
       store.update(id, { status: 'needs_review', note }, 'no readable text');
+      if (shadowMode()) this.recordShadow(store, id);
       return;
     }
     const extracted = extractFields(text, this.now());
@@ -173,6 +177,11 @@ export class IntakePipeline {
       `${auto ? 'matched' : `needs review: ${why}`}${typeNote}`,
       AUTO
     );
+    // Shadow mode: record what would happen next; never file.
+    if (shadowMode()) {
+      this.recordShadow(store, id);
+      return;
+    }
 
     // 6. Auto-file
     const blocker = auto ? autoFileBlocker(store.get(id)!) : 'not auto-matched';
@@ -190,6 +199,13 @@ export class IntakePipeline {
       if (!['FILING_REJECTED', 'FILING_UNCERTAIN'].includes(code)) store.update(id, {}, `auto-filing skipped (${code})`, AUTO);
       console.error(`[Intake] auto-filing ${id} not done: ${code}`);
     }
+  }
+
+  /** Shadow mode: the decision the filing step would have made, on the item (shadow.ts). */
+  private recordShadow(store: IntakeStore, id: string): void {
+    const item = store.get(id)!;
+    const d = shadowDecision(item, itemAutoFileBlocker(item), this.now());
+    store.update(id, { shadow: d }, shadowSummary(d), AUTO);
   }
 
   /** Local OCR of the original. Returns false when it failed (the item is then 'failed' with a code). */
@@ -312,6 +328,7 @@ export class IntakePipeline {
       `split into ${n} documents, one per patient (${seg.reason})`
     );
     console.log(`[Intake] split ${item.id} into ${n} part(s)`);
+    if (shadowMode()) this.recordShadow(store, item.id);
     for (const id of ids) {
       const s = store.get(id)?.status;
       if (s === 'received' || s === 'read') this.enqueue(id);
@@ -369,6 +386,11 @@ export class IntakePipeline {
 export function autoFileBlocker(item: IntakeItem): string {
   if (filingMode() !== 'auto') return 'filing mode is not auto';
   if (!filingStatus().enabled) return 'filing disabled';
+  return itemAutoFileBlocker(item);
+}
+
+/** The item's own reasons to wait for staff, whatever the filing switches say (also shadow mode's "would it auto-file"). */
+export function itemAutoFileBlocker(item: IntakeItem): string {
   if (item.status === 'split') return 'split into one document per patient';
   if (item.match?.decision !== 'auto') return 'not auto-matched';
   if (!item.document_type || item.document_type.reason === 'fallback') return 'no specific document type';
