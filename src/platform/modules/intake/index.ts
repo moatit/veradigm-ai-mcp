@@ -3,7 +3,7 @@ import { PlatformModule } from '../../registry';
 import { APP_BASE, esc, fmtTime, page } from '../../shell';
 import { DocTypeCache } from './doctypes';
 import type { Confidence, DocumentKind, Extracted } from './extract';
-import { fileToChart, filingStatus, IntakeFilingError, sendToIndexing } from './file';
+import { fileToChart, filingStatus, IntakeFilingError, sendToIndexing, setFilingDeps, type FilingResult } from './file';
 import { startFolderWatcher } from './folder';
 import { MoatitFaxClient, setFaxRecordedHandler } from './moatit-fax';
 import { IntakePipeline } from './pipeline';
@@ -16,8 +16,8 @@ export { mountFaxWebhook } from './moatit-fax';
  *  - POST /webhooks/moatit-fax (signed MOATiT Fax deliveries) via mountFaxWebhook(app), before express.json()
  *  - Drop-folder watcher (INTAKE_DROP_DIR) and staff uploads
  *  - Staff screens: /app/intake (queue), /app/intake/item/:id (fields, match, document type, actions)
- * Design and safety rules: docs/drawbridge/FAX_INTAKE_ADDON.md. Filing to the chart is disabled
- * on this branch (file.ts); no Veradigm write happens here.
+ * Design and safety rules: docs/drawbridge/FAX_INTAKE_ADDON.md. Filing to the chart (file.ts) is off
+ * unless INTAKE_FILING and INTAKE_SAVE_DOCUMENT_FORMAT_CONFIRMED allow it.
  */
 const LIST_MAX = 300;
 /**
@@ -60,9 +60,12 @@ const MESSAGES: Record<string, string> = {
   reviewed: 'Marked as reviewed.',
   retry: 'Queued to read again.',
   FILING_DISABLED: 'Filing is turned off.',
-  FILING_NOT_IMPLEMENTED: 'Filing to the Veradigm® EHR chart is not available yet.',
   NOT_READY: 'This document is not ready to file yet.',
   ALREADY_FILED: 'This document was already filed.',
+  FILING_REJECTED: 'Veradigm® EHR did not accept the document. It was not filed.',
+  FILING_UNCERTAIN: 'Veradigm® EHR did not answer. Check the patient chart before trying again.',
+  filed: 'Filed to the patient chart in Veradigm® EHR.',
+  filed_task_failed: 'Filed to the patient chart, but the review task could not be sent. Tell the provider.',
 };
 
 const pill = (cls: string, text: string) => `<span class="pill ${cls}">${esc(text)}</span>`;
@@ -157,6 +160,7 @@ export function itemPage(i: IntakeItem, message = ''): string {
 <dt>File</dt><dd>${i.file ? `<a href="${APP_BASE}/intake/item/${encodeURIComponent(i.id)}/original" target="_blank" rel="noopener">${esc(i.file.name)}</a> <span class="muted" style="font-size:12px">${esc(kb(i.file.size))}</span>` : '<span class="muted">not downloaded yet</span>'}</dd>
 ${i.duplicate_of ? `<dt>Duplicate</dt><dd>Same file as <a href="${APP_BASE}/intake/item/${encodeURIComponent(i.duplicate_of)}">an earlier document</a></dd>` : ''}
 ${i.note ? `<dt>Note</dt><dd>${esc(i.note)}</dd>` : ''}
+${i.filed ? `<dt>In the chart</dt><dd>Document ${esc(i.filed.document_id)} · ${esc(i.filed.document_type)} · ${esc(i.filed.doc_status === '4' ? 'approved' : i.filed.doc_status === '1' ? 'ready for indexing' : 'waiting for approval in Veradigm® EHR')}${i.filed.task_id ? ` · review task ${esc(i.filed.task_id)}` : ''} · ${esc(fmtTime(i.filed.at))} by ${esc(i.filed.by)}</dd>` : ''}
 ${i.reviewed_by ? `<dt>Reviewed</dt><dd>${esc(i.reviewed_by)} · ${esc(fmtTime(i.reviewed_at || ''))}</dd>` : ''}
 </dl></div>`;
 
@@ -257,21 +261,24 @@ export const intakeModule: PlatformModule = {
       res.sendFile(p);
     });
 
-    const filingAction = (fn: (i: IntakeItem) => Promise<never>) => async (req: Request, res: Response) => {
+    const filingAction = (fn: (i: IntakeItem, by: string) => Promise<FilingResult>) => async (req: Request, res: Response) => {
       const item = intakeStore().get(req.params.id);
       if (!item) {
         res.status(404).send('Not found');
         return;
       }
+      let r: FilingResult;
       try {
-        await fn(item);
+        r = await fn(item, user(req));
       } catch (e) {
-        const code = e instanceof IntakeFilingError ? e.error_code : 'FILING_NOT_IMPLEMENTED';
-        intakeStore().update(item.id, {}, `filing refused (${code})`, user(req));
+        const code = e instanceof IntakeFilingError ? e.error_code : 'FILING_UNCERTAIN';
+        if (!(e instanceof IntakeFilingError) || ['FILING_DISABLED', 'NOT_READY', 'ALREADY_FILED'].includes(code)) {
+          intakeStore().update(item.id, {}, `filing refused (${code})`, user(req));
+        }
         back(res, item.id, code);
         return;
       }
-      back(res, item.id, 'FILING_NOT_IMPLEMENTED');
+      back(res, item.id, r.task_error ? 'filed_task_failed' : 'filed');
     };
     router.post('/item/:id/file-to-chart', filingAction(fileToChart));
     router.post('/item/:id/send-to-indexing', filingAction(sendToIndexing));
@@ -327,6 +334,7 @@ export const intakeModule: PlatformModule = {
 
   start(deps) {
     intakePipeline.setDeps(deps, new DocTypeCache(deps.unity));
+    setFilingDeps({ unity: deps.unity, store: intakeStore });
     setFaxRecordedHandler((id) => intakePipeline.enqueue(id));
     stopWatcher?.();
     stopWatcher = startFolderWatcher(intakeStore, (id) => intakePipeline.enqueue(id));

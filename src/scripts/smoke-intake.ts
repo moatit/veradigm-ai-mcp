@@ -394,30 +394,108 @@ async function main(): Promise<void> {
   assert.strictEqual(scanDropFolder(fStore, path.join(TMP, 'missing'), NOW.getTime()).added.length, 0, 'missing folder is fine');
   ok('drop folder: picks up PDF/TIFF/PNG/JPEG older than 10 s, moves them in, dedupes by hash');
 
-  // 10. Filing guard (no Veradigm write on this branch)
+  // 10. Filing (SaveScanDocument + review task) against a fake Veradigm® EHR
   const ready = { ...fxDone };
-  await assert.rejects(filing.fileToChart(ready), (e: any) => e.error_code === 'FILING_DISABLED' && e.retryable === false);
-  await assert.rejects(filing.sendToIndexing(ready), (e: any) => e.error_code === 'FILING_DISABLED');
+  const fcalls: { action: string; params: any; pid: string }[] = [];
+  let unityMode: 'ok' | 'reject' | 'timeout' | 'task_reject' = 'ok';
+  const fileUnity = {
+    async executeAction(action: string, params: any, pid: string) {
+      fcalls.push({ action, params, pid });
+      if (unityMode === 'timeout' && action === 'SaveScanDocument') throw Object.assign(new Error('timeout'), { code: 'ECONNABORTED' });
+      if (unityMode === 'reject' && action === 'SaveScanDocument') return { success: false, error: 'SaveScanDocument: Doctype is not recognized' };
+      if (action === 'SaveTask') {
+        return unityMode === 'task_reject' ? { success: false, error: 'Target User Not found' } : { success: true, data: [{ savetaskinfo: [{ TaskId: '7001', status: '0' }] }] };
+      }
+      const chunked = /<chunkupload>/.test(params.Parameter4 || '');
+      const done = !chunked || /<bDoneUpload>true</.test(params.Parameter4);
+      return { success: true, data: [{ savescandocumentinfo: [done ? { documentID: String(9000 + fcalls.length) } : { documentVar: 'guid-1' }] }] };
+    },
+  } as any;
+  const deps = { unity: fileUnity, store: () => pStore, now: () => NOW };
+  await assert.rejects(filing.fileToChart(ready, 't', deps), (e: any) => e.error_code === 'FILING_DISABLED' && e.retryable === false);
+  await assert.rejects(filing.sendToIndexing(ready, 't', deps), (e: any) => e.error_code === 'FILING_DISABLED');
   process.env.INTAKE_FILING = 'review';
-  await assert.rejects(filing.fileToChart(ready), (e: any) => e.error_code === 'FILING_DISABLED', 'format not confirmed');
+  await assert.rejects(filing.fileToChart(ready, 't', deps), (e: any) => e.error_code === 'FILING_DISABLED', 'format not confirmed');
   process.env.INTAKE_SAVE_DOCUMENT_FORMAT_CONFIRMED = 'yes';
-  await assert.rejects(filing.fileToChart(ready), (e: any) => e.error_code === 'FILING_DISABLED', 'only the literal "true" confirms');
+  await assert.rejects(filing.fileToChart(ready, 't', deps), (e: any) => e.error_code === 'FILING_DISABLED', 'only the literal "true" confirms');
   process.env.INTAKE_SAVE_DOCUMENT_FORMAT_CONFIRMED = 'true';
-  await assert.rejects(filing.fileToChart({ ...ready, match: { ...ready.match!, decision: 'review' } }), (e: any) => e.error_code === 'NOT_READY');
-  await assert.rejects(filing.fileToChart({ ...ready, status: 'filed' }), (e: any) => e.error_code === 'ALREADY_FILED');
-  await assert.rejects(filing.fileToChart(ready), (e: any) => e.error_code === 'FILING_NOT_IMPLEMENTED');
+  await assert.rejects(filing.fileToChart(ready, 't', null), (e: any) => e.error_code === 'FILING_DISABLED', 'no deps = not configured');
+  const reviewItem = pStore.update(ready.id, { match: { ...ready.match!, decision: 'review' } });
+  await assert.rejects(filing.fileToChart(reviewItem, 't', deps), (e: any) => e.error_code === 'NOT_READY', 'review match needs staff');
+  pStore.update(ready.id, { match: ready.match });
+  assert.strictEqual(fcalls.length, 0, 'no Veradigm call while refused');
+
+  // Veradigm refuses: not filed, marker cleared, a retry is allowed
+  unityMode = 'reject';
+  await assert.rejects(filing.fileToChart(ready, 't', deps), (e: any) => e.error_code === 'FILING_REJECTED');
+  assert.ok(!pStore.get(ready.id)!.filing && pStore.get(ready.id)!.status === 'matched');
+  // No answer: uncertain, and no automatic second attempt
+  unityMode = 'timeout';
+  await assert.rejects(filing.fileToChart(ready, 't', deps), (e: any) => e.error_code === 'FILING_UNCERTAIN');
+  const n = fcalls.length;
+  unityMode = 'ok';
+  await assert.rejects(filing.fileToChart(ready, 't', deps), (e: any) => e.error_code === 'FILING_UNCERTAIN', 'uncertain blocks a retry');
+  assert.strictEqual(fcalls.length, n, 'no call after an uncertain attempt');
+  pStore.update(ready.id, { filing: undefined, error_code: undefined }, 'staff checked the chart', 't');
+
+  // Success: one SaveScanDocument (Submitted by default) + a review task when INTAKE_REVIEW_USER is set
+  process.env.INTAKE_REVIEW_USER = 'REVIEWER.TEST';
+  fcalls.length = 0;
+  const r1 = await filing.fileToChart(ready, 'staff1', deps);
+  assert.deepStrictEqual(fcalls.map((c) => c.action), ['SaveScanDocument', 'SaveTask']);
+  const sc = fcalls[0];
+  assert.strictEqual(sc.pid, ready.match!.patient!.chartPatientId);
+  assert.strictEqual(sc.params.Parameter1, 'Labs/Procedures');
+  assert.ok(/^drawbridge-[\w-]+\.pdf$/.test(sc.params.Parameter2), 'file name without slashes or spaces');
+  assert.ok(/<docstatus>2<\/docstatus>/.test(sc.params.Parameter3) && /<indexsource>None</.test(sc.params.Parameter3));
+  assert.ok(/<clinicaldate>\d{1,2}\/\d{1,2}\/\d{4}<\/clinicaldate>/.test(sc.params.Parameter3));
+  assert.ok(!/<doctitle>[^<]*\//.test(sc.params.Parameter3), 'no slash in the title');
+  const title = sc.params.Parameter3.match(/<doctitle>([^<]*)</)[1];
+  assert.ok(title.length <= filing.TITLE_MAX && /^Outside lab [A-Z][a-z]{2} \d{1,2} \d{4}/.test(title), `short title with the date first: ${title}`);
+  assert.strictEqual(Buffer.from(sc.params.Data, 'base64').length, ready.file!.size);
+  assert.deepStrictEqual([fcalls[1].params.Parameter1, fcalls[1].params.Parameter2, fcalls[1].params.Parameter3], ['Review', 'REVIEWER.TEST', r1.document_id]);
+  const filed = pStore.get(ready.id)!;
+  assert.deepStrictEqual([filed.status, filed.filed?.document_id, filed.filed?.task_id, filed.filed?.by], ['filed', r1.document_id, '7001', 'staff1']);
+  await assert.rejects(filing.fileToChart(filed, 't', deps), (e: any) => e.error_code === 'ALREADY_FILED');
+  await assert.rejects(filing.sendToIndexing(filed, 't', deps), (e: any) => e.error_code === 'ALREADY_FILED');
+
+  // Chunked upload (over 2 MB), approved status; a failed task keeps the filing
+  const bigData = Buffer.concat([Buffer.from('%PDF-1.4\n'), Buffer.alloc(filing.CHUNK_LIMIT + 1500, 0x20)]);
+  const big = pStore.addDocument({ source: 'upload', source_ref: '', name: 'big.pdf', mime: 'application/pdf', data: bigData, by: 't' }).item;
+  pStore.update(big.id, { status: 'matched', match: ready.match, document_type: ready.document_type, extracted: ready.extracted });
+  process.env.INTAKE_DOC_STATUS = 'approved';
+  unityMode = 'task_reject';
+  fcalls.length = 0;
+  const r2 = await filing.fileToChart(pStore.get(big.id)!, 't', deps);
+  const chunks = fcalls.filter((c) => c.action === 'SaveScanDocument');
+  assert.strictEqual(chunks.length, 3, '2 MB + 1.5 KB = 3 chunks of 1 MB');
+  assert.ok(/<offset>0<\/offset>.*<bDoneUpload>false<\/bDoneUpload><documentVar><\/documentVar>/.test(chunks[0].params.Parameter4));
+  assert.ok(/<offset>1048576<\/offset>.*<documentVar>guid-1<\/documentVar>/.test(chunks[1].params.Parameter4));
+  assert.ok(/<bDoneUpload>true<\/bDoneUpload>/.test(chunks[2].params.Parameter4));
+  assert.strictEqual(chunks.reduce((a, c) => a + Buffer.from(c.params.Data, 'base64').length, 0), bigData.length);
+  assert.ok(/<docstatus>4<\/docstatus>/.test(chunks[0].params.Parameter3));
+  assert.strictEqual(r2.task_error, 'TASK_REJECTED');
+  assert.strictEqual(pStore.get(big.id)!.status, 'filed', 'a failed task does not undo the filing');
+
+  // Send to indexing: "(ready for indexing)", status Ready for Indexing, no task
+  const idx = pStore.addDocument({ source: 'upload', source_ref: '', name: 'idx.pdf', mime: 'application/pdf', data: Buffer.from('%PDF-1.4\nidx'), by: 't' }).item;
+  pStore.update(idx.id, { status: 'needs_review', match: { ...ready.match!, decision: 'review' } });
+  unityMode = 'ok';
+  fcalls.length = 0;
+  await filing.sendToIndexing(pStore.get(idx.id)!, 't', deps);
+  assert.deepStrictEqual(fcalls.map((c) => [c.action, c.params.Parameter1]), [['SaveScanDocument', '(ready for indexing)']]);
+  assert.ok(/<docstatus>1<\/docstatus>/.test(fcalls[0].params.Parameter3));
+  assert.strictEqual(pStore.get(idx.id)!.status, 'sent_to_indexing');
+
   process.env.INTAKE_FILING = 'everything';
   assert.strictEqual(filing.filingMode(), 'off', 'unknown mode = off');
-  delete process.env.INTAKE_FILING;
-  delete process.env.INTAKE_SAVE_DOCUMENT_FORMAT_CONFIRMED;
+  for (const k of ['INTAKE_FILING', 'INTAKE_SAVE_DOCUMENT_FORMAT_CONFIRMED', 'INTAKE_REVIEW_USER', 'INTAKE_DOC_STATUS']) delete process.env[k];
   const fileSrc = ['file.js', 'file.ts'].map((f) => path.join(__dirname, '../platform/modules/intake', f)).find((f) => fs.existsSync(f))!;
-  const code = fs.readFileSync(fileSrc, 'utf8').replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, '');
-  assert.ok(!/executeAction|SaveDocumentImage|SAVE_DOCUMENT_IMAGE|runTool/.test(code), 'file.ts makes no Veradigm call');
-  for (const f of fs.readdirSync(path.dirname(fileSrc)).filter((x) => /\.(js|ts)$/.test(x) && !x.endsWith('.d.ts'))) {
+  for (const f of fs.readdirSync(path.dirname(fileSrc)).filter((x) => /\.(js|ts)$/.test(x) && !x.endsWith('.d.ts') && !/^file\./.test(x))) {
     const src = fs.readFileSync(path.join(path.dirname(fileSrc), f), 'utf8').replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, '');
-    assert.ok(!/SAVE_DOCUMENT_IMAGE|SaveDocumentImage|SaveTask|SAVE_TASK/.test(src), `${f} must not write to Veradigm`);
+    assert.ok(!/SaveScanDocument|SAVE_SCAN_DOCUMENT|SAVE_DOCUMENT_IMAGE|SaveDocumentImage|SaveTask|SAVE_TASK/.test(src), `${f}: only file.ts writes to Veradigm`);
   }
-  ok('filing guard: refuses while INTAKE_FILING is off or the save format is unconfirmed; no write call anywhere in the module');
+  ok('filing: guards, SaveScanDocument (single and 3 chunks), review task, rejected/uncertain handling, no duplicate filing, send to indexing; only file.ts writes');
 
   // 11. Screens: wording, escaping, disabled buttons
   const evil = pStore.update(up.item.id, { note: '<script>alert(1)</script>' });

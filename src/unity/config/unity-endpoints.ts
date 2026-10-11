@@ -145,13 +145,14 @@ export const UnityActions = {
   },
 
   // Documents (Veradigm EHR): staff-side fax/document intake add-on only, never the phone agent.
-  // GetDocumentType and GetDocuments verified on the sandbox Oct 9 (read). SaveDocumentImage is the
-  // owner-approved filing write (CLAUDE.md rule 4 exception); its format is NOT confirmed yet and no
-  // code calls it (see src/platform/modules/intake/file.ts).
+  // GetDocumentType and GetDocuments verified on the sandbox Oct 9 (read). SaveScanDocument is the
+  // owner-approved filing write (CLAUDE.md rule 4 exception), verified Oct 11 on synthetic patients;
+  // see src/platform/modules/intake/file.ts. SaveDocumentImage (chart attachment) is not used.
   Document: {
     GET_DOCUMENT_TYPES: action('GET_DOCUMENT_TYPES', 'GetDocumentType'),
     GET_DOCUMENTS: action('GET_DOCUMENTS', 'GetDocuments'),
-    SAVE_DOCUMENT_IMAGE: action('SAVE_DOCUMENT_IMAGE', 'SaveDocumentImage')
+    SAVE_DOCUMENT_IMAGE: action('SAVE_DOCUMENT_IMAGE', 'SaveDocumentImage'),
+    SAVE_SCAN_DOCUMENT: action('SAVE_SCAN_DOCUMENT', 'SaveScanDocument')
   },
 
   // Practice info (Veradigm EHR)
