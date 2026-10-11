@@ -10,15 +10,28 @@
  * DOB, two-letter name prefix filter, hyphenated last names work) and returns the same shape the real
  * tool does. The pipeline's OCR-confidence gate (ocr.ts) is applied the same way.
  *
- * Writes <set>/report[-label].md and <set>/summary[-label].json. The number that matters most is
- * wrong-patient auto-files: an "auto" decision for anyone other than the intended patient. It must be 0.
- * Exit code 1 when it is not. No network, no Veradigm call.
+ * Filing, page by page (sets made by the current generator carry per-page truth): every document is
+ * also run through three filing set-ups and each page's outcome (filed to which chart, or staff) is
+ * scored against the page's real patient:
+ *   before            whole-document match; the batch lab in INTAKE_NO_AUTO_SENDERS (the old stopgap)
+ *   before, no list   the same without the stopgap (shows the blind spot it covered)
+ *   after             INTAKE_BATCH_SENDERS + the per-page check and split of pipeline.ts (pages.ts):
+ *                     the parent is segmented, each part is extracted, matched and gated on its own
+ * A wrong-patient page is a page filed to a chart other than its patient's (a page holding two
+ * patients counts whenever it is filed; a cover sheet counts when it names another patient).
+ * Batch sender: --batch-sender (default INTAKE_BATCH_SENDERS or "Sawtooth Rapid Lab", the synthetic
+ * stand-in for Express Lab).
+ *
+ * Writes <set>/report[-label].md and <set>/summary[-label].json. The numbers that matter most are
+ * wrong-patient pages filed and wrong-patient auto-files under "after". They must be 0. Exit code 1
+ * when they are not. No network, no Veradigm call.
  */
 import * as fs from 'fs';
 import * as path from 'path';
 import { extractFields, ExtractedFields } from '../platform/modules/intake/extract';
 import { matchPatient, MatchDecision, MatchResult, normDob } from '../platform/modules/intake/match';
 import { ocrMinConfidence, ocrReviewReason } from '../platform/modules/intake/ocr';
+import { partOcr, segmentItem, splitPages } from '../platform/modules/intake/pages';
 
 // The day the synthetic set was generated for (dates on the documents are just before it).
 const NOW = new Date('2026-10-11T15:00:00Z');
@@ -58,14 +71,37 @@ interface Truth {
   abnormal: { flagged: boolean; critical: boolean; markers: string[] };
   printed: { first: string; last: string; dob: string; mrn: string | null; mrn_kind: string | null; phone: string | null };
   patients_on_document: number;
+  // Per-page truth (generator with batch splitting; absent in older sets).
+  batch_style?: string | null;
+  obscured?: boolean;
+  expected_pages_decision?: 'single' | 'split' | 'review';
+  expected_pages_why?: string;
+  patients_truth?: { key: string; in_roster: boolean; expected_decision: string; pages: number[] }[];
+  page_truth?: { page: number; role: 'cover' | 'result'; owners: string[]; shown: string[]; blotted: string[]; names: string[]; expected_filed_to: string | null }[];
 }
 
 interface OcrMeta {
   pages?: number;
   mean_confidence?: number;
   used_text_layer?: boolean;
+  page_confidences?: number[];
   error?: string;
   elapsed_ms?: number;
+}
+
+/** What one filing set-up did with a document: per page, the chart it went to ('' = staff). */
+interface Filing {
+  pages: string[];
+  /** Documents or parts auto-filed. */
+  units: number;
+  /** Units auto-filed holding any page of another patient. */
+  wrong_units: number;
+}
+
+interface AfterInfo {
+  seg: 'single' | 'split' | 'review' | 'ocr_failed';
+  reason: string;
+  groups: number[][];
 }
 
 interface Row {
@@ -79,9 +115,10 @@ interface Row {
   want: Record<Field, string>;
   match?: MatchResult;
   ocr: OcrMeta;
+  filing?: { before: Filing; open: Filing; after: Filing; info: AfterInfo };
 }
 
-function args(): { set: string; label: string; examples: number; ocr: string } {
+function args(): { set: string; label: string; examples: number; ocr: string; batchSender: string } {
   const a = process.argv.slice(2);
   const get = (k: string) => {
     const i = a.indexOf(k);
@@ -92,8 +129,111 @@ function args(): { set: string; label: string; examples: number; ocr: string } {
     console.error('usage: npm run eval:intake -- --set <dir> [--label name] [--ocr subdir] [--examples N]');
     process.exit(2);
   }
-  return { set: path.resolve(set), label: get('--label') || '', examples: Number(get('--examples') || 12), ocr: get('--ocr') || 'ocr' };
+  return {
+    set: path.resolve(set),
+    label: get('--label') || '',
+    examples: Number(get('--examples') || 12),
+    ocr: get('--ocr') || 'ocr',
+    batchSender: get('--batch-sender') || process.env.INTAKE_BATCH_SENDERS || 'Sawtooth Rapid Lab',
+  };
 }
+
+// ── Filing simulation, page by page ──────────────────────────────────────────
+
+/** The pipeline's OCR-confidence gate (pipeline.ts / ocr.ts) on a match decision. */
+function ocrGated(decision: MatchDecision, ocr: OcrMeta, minConf: number): boolean {
+  return decision === 'auto' && !!ocrReviewReason({ mean_confidence: Number(ocr.mean_confidence ?? 0), used_text_layer: ocr.used_text_layer === true }, minConf);
+}
+
+/** Pages filed whole to one chart, or nowhere. */
+function wholeFiling(n: number, chart: string): Filing {
+  return { pages: Array.from({ length: n }, () => chart), units: chart ? 1 : 0, wrong_units: 0 };
+}
+
+/**
+ * What pipeline.ts does with a document: page check (pages.ts), then either one match on the whole
+ * text, a split into parts (each extracted, matched and gated on its own), or staff review.
+ */
+async function afterFiling(
+  text: string,
+  meta: OcrMeta,
+  x: ExtractedFields,
+  whole: MatchResult,
+  n: number,
+  search: ReturnType<typeof fakePatientSearch>,
+  minConf: number
+): Promise<{ filing: Filing; info: AfterInfo }> {
+  const ocr = { engine: 'local' as const, pages: Number(meta.pages || 0), mean_confidence: Number(meta.mean_confidence ?? 0), used_text_layer: meta.used_text_layer === true, page_confidences: meta.page_confidences };
+  const seg = segmentItem({ ocr }, text, x, NOW);
+  const info: AfterInfo = { seg: seg.decision, reason: seg.reason, groups: seg.patients.map((g) => g.pages) };
+  if (seg.decision === 'review') return { filing: wholeFiling(n, ''), info };
+  if (seg.decision === 'single') {
+    const auto = whole.decision === 'auto' && !ocrGated(whole.decision, meta, minConf);
+    return { filing: wholeFiling(n, auto ? whole.patient!.chartPatientId : ''), info };
+  }
+  const texts = splitPages(text, seg.page_count);
+  const filing: Filing = { pages: Array.from({ length: n }, () => ''), units: 0, wrong_units: 0 };
+  for (const g of seg.patients) {
+    const px = extractFields(g.pages.map((p) => texts[p - 1]).join('\f'), NOW);
+    if (!px.sender && x.sender) px.sender = x.sender;
+    const m = await matchPatient(px, search, () => NOW);
+    const po = partOcr(ocr, g.pages)!;
+    if (m.decision !== 'auto' || ocrGated(m.decision, { mean_confidence: po.mean_confidence, used_text_layer: po.used_text_layer }, minConf)) continue;
+    filing.units++;
+    for (const p of g.pages) if (p <= n) filing.pages[p - 1] = m.patient!.chartPatientId;
+  }
+  return { filing, info };
+}
+
+interface PageScore {
+  result_pages: number;
+  filed: number;
+  right: number;
+  wrong: number;
+  /** Result pages whose outcome equals the ideal one (filed to that patient, or staff). */
+  as_expected: number;
+  expected_filed: number;
+  right_when_expected: number;
+}
+
+/** Score one filing against the page truth; also marks units that hold another patient's page. */
+function scorePages(t: Truth, f: Filing, chartOf: (key: string) => string): PageScore {
+  const s: PageScore = { result_pages: 0, filed: 0, right: 0, wrong: 0, as_expected: 0, expected_filed: 0, right_when_expected: 0 };
+  const badCharts = new Set<string>();
+  for (const p of t.page_truth || []) {
+    const got = f.pages[p.page - 1] || '';
+    if (p.role === 'cover') {
+      if (got && p.names.some((k) => chartOf(k) !== got)) {
+        s.wrong++;
+        badCharts.add(got);
+      }
+      continue;
+    }
+    s.result_pages++;
+    const own = p.owners.length === 1 ? chartOf(p.owners[0]) : '';
+    const want = p.expected_filed_to ? chartOf(p.expected_filed_to) : '';
+    if (got) {
+      s.filed++;
+      if (own && got === own) s.right++;
+      else {
+        s.wrong++;
+        badCharts.add(got);
+      }
+    }
+    if (got === want) s.as_expected++;
+    if (want) {
+      s.expected_filed++;
+      if (got === want) s.right_when_expected++;
+    }
+  }
+  f.wrong_units = badCharts.size;
+  return s;
+}
+
+function addScore(a: PageScore, b: PageScore): PageScore {
+  return Object.fromEntries(Object.keys(a).map((k) => [k, (a as any)[k] + (b as any)[k]])) as unknown as PageScore;
+}
+const ZERO: PageScore = { result_pages: 0, filed: 0, right: 0, wrong: 0, as_expected: 0, expected_filed: 0, right_when_expected: 0 };
 
 // ── Fake unity_search_patients (Veradigm® EHR behaviour) ─────────────────────
 
@@ -238,7 +378,11 @@ function groupTable(title: string, groups: [string, Group][]): string {
 }
 
 async function main(): Promise<void> {
-  const { set, label, examples, ocr: ocrSub } = args();
+  const { set, label, examples, ocr: ocrSub, batchSender } = args();
+  // "after" runs with the batch sender listed and splitting on; the old stopgap list is not used.
+  process.env.INTAKE_BATCH_SENDERS = batchSender;
+  delete process.env.INTAKE_NO_AUTO_SENDERS;
+  delete process.env.INTAKE_SPLIT;
   const roster: RosterPatient[] = JSON.parse(fs.readFileSync(path.join(set, 'roster.json'), 'utf8'));
   const byKey = new Map(roster.map((p) => [p.key, p]));
   const search = fakePatientSearch(roster);
@@ -277,7 +421,16 @@ async function main(): Promise<void> {
       const intended = byKey.get(t.intended_patient);
       wrong = !intended || match.patient?.chartPatientId !== intended.chart_patient_id;
     }
-    rows.push({ t, decision, raw_decision: match.decision, gated: gate, wrong_patient: wrong, fields: sc.ok, got: sc.got, want: sc.want, match, ocr: meta });
+    const row: Row = { t, decision, raw_decision: match.decision, gated: gate, wrong_patient: wrong, fields: sc.ok, got: sc.got, want: sc.want, match, ocr: meta };
+    if (t.page_truth) {
+      const n = t.page_truth.length;
+      const chart = decision === 'auto' ? match.patient!.chartPatientId : '';
+      // The old stopgap only looked at the extracted sender (autoFileBlocker before INTAKE_BATCH_SENDERS).
+      const listed = (x.sender?.value || '').toLowerCase().includes(batchSender.toLowerCase());
+      const after = await afterFiling(text, meta, x, match, n, search, minConf);
+      row.filing = { before: wholeFiling(n, listed ? '' : chart), open: wholeFiling(n, chart), after: after.filing, info: after.info };
+    }
+    rows.push(row);
   }
 
   const all = group(rows);
@@ -306,6 +459,134 @@ async function main(): Promise<void> {
   const pages = ocrRows.reduce((n, r) => n + Number(r.ocr.pages || 0), 0);
 
   const ex = (rs: Row[], f: (r: Row) => string) => rs.slice(0, examples).map((r) => `- \`${r.t.id}\` (${r.t.layout}, ${r.t.quality}, ${r.t.case}): ${f(r)}`).join('\n') || '- none';
+
+  // ── Filing page by page: before / before without the stopgap / after ──
+  const paged = rows.filter((r) => r.filing && r.t.page_truth);
+  const chartOf = (k: string) => byKey.get(k)?.chart_patient_id || `not-in-roster:${k}`;
+  const SCEN = [
+    ['before', 'Before: batch lab in INTAKE_NO_AUTO_SENDERS (stopgap)'],
+    ['open', 'Before, without the stopgap (the blind spot)'],
+    ['after', 'After: INTAKE_BATCH_SENDERS + per-page check + split'],
+  ] as const;
+  type Scen = (typeof SCEN)[number][0];
+  const perDoc = new Map<Row, Record<Scen, PageScore>>();
+  const totals = Object.fromEntries(SCEN.map(([k]) => [k, { ...ZERO, units: 0, wrong_units: 0 }])) as Record<Scen, PageScore & { units: number; wrong_units: number }>;
+  for (const r of paged) {
+    const s = {} as Record<Scen, PageScore>;
+    for (const [k] of SCEN) {
+      const f = r.filing![k];
+      s[k] = scorePages(r.t, f, chartOf);
+      totals[k] = { ...addScore(totals[k], s[k]), units: totals[k].units + f.units, wrong_units: totals[k].wrong_units + f.wrong_units };
+    }
+    perDoc.set(r, s);
+  }
+  const wrongPagesAfter = paged.filter((r) => perDoc.get(r)!.after.wrong > 0);
+  const wrongPagesOpen = paged.filter((r) => perDoc.get(r)!.open.wrong > 0);
+  const scenTable = [
+    '| Set-up | Documents / parts auto-filed | Result pages filed | ...to the right patient | **Wrong-patient pages filed** | Page recall (filed where the rules say so) | Page-level accuracy (outcome = ideal) |',
+    '|---|---:|---:|---:|---:|---:|---:|',
+    ...SCEN.map(([k, name]) => {
+      const t = totals[k];
+      return `| ${name} | ${t.units} | ${t.filed} (${pct(t.filed, t.result_pages)}) | ${t.right} | **${t.wrong}** | ${pct(t.right_when_expected, t.expected_filed)} | ${pct(t.as_expected, t.result_pages)} |`;
+    }),
+  ].join('\n');
+  const multi = paged.filter((r) => (r.t.patients_truth?.length || 0) > 1);
+  const batchDocs = paged.filter((r) => r.t.layout === 'daily_batch');
+  const batchTotals = Object.fromEntries(
+    SCEN.map(([k]) => [k, batchDocs.map((r) => perDoc.get(r)![k]).reduce(addScore, ZERO)])
+  ) as Record<Scen, PageScore>;
+  const batchTable = [
+    '| Set-up (batch lab documents only) | Result pages filed | ...to the right patient | **Wrong-patient pages** | Page recall | Page-level accuracy |',
+    '|---|---:|---:|---:|---:|---:|',
+    ...SCEN.map(([k, name]) => {
+      const t = batchTotals[k];
+      return `| ${name} | ${t.filed} of ${t.result_pages} | ${t.right} | **${t.wrong}** | ${pct(t.right_when_expected, t.expected_filed)} | ${pct(t.as_expected, t.result_pages)} |`;
+    }),
+  ].join('\n');
+  const sameGroups = (a: number[][], b: number[][]) => {
+    const key = (g: number[][]) => g.map((x) => x.join('.')).sort().join('|');
+    return key(a) === key(b);
+  };
+  let splitDocs = 0;
+  let splitExact = 0;
+  let splitPagesRight = 0;
+  let splitPages = 0;
+  for (const r of multi) {
+    const info = r.filing!.info;
+    if (info.seg !== 'split') continue;
+    splitDocs++;
+    const truthGroups = (r.t.patients_truth || []).map((p) => p.pages);
+    if (sameGroups(info.groups, truthGroups)) splitExact++;
+    for (const p of r.t.page_truth!.filter((x) => x.role === 'result')) {
+      splitPages++;
+      const g = info.groups.find((x) => x.includes(p.page));
+      const own = p.owners.length === 1 ? r.t.patients_truth!.find((x) => x.key === p.owners[0])?.pages : undefined;
+      if (g && own && g.join('.') === own.join('.')) splitPagesRight++;
+    }
+  }
+  const segTable = (rs: Row[], key: (r: Row) => string, title: string) => {
+    const m = new Map<string, Row[]>();
+    for (const r of rs) m.set(key(r), [...(m.get(key(r)) || []), r]);
+    const lines = [...m.entries()]
+      .sort((a, b) => a[0].localeCompare(b[0]))
+      .map(([k, v]) => {
+        const c = (d: string) => v.filter((r) => r.filing!.info.seg === d).length;
+        const e = (d: string) => v.filter((r) => r.t.expected_pages_decision === d).length;
+        const sc = v.map((r) => perDoc.get(r)!.after).reduce(addScore, ZERO);
+        return `| ${k} | ${v.length} | ${e('single')} / ${e('split')} / ${e('review')} | ${c('single')} / ${c('split')} / ${c('review')} | ${pct(sc.right_when_expected, sc.expected_filed)} | ${pct(sc.as_expected, sc.result_pages)} | **${sc.wrong}** |`;
+      });
+    return [
+      `| ${title} | Docs | Expected single / split / review | After: single / split / review | Page recall | Page-level accuracy | Wrong-patient pages |`,
+      '|---|---:|---:|---:|---:|---:|---:|',
+      ...lines,
+    ].join('\n');
+  };
+  const reasons = new Map<string, number>();
+  for (const r of [...batchDocs, ...multi.filter((x) => x.t.layout !== 'daily_batch')]) {
+    if (r.filing!.info.seg !== 'review') continue;
+    const k = r.filing!.info.reason.replace(/\d+/g, 'N').replace(/pages? N(, N)*/g, 'page N');
+    reasons.set(k, (reasons.get(k) || 0) + 1);
+  }
+  const pagesSection = paged.length
+    ? `## Filing page by page (batch faxes and splitting)
+
+${paged.length} documents with per-page truth, ${totals.after.result_pages} result pages. Batch sender: "${batchSender}".
+${multi.length} documents hold more than one patient (${multi.filter((r) => r.t.layout === 'daily_batch').length} daily batches, ${multi.filter((r) => r.t.layout !== 'daily_batch').length} faxes with two reports);
+${batchDocs.length} documents come from the batch lab in all.
+
+${scenTable}
+
+${batchTable}
+
+A wrong-patient page is a page filed to any chart other than its patient's: a page of another patient, a page holding two
+patients, a page of a patient outside the roster, or a cover sheet naming another patient. Page recall counts result pages the
+ideal rules would file (one readable patient per page or part, two identifiers, no batch page without an identifier) that went to
+that patient. Page-level accuracy counts result pages whose outcome (filed to whom, or staff) equals the ideal one.
+
+### Multi-patient documents (after)
+
+- Split: ${splitDocs} of ${multi.length}; split exactly as the truth (same page groups): ${splitExact} of ${splitDocs}
+- Pages in split documents assigned to the right patient's part: ${pct(splitPagesRight, splitPages)} (${splitPagesRight}/${splitPages})
+- Expected split (one readable patient per page, contiguous): ${multi.filter((r) => r.t.expected_pages_decision === 'split').length}; expected review: ${multi.filter((r) => r.t.expected_pages_decision === 'review').length}
+
+${segTable(multi, (r) => `${r.t.layout === 'daily_batch' ? r.t.batch_style : 'two reports'}${r.t.obscured ? ', identifiers blotted' : ''}`, 'Style')}
+
+### Batch lab documents by style (after)
+
+${segTable(batchDocs, (r) => `${(r.t.patients_truth?.length || 0) > 1 ? 'multi' : 'single'}: ${r.t.batch_style}${r.t.obscured ? ', blotted' : ''}`, 'Kind')}
+
+### Why batch and multi-patient documents went to staff (after)
+
+| Reason | Docs |
+|---|---:|
+${[...reasons.entries()].sort((a, b) => b[1] - a[1]).map(([k, v]) => `| ${k} | ${v} |`).join('\n')}
+
+${wrongPagesAfter.length ? `### Wrong-patient pages (after)\n\n${ex(wrongPagesAfter, (r) => `${perDoc.get(r)!.after.wrong} page(s); ${r.filing!.info.seg}: ${r.filing!.info.reason}`)}\n` : ''}
+### Wrong-patient pages without the stopgap (before)
+
+${ex(wrongPagesOpen, (r) => `${perDoc.get(r)!.open.wrong} page(s) of ${r.t.page_truth!.length} filed to one chart; ${r.t.patients_truth!.length} patient(s), style ${r.t.batch_style}${r.t.obscured ? ', identifiers blotted' : ''}`)}
+`
+    : '';
   const fieldMisses = FIELDS.map((f) => {
     const miss = rows.filter((r) => !r.fields[f]);
     return `### ${f}: ${miss.length} wrong\n\n${ex(miss, (r) => `want \`${r.want[f] || '(none)'}\`, got \`${r.got[f] || '(none)'}\``)}`;
@@ -331,6 +612,20 @@ async function main(): Promise<void> {
     by_layout: Object.fromEntries(by(rows, (r) => r.t.layout)),
     by_quality: Object.fromEntries(by(rows, (r) => r.t.quality)),
     by_case: Object.fromEntries(by(rows, (r) => r.t.case)),
+    pages: paged.length
+      ? {
+          batch_sender: batchSender,
+          docs: paged.length,
+          multi_patient_docs: multi.length,
+          scenarios: totals,
+          batch_lab_scenarios: batchTotals,
+          split_docs: splitDocs,
+          split_exact: splitExact,
+          split_page_assignment: +(splitPagesRight / Math.max(1, splitPages)).toFixed(4),
+          wrong_patient_pages_after: totals.after.wrong,
+          wrong_patient_units_after: totals.after.wrong_units,
+        }
+      : null,
   };
 
   const md = `# Intake accuracy report${label ? ` (${label})` : ''}
@@ -341,13 +636,20 @@ mean Tesseract confidence ${confs.length ? (confs.reduce((a, b) => a + b, 0) / c
 
 ## Safety
 
-- **Wrong-patient auto-files: ${wrong.length}** ${wrong.length ? '(MUST BE 0)' : '(required: 0)'}
+${
+  paged.length
+    ? `- **Wrong-patient pages filed (after): ${totals.after.wrong}** ${totals.after.wrong ? '(MUST BE 0)' : '(required: 0)'}; documents or parts auto-filed with another patient's page: ${totals.after.wrong_units}
+- Before, with the stopgap: ${totals.before.wrong} wrong-patient page(s); before, without it: ${totals.open.wrong}
+- Whole-document match only (no sender list, no page check): wrong-patient auto decisions ${wrong.length}`
+    : `- **Wrong-patient auto-files: ${wrong.length}** ${wrong.length ? '(MUST BE 0)' : '(required: 0)'}`
+}
 - Auto-filed although the expected decision was not "auto" (right patient): ${unexpectedAuto.length}
 - Auto matches held for review by the OCR-confidence gate (< ${minConf}): ${gated.length}
 
 ${wrong.length ? `### Wrong-patient auto-files\n\n${ex(wrong, (r) => `intended ${r.t.intended_patient}, filed to chart ${r.match?.patient?.chartPatientId} (${r.match?.reason})`)}\n` : ''}
 ${unexpectedAuto.length ? `### Auto-filed to the right patient although "${'auto'}" was not expected\n\n${ex(unexpectedAuto, (r) => `expected ${r.t.expected_decision}; ${r.match?.reason} (document MRN \`${r.want.mrn || '-'}\` read as \`${r.got.mrn || '-'}\`, phone \`${r.want.phone || '-'}\` read as \`${r.got.phone || '-'}\`)`)}\n` : ''}
-## Overall
+${pagesSection}
+## Overall (whole-document match)
 
 | Metric | Value |
 |---|---:|
@@ -408,9 +710,24 @@ ${fieldMisses}
 
   console.log(`docs ${rows.length}  auto ${pct(all.auto, all.n)}  review ${pct(all.review, all.n)}  failed ${pct(all.failed, all.n)}  decision=expected ${pct(all.correct_decision, all.n)}  auto recall ${pct(all.auto_when_expected, all.expected_auto)}`);
   console.log(`fields  ${FIELDS.map((f) => `${f} ${pct(all.fields[f], all.n)}`).join('  ')}`);
-  console.log(`WRONG-PATIENT AUTO-FILES: ${wrong.length}   unexpected auto (right patient): ${unexpectedAuto.length}   OCR-gated: ${gated.length}`);
+  if (paged.length) {
+    for (const [k, name] of SCEN) {
+      const t = totals[k];
+      console.log(
+        `${name}: units ${t.units}  pages filed ${t.filed}/${t.result_pages}  right ${t.right}  WRONG-PATIENT PAGES ${t.wrong}  page recall ${pct(t.right_when_expected, t.expected_filed)}  page accuracy ${pct(t.as_expected, t.result_pages)}`
+      );
+    }
+    for (const [k] of SCEN) {
+      const t = batchTotals[k];
+      console.log(`  batch lab only, ${k}: pages filed ${t.filed}/${t.result_pages}  right ${t.right}  wrong ${t.wrong}  page recall ${pct(t.right_when_expected, t.expected_filed)}`);
+    }
+    console.log(`multi-patient docs ${multi.length}: split ${splitDocs} (exact ${splitExact}), page assignment in split docs ${pct(splitPagesRight, splitPages)}`);
+    console.log(`whole-document match only: wrong-patient auto decisions ${wrong.length}   OCR-gated: ${gated.length}`);
+  } else {
+    console.log(`WRONG-PATIENT AUTO-FILES: ${wrong.length}   unexpected auto (right patient): ${unexpectedAuto.length}   OCR-gated: ${gated.length}`);
+  }
   console.log(`report: ${path.join(set, `report${suffix}.md`)}`);
-  if (wrong.length) process.exitCode = 1;
+  if (paged.length ? totals.after.wrong || totals.after.wrong_units : wrong.length) process.exitCode = 1;
 }
 
 function median(xs: number[]): number {

@@ -16,6 +16,44 @@ Status Oct 11, 2026, branch `drawbridge/fax-intake`. Offline test bench: no Vera
 - Everything that is not auto-filed goes to staff review. None of it is lost or guessed: no document for a patient outside the roster, no true duplicate, and no document with a wrong MRN was auto-filed.
 - These are **synthetic** documents in six layouts we wrote ourselves. Field accuracy on real IKI faxes will be lower until we measure on de-identified real samples (see [Next steps](#next-steps)). The safety mechanisms carry over better than the field numbers do.
 
+## Batch faxes: split by patient (Oct 11, branch `drawbridge/fax-intake-batch`)
+
+The daily batch file from IKI's lab (Express Lab; "Sawtooth Rapid Lab" in the synthetic set) now auto-files, one document per patient. Design: `FAX_INTAKE_ADDON.md`, [Batch faxes](FAX_INTAKE_ADDON.md#batch-faxes-one-document-per-patient). The bench scores it **page by page**: for every page, which chart it went to (or staff) against the patient whose content is on it.
+
+| 1,000 fresh documents, page by page | Seed 3003 (dev) | Seed 3004 (held out) |
+|---|---:|---:|
+| Result pages | 1,438 | 1,408 |
+| **Wrong-patient pages filed, after** (must be 0) | **0** | **0** |
+| Wrong-patient pages filed, before with the stopgap (batch lab in `INTAKE_NO_AUTO_SENDERS`) | 0 | 0 |
+| Wrong-patient pages filed, before without the stopgap (the blind spot) | 1 | 2 |
+| Pages auto-filed: before → after | 379 → 580 | 405 → 587 |
+| Page recall (filed where the rules say they should be): before → after | 54.3% → 83.1% | 58.3% → 84.5% |
+| Page-level accuracy (outcome = the ideal one): before → after | 77.8% → 91.8% | 79.4% → 92.3% |
+| **Batch lab only**: pages auto-filed, before → after | 2 → 178 of 485 | 7 → 159 of 467 |
+| Batch lab only: page recall, before → after | 0.8% → 70.6% | 3.0% → 67.4% |
+| Multi-patient files (batches with 2-6 patients, faxes with two reports) | 88 | 90 |
+| ...split | 44 | 52 |
+| ...split exactly as the truth (same page groups) / pages in the right part | 44 of 44 / 100% | 52 of 52 / 100% |
+
+- "Before" is the code on `drawbridge/fax-intake` (whole-document match; multi-patient documents ambiguous) on the same OCR text. Every page it filed went to the right chart only because of the stopgap: without it, a two-patient batch whose second patient's labels are all blotted out is filed whole to the first patient (`D00695` in seed 3003). The stopgap itself let 2 and 7 batch-lab files through, because it only looked at the sender name as OCR read it (all to the right patient). `INTAKE_BATCH_SENDERS` also matches the name anywhere in the text and the sending fax number.
+- Seed 3003 was looked at while building: three fixes came from it (a cover sheet whose "RE:" names the patient is still a cover; the same MRN read exactly on two pages is one patient even when the name is misread; a page with results above its patient line goes to staff). The last one fixed the only wrong-patient page "after" ever produced (`D00876`: a packed page that began with the end of one patient and then showed the next one). Seed 3004 was generated after all changes and run once.
+- Whole-document numbers (fields, decisions) are unchanged by this work: `extract.ts` and `match.ts` were not touched. Seed 3003: decision = expected 90.7%, auto recall 87.4%; seed 3004: 91.0%, 88.6%.
+
+**What goes to staff, and why** (both seeds, batch-lab and multi-patient files sent to review):
+
+| Reason | Seed 3003 | Seed 3004 |
+|---|---:|---:|
+| A page with no readable identifier (continuation pages without the patient line, blotted lines, OCR loss) | 41 | 39 |
+| A page with only a name or only a DOB (the rest misread) | 15 | 14 |
+| Results above a page's patient line (packed pages) | 2 | 5 |
+| A page shows two patients (packed pages) | 6 | 4 |
+| Two pages almost, but not exactly, the same patient | 3 | 2 |
+| Pages with different readable identifiers that can't be compared | 0 | 2 |
+
+By layout style (seed 3004): one patient per page with the patient line repeated: 28 of 36 split, the rest to staff for OCR misses; no repeat on continuation pages, packed pages and blotted identifiers: all to staff, as the rules require. Faxes with two single-patient reports (other senders): 23 of 23 split. Single-patient batch files: 87 of 107 auto-checked as one patient on every page.
+
+Two cases look odd but are safe: a page whose MRN is the only readable identifier and is misread short (`44824` for `446247`) counts as another patient, so the file is split and that page's part goes to staff (it can't be matched without name and DOB). And a split part is gated on its own pages' OCR confidence.
+
 ## Method
 
 ```
@@ -30,6 +68,7 @@ npm run eval:intake ──► report.md, summary.json, rows.jsonl           (rea
    - About 35% of faxes start with a cover sheet.
    - Quality: 20% clean text-layer PDFs (emailed). The rest are fax copies: 35% fine (204x196 dpi), 33% standard (204x98), 12% poor (204x98 with heavy speckle, ±3° skew and streaks). They are saved as G4 or G3 TIFF or as image-only PDF, with a fax header line.
 2. **Ground truth** per document: the intended patient, plus the **expected decision**, which is the matching rules applied to what is actually printed. A document for patient A that prints a wrong MRN is expected to go to `review`. A batch naming two patients is expected to be `ambiguous`.
+   **Per page** (sets made since the batch work): which patients' content is on each page, whether their identifiers are readable or blotted out, and the expected outcome under the page rules (filed to whom, or staff). Daily batches hold 2-6 patients, one or more pages each, in three styles: a new page per patient with the patient line repeated on continuation pages (65%), the same without the repeat (15%), packed several to a page (20%); 30% of the multi-patient fax copies have one page's or one whole patient's identifier lines blotted out. A separate case carries two single-patient reports in one fax.
 3. **OCR**: every document goes through the `deploy/ocr` container in batch mode. 1,000 documents (1,385 pages) take 70 s on 28 workers. The median is 1–2 s per document on one core, and mean Tesseract confidence on fax images is 84.6.
 4. **Harness** (`src/scripts/eval-intake.ts`):
    - Runs the production `extractFields()` and `matchPatient()`, so the real `decideMatch()`, on the OCR text.
@@ -161,12 +200,13 @@ On seed 2002, 124 of the 954 documents that should auto-file did not. 117 of the
 
 - The six layouts are ours, and the extractor has been tuned against them. Real faxes add logos, stamps, handwriting, tables with ruled lines, rotated pages, several documents per fax, and senders we have never seen. Expect lower field accuracy on real traffic. The safety logic (multi-patient detection, unreadable MRN, OCR gate, two-identifier rule) does not depend on layout.
 - The fake search mirrors the EHR behaviour we know. The real `unity_search_patients` rows must carry **both** MRNs (PM MRN and EHR PatientNumber) for the either-MRN rule to work in production. `toCandidates` already reads `mrn`, `patientNumber`, `chartMrn`, `ehrMrn` and `pmMrn`.
-- Multi-patient detection needs at least one readable identifier for each extra patient. A batch where every label of the second patient is unreadable would still look like one patient. See the next steps: batch senders should never be auto-filed.
+- Multi-patient detection needs at least one readable identifier for each extra patient. A batch where every label of the second patient is unreadable would still look like one patient. For batch senders (`INTAKE_BATCH_SENDERS`) every page must now show its patient, which closes this on page boundaries. What page rules can't see: on a *packed* page (several patients per page), a second patient whose identifier lines are all unreadable, below the first patient's. A ruled-off block of results without a patient line is caught; a layout without separator lines would not be. Packed batch files almost always go to staff anyway (pages show two patients); confirm Express Lab starts each patient on a new page, and if it doesn't, keep it in `INTAKE_NO_AUTO_SENDERS` too.
+- Other senders: an unlabelled continuation page goes with the patient before it (the agreed rule). A second patient whose every label is unreadable on a later page of a non-batch fax is the original blind spot, still open for those senders.
 
 ## Next steps
 
 1. **Real de-identified IKI samples.** Collect 200–500 real faxes (labs, imaging, consults, Express Lab batches) on MOATiT infrastructure under the BAA, label them with the same truth schema, and run `eval:intake` on them. This is the go/no-go input for `INTAKE_FILING=review` and later `auto`.
-2. **Sender policy before `auto` mode.** Senders that send batch reports (Express Lab) should be "never auto". Add per-sender settings keyed by sending fax number (MOATiT Fax `sender_fax`) and layout.
+2. **Sender policy before `auto` mode.** Done for batch reports: `INTAKE_BATCH_SENDERS` (name or sending fax number) with the per-page check and split; `INTAKE_NO_AUTO_SENDERS` stays as an "always staff" list. Next: run the page bench on de-identified real Express Lab files, and a staff "split by hand" screen for the files that go to review.
 3. **Better OCR for small type on standard faxes.** Fine-tune Tesseract on fax fonts, or evaluate a stronger local engine (docTR, PaddleOCR) in the same container slot. Measure each with this harness; the target is standard-fax auto recall at or above 85%.
 4. **A fine-tuned or local model for field extraction** (a layout-aware model, or the local LLM already in the MOATiT Fax stack with constrained JSON output). `decideMatch` and the safety rules stay as the gate.
 5. **Ask labs to echo IKI's MRN** (client patient ID) on orders. MRN is the strongest second identifier, and consults and hospital labs often lack it.
@@ -202,3 +242,5 @@ npm run eval:intake -- --set deploy/local/intake/synth/set-s2002 --label after  
 ```
 
 On Windows Git Bash, prefix the `docker run` commands with `MSYS_NO_PATHCONV=1` and use `$(pwd -W)`.
+
+The page-by-page section needs a set from the current generator and OCR output with per-page confidences (rebuild both images). The batch numbers above: `--seed 3003` and `--seed 3004`, 1,000 documents each, `--label batch`; the batch sender defaults to the synthetic "Sawtooth Rapid Lab" (`--batch-sender` to change it). Don't rebuild the images under the live stack's tags while it runs; any other tag works the same.

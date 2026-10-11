@@ -9,7 +9,14 @@ Writes (all invented data; the output directory must be git-ignored):
   manifest.json        seed, counts, the generation date
   docs/<id>.pdf|.tif   the documents: text-layer PDFs (emailed), fax TIFFs (G4/G3), image-only PDFs
   truth/<id>.json      ground truth: intended patient, expected match decision, printed fields, kind,
-                       sender, collection date, abnormal flags, layout, quality
+                       sender, collection date, abnormal flags, layout, quality; and per page: which
+                       patient's content is on it, whether that patient's identifiers are readable
+                       (or blotted out), and the expected outcome (filed to whom, or staff review)
+
+Multi-patient files: "multi_patient" daily batches hold 2-6 patients, one or more pages each, in
+three styles (a new page per patient with the patient line repeated on continuation pages, the
+same without the repeat, or packed several to a page); some fax copies have one page's or one
+patient's identifier lines blotted out. "multi_report" faxes carry two single-patient reports.
 
 Deterministic: the same seed and arguments give the same documents byte for byte (each document
 has its own RNG seeded from "<seed>:<index>", so worker count does not matter).
@@ -40,8 +47,11 @@ LAYOUT_WEIGHTS = {"reference_lab": 22, "hospital_lab": 17, "small_clinic": 14, "
 CASE_WEIGHTS = {
     "normal": 50, "no_mrn": 11, "wrong_mrn": 6, "not_in_roster": 8, "duplicate": 4, "same_name_diff_dob": 4,
     "soundalike": 4, "hyphen_apostrophe": 4, "multiword": 1.5, "twin": 2, "household": 2, "old_phone": 1.5,
-    "dob_typo": 1.5, "multi_patient": 3,
+    "dob_typo": 1.5, "multi_patient": 8, "multi_report": 2,
 }
+BATCH_STYLE_MULTI = {"per_page": 65, "no_repeat": 15, "packed": 20}
+BATCH_STYLE_SINGLE = {"per_page": 85, "no_repeat": 15}
+REPORT_LAYOUTS = ["reference_lab", "hospital_lab", "small_clinic", "imaging"]
 QUALITY_WEIGHTS = {"text_pdf": 20, "fine": 35, "standard": 33, "poor": 12}
 CONTAINER_WEIGHTS = {"tiff_g4": 50, "tiff_g3": 20, "image_pdf": 30}
 
@@ -148,6 +158,8 @@ def plan_doc(i: int, seed: int, roster: list[Patient], outside: list[Patient]) -
     case = pick(rng, CASE_WEIGHTS)
     if case == "multi_patient":
         layout = "daily_batch"
+    elif case == "multi_report":
+        layout = rng.choice(REPORT_LAYOUTS)
     by_tag: dict[str, list[Patient]] = {}
     for p in roster:
         for t in p.tags or ["plain"]:
@@ -161,7 +173,9 @@ def plan_doc(i: int, seed: int, roster: list[Patient], outside: list[Patient]) -
     elif case == "not_in_roster":
         pts = [rng.choice(outside)]
     elif case == "multi_patient":
-        pts = rng.sample([p for p in roster if "duplicate" not in p.tags], k=rng.randint(2, 3))
+        pts = rng.sample([p for p in roster if "duplicate" not in p.tags], k=rng.randint(2, 6))
+    elif case == "multi_report":
+        pts = rng.sample([p for p in roster if "duplicate" not in p.tags], k=2)
     else:
         pts = [rng.choice([p for p in roster if "duplicate" not in p.tags])]
 
@@ -214,6 +228,22 @@ def plan_doc(i: int, seed: int, roster: list[Patient], outside: list[Patient]) -
             f"{t.strftime('%m/%d/%Y %H:%M')}   FROM: {sender['fax']}  {sender['short']}   TO: 2085550100   P.{{i:03d}}/{{n:03d}}",
             f"{t.strftime('%b-%d-%Y %I:%M%p').upper()}  {sender['short']}  {sender['fax']}  p{{i}}",
         ])
+    # Daily batches: page style, long result histories, identifier lines blotted out (fax copies only:
+    # an emailed PDF's text layer would still carry the text under a smear).
+    batch_style, obscure, long_patients = "per_page", set(), set()
+    if layout == "daily_batch":
+        n = len(pts)
+        batch_style = pick(rng, BATCH_STYLE_MULTI if n > 1 else BATCH_STYLE_SINGLE)
+        long_patients = {k for k in range(n) if rng.random() < 0.3}
+        if quality != "text_pdf":
+            if n > 1 and rng.random() < 0.3:
+                if rng.random() < 0.5:  # one page: a patient's first page, or a continuation page
+                    obscure = {(rng.randrange(n), rng.choice([0, 0, 1]))}
+                else:  # all of one later patient's pages: the file then looks like fewer patients
+                    k = rng.randrange(1, n)
+                    obscure = {(k, j) for j in range(6)}
+            elif n == 1 and rng.random() < 0.08:
+                obscure = {(0, 1)}
     return {
         "i": i, "rng": rng, "layout": layout, "case": case, "patients": pts, "printed": printed,
         "quality": quality, "container": container, "reported": reported, "collected": collected,
@@ -221,7 +251,43 @@ def plan_doc(i: int, seed: int, roster: list[Patient], outside: list[Patient]) -
         "cover": quality != "text_pdf" and rng.random() < 0.35,
         "cover_names_patient": rng.random() < 0.4,
         "profile": ckd_profile(rng),
+        "batch_style": batch_style, "obscure": obscure, "long_patients": long_patients,
     }
+
+
+def expected_pages(layout: str, meta: list[dict], decisions: list[str], keys: list[str]) -> tuple[str, str, list]:
+    """
+    The ideal page rules applied to what is printed: ("single" | "split" | "review", why, per page the
+    roster key it should be filed to, or None). Mirrors src/platform/modules/intake/pages.ts.
+    """
+    batch = layout == "daily_batch"
+    review = lambda why: ("review", why, [None] * len(meta))  # noqa: E731
+    result = [(i, m) for i, m in enumerate(meta) if m["role"] == "result"]
+    if any(len(m["owners"]) > 1 for _, m in result):
+        return review("a page shows more than one patient")
+    if batch and any(not set(m["owners"]) & set(m["shown"]) for _, m in result):
+        return review("batch sender: a result page without a readable identifier")
+    owner_of: dict[int, int] = {}
+    cur = None
+    for i, m in result:
+        if m["owners"]:
+            o = m["owners"][0]
+            if o != cur and o not in m["shown"]:
+                return review("a patient's first page has no readable identifier")
+            cur = o
+        if cur is None:
+            return review("a page before any patient")
+        owner_of[i] = cur
+    order = [owner_of[i] for i, _ in result]
+    runs = [o for j, o in enumerate(order) if j == 0 or order[j - 1] != o]
+    if len(runs) != len(set(runs)):
+        return review("a patient's pages are not contiguous")
+    single = len(set(order)) == 1
+    out = []
+    for i, m in enumerate(meta):
+        o = owner_of.get(i, order[0] if single else None)  # cover: filed with a single-patient document
+        out.append(keys[o] if o is not None and decisions[o] == "auto" else None)
+    return ("single" if single else "split"), "", out
 
 
 def build_one(args: tuple) -> dict:
@@ -229,11 +295,19 @@ def build_one(args: tuple) -> dict:
     plan = plan_doc(i, seed, roster, outside)
     rng: random.Random = plan["rng"]
     doc_id = f"D{i + 1:05d}"
-    spec = DocSpec(doc_id=doc_id, layout=plan["layout"], sender=plan["sender"], patients=plan["printed"],
+    report = plan["case"] == "multi_report"
+    spec = DocSpec(doc_id=doc_id, layout=plan["layout"], sender=plan["sender"],
+                   patients=plan["printed"][:1] if report else plan["printed"],
                    collected=plan["collected"], reported=plan["reported"], rng=rng, profile=plan["profile"],
-                   cover=plan["cover"], cover_names_patient=plan["cover_names_patient"], fax_header=plan["fax_header"])
+                   cover=plan["cover"], cover_names_patient=plan["cover_names_patient"], fax_header=plan["fax_header"],
+                   batch_style=plan["batch_style"], obscure=plan["obscure"], long_patients=plan["long_patients"])
+    more = tuple(
+        DocSpec(doc_id=doc_id, layout=plan["layout"], sender=plan["sender"], patients=[p], collected=plan["collected"],
+                reported=plan["reported"], rng=rng, profile=plan["profile"])
+        for p in plan["printed"][1:]
+    ) if report else ()
     tmp_pdf = os.path.join(out, "docs", f"{doc_id}.src.pdf")
-    pages = render(spec, tmp_pdf, with_fax_header=plan["quality"] != "text_pdf")
+    pages, page_meta = render(spec, tmp_pdf, with_fax_header=plan["quality"] != "text_pdf", more=more)
     if plan["quality"] == "text_pdf":
         final = os.path.join(out, "docs", f"{doc_id}.pdf")
         os.replace(tmp_pdf, final)
@@ -249,7 +323,7 @@ def build_one(args: tuple) -> dict:
         os.remove(tmp_pdf)
 
     p0 = plan["printed"][0]
-    multi = plan["case"] == "multi_patient"
+    multi = len(plan["printed"]) > 1
     if multi:
         decision, hit = "ambiguous", None
         intended = "multiple"
@@ -257,6 +331,22 @@ def build_one(args: tuple) -> dict:
         decision, hit = expected_decision(p0, roster)
         intended = plan["patients"][0].key if plan["case"] != "not_in_roster" else "not_in_roster"
     markers = sorted(spec.abnormal_markers)
+    keys = [p.key for p in plan["patients"]]
+    decisions = [expected_decision(p, roster)[0] for p in plan["printed"]]
+    if plan["case"] == "not_in_roster":
+        decisions = ["none"]
+    exp_doc, exp_why, exp_pages = expected_pages(plan["layout"], page_meta, decisions, keys)
+    name = lambda idx: [keys[x] for x in idx]  # noqa: E731
+    page_truth = [
+        {"page": n + 1, "role": m["role"], "owners": name(m["owners"]), "shown": name(m["shown"]),
+         "blotted": name(m["blotted"]), "names": name(m["names"]), "expected_filed_to": exp_pages[n]}
+        for n, m in enumerate(page_meta)
+    ]
+    patients_truth = [
+        {"key": keys[k], "in_roster": plan["case"] != "not_in_roster", "expected_decision": decisions[k],
+         "pages": [t["page"] for t in page_truth if keys[k] in t["owners"]]}
+        for k in range(len(keys))
+    ]
     truth = {
         "id": doc_id,
         "file": os.path.basename(final),
@@ -280,6 +370,12 @@ def build_one(args: tuple) -> dict:
             "phone": p0.phone, "phone_label": p0.phone_label if p0.phone else None,
         },
         "patients_on_document": len(plan["printed"]),
+        "batch_style": plan["batch_style"] if plan["layout"] == "daily_batch" else None,
+        "obscured": bool(any(t["blotted"] for t in page_truth)),
+        "expected_pages_decision": exp_doc,
+        "expected_pages_why": exp_why,
+        "patients_truth": patients_truth,
+        "page_truth": page_truth,
     }
     with open(os.path.join(out, "truth", f"{doc_id}.json"), "w", encoding="utf-8") as f:
         json.dump(truth, f, indent=1)

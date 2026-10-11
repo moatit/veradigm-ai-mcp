@@ -20,28 +20,48 @@ Patient documents are PHI: they stay in MOATiT's own infrastructure, encrypted a
 | **Emailed results, scans, files from other systems** | **Drawbridge intake drop folder**: a Docker volume on the Drawbridge host (`/app/intake/inbox`). Dev: bind mount `D:\VeradigmAI-DrawBridge\intake\inbox` (git-ignored). Production: encrypted volume on the MOATiT data-center host, reachable by SFTP for partner systems. | Folder watcher picks up PDF, TIFF, PNG and JPEG files. |
 | **Staff uploads** | Same intake store | "Upload document" on the staff screen (`/app/intake`). |
 
-Intake working store (both sources): `/app/data/intake/` with `items.json` (status, extracted fields, match, audit) and `files/` (originals, encrypted at rest by the volume). Lifecycle: `received → read → matched → filed | needs_review | sent_to_indexing | failed`. Originals are deleted 30 days after filing (configurable); the chart copy is the record.
+Intake working store (both sources): `/app/data/intake/` with `items.json` (status, extracted fields, match, audit) and `files/` (originals, encrypted at rest by the volume). Lifecycle: `received → read → split | matched → filed | needs_review | sent_to_indexing | failed`. A file with several patients becomes `split`: one part (its own intake item, with only that patient's pages) per patient, each going through the same steps. Originals are deleted 30 days after filing (configurable; a split original once every part is filed); the chart copy is the record.
 
 Optional later: an S3 bucket with SSE-KMS under MOATiT's AWS BAA (account already used for Drawbridge on AWS) if intake moves to AWS.
 
 ## Flow
 
 1. **Receive.** A webhook (fax) or the folder watcher creates an intake item. Dedupe by `X-Webhook-Id` / file hash.
-2. **Read.** Text from MOATiT Fax OCR, or Drawbridge's own OCR container (`deploy/ocr`, Tesseract 5 on the internal Docker network) for dropped and uploaded files. Extract: patient name, DOB, MRN, sender (lab/office, fax number), document kind, collection/test date, abnormal flags. OCR is treated as untrusted until matched.
+2. **Read.** Text from MOATiT Fax OCR, or Drawbridge's own OCR container (`deploy/ocr`, Tesseract 5 on the internal Docker network) for dropped and uploaded files, **page by page** (form feeds between pages; MOATiT Fax's `--- Page N ---` markers are converted). Extract: patient name, DOB, MRN, sender (lab/office, fax number), document kind, collection/test date, abnormal flags. OCR is treated as untrusted until matched.
+   **Pages and batch files.** For a batch sender (`INTAKE_BATCH_SENDERS`, e.g. IKI's Express Lab daily file) or any document that names more than one patient, every page is read on its own and grouped by patient (see [Batch faxes](#batch-faxes-one-document-per-patient)). Several patients, cleanly separated: the file is **split into one document per patient** and each part goes through steps 3-6 on its own. Any doubt: the whole file goes to staff.
 3. **Match.** `unity_search_patients` (PM + EHR, name + DOB). **Auto-file only when exactly one patient matches AND a second identifier agrees** (MRN, or phone, or the ordering provider + recent order). Anything else → `needs_review`.
 4. **Choose the document type.** Map the kind to a `GetDocumentType` entry (e.g. lab → "Labs/Procedures", consult → "Consultant Letter"); unknown → "(ready for indexing)".
-5. **File.** `SaveScanDocument` to the matched patient's chart (EHR patient ID) with the clinical date and a short title ("Outside lab Oct 8 2026 - <sender>"; Veradigm shows ~50 characters and strips "/"). Auto-filing only in `INTAKE_FILING=auto`, for two-identifier matches with a specific document type, never for senders in `INTAKE_NO_AUTO_SENDERS` (batch reports).
+5. **File.** `SaveScanDocument` to the matched patient's chart (EHR patient ID) with the clinical date and a short title ("Outside lab Oct 8 2026 - <sender>"; Veradigm shows ~50 characters and strips "/"). Auto-filing only in `INTAKE_FILING=auto`, for two-identifier matches with a specific document type; for batch senders only after every page passed the page check; never for a duplicate file or for senders in `INTAKE_NO_AUTO_SENDERS` (optional "always staff" list).
 6. **Notify.** `SaveTask` to the ordering provider / results pool: "New outside result for review", abnormal flags called out.
 7. **Fallback.** Low confidence or any failure → file under "(ready for indexing)" for the patient if matched, else leave it in the Drawbridge review queue. Staff confirm or correct with one click on `/app/intake`.
 
 ## Safety rules
 
-- Never file to a chart on one identifier. Never guess between two patients. A document that shows more than one patient (a daily batch) is never filed to one chart.
+- Never file to a chart on one identifier. Never guess between two patients. A document that shows more than one patient (a daily batch) is never filed to one chart: it is split into one document per patient, or it goes to staff. **A page is never filed to a patient it does not name** (outside batch senders, an unlabelled continuation page goes with the patient on the page before it).
 - Never alter or summarize clinical content inside the document; the original file is what's filed.
 - Every filing is audited (who/what/when, intake item, patient ID, document ID) and visible on `/app/intake`.
 - Writes are idempotent per intake item (same item never filed twice).
 - The phone agent never files documents; this is a staff-side add-on.
 - `INTAKE_FILING=off` by default. Modes: `off` (read + match + queue only), `review` (staff click to file), `auto` (high-confidence auto-file, everything else review).
+
+## Batch faxes: one document per patient
+
+IKI's lab (Express Lab) sends a daily file with many patients' results. Until Oct 11 any document showing more than one patient went to staff, and the batch lab sat in `INTAKE_NO_AUTO_SENDERS`, so none of its files were auto-filed. That stopgap covered a blind spot: if every label of a second patient on a later page is unreadable, the file looks like one patient and could be filed whole to the first patient's chart. `INTAKE_BATCH_SENDERS` replaces it.
+
+**Per-page check** (`src/platform/modules/intake/pages.ts`). Each page is read with the same extractor as a whole document. A page *identifies* a patient when it shows a readable name + date of birth, or an MRN.
+
+| Page | Batch sender (`INTAKE_BATCH_SENDERS`) | Other senders |
+|---|---|---|
+| Fax cover sheet without identifiers (an "RE:" name alone doesn't count), before the first patient page | not a patient page; stays with the original | same |
+| Identifies a patient | that patient | same |
+| No identifier (continuation, blotted, unreadable) | **whole file to staff** | belongs to the patient on the page before |
+| Only a name or only a DOB | **whole file to staff** | must equal the patient before, else staff |
+
+The whole file goes to staff, with the reason on the item, when a page shows two patients; a patient's pages are not contiguous; two pages' identifiers are close but not equal (a misread digit, twins Daniel / Danielle: never merged, never split; the same MRN read exactly on both pages is the one exception); a page has result lines above its patient line, or a ruled-off block of results without a patient line (the end of the previous patient, or a second patient on a packed page whose label is unreadable); the page count of the text differs from the file's; a part would still name two patients; or splitting is off (`INTAKE_SPLIT=off`) or the OCR service is unavailable. Documents from other senders that name one patient are filed whole, as before.
+
+**Split.** When the check finds two or more patients, the OCR container cuts the original (`POST /pages?select=…`: PDF pages copied, TIFF G4 kept, nothing re-rendered) into one file per patient. Each part is a new intake item with only its pages and their text, linked to the parent (`parent_id`, part *k* of *n*, pages); the parent becomes **`split`** and lists its parts. Nothing is created until every part is cut and the file's page count matches; a part is keyed by parent + pages, so re-processing a parent never makes duplicates, and a failed cut leaves the parent `failed` (retry). Each part is then matched, categorized (`suggest(kind, subtype)`) and gated (two identifiers, its own pages' OCR confidence) like any document. The parent is never filed. Staff screens show the parent with its parts (patient, pages, status) and each part with a link back.
+
+**Bench** (`INTAKE_ACCURACY.md`, 1,000 fresh synthetic documents with per-page truth): wrong-patient pages filed **0** after (1 without the stopgap, the blind spot reproduced); batch-lab pages auto-filed rose from 2 of 485 to about 180, all to the right patient.
 
 ## Veradigm actions
 

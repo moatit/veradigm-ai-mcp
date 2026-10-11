@@ -129,28 +129,65 @@ class DocSpec:
     cover: bool = False
     cover_names_patient: bool = False
     fax_header: Optional[str] = None  # format with {i}, {n}
+    # Daily batch only: "per_page" (each patient starts a page; continuation pages repeat the
+    # patient line), "no_repeat" (each patient starts a page; continuation pages don't repeat it),
+    # "packed" (patients follow each other on the same page).
+    batch_style: str = "per_page"
+    # (patient index, nth page of that patient) whose identifier lines are blotted out (fax only).
+    obscure: set = field(default_factory=set)
+    # Patients with a long result history (their results run over a second page).
+    long_patients: set = field(default_factory=set)
     # Filled in by the layout:
     abnormal_markers: set = field(default_factory=set)
     kind: str = ""
 
 
 class Doc:
-    """Records draw ops per page; `put` draws at the cursor, `ln` moves it down."""
+    """
+    Records draw ops per page; `put` draws at the cursor, `ln` moves it down.
+    Per page it also records ground truth: `owners` (patient indexes whose content is on the page),
+    `shown` (patients whose name + DOB or MRN is readable on it) and `blotted` (patients whose
+    identifier lines were blotted out). Text is attributed to `owner` (None = no patient).
+    """
 
     def __init__(self, on_page: Optional[Callable[["Doc"], None]] = None):
         self.pages: list[list[tuple]] = []
+        self.owners: list[set] = []
+        self.shown: list[set] = []
+        self.blotted: list[set] = []
+        self.owner: Optional[int] = None
+        self.patient_page: dict[int, int] = {}
         self.on_page = on_page
         self.y = TOP
         self.new_page()
 
     def new_page(self) -> None:
         self.pages.append([])
+        self.owners.append(set())
+        self.shown.append(set())
+        self.blotted.append(set())
         self.y = TOP
+        if self.owner is not None:
+            self.patient_page[self.owner] = self.patient_page.get(self.owner, 0) + 1
         if self.on_page:
             self.on_page(self)
 
     def put(self, x: float, s: str, font: str = "Helvetica", size: float = 10, align: str = "left") -> None:
         self.pages[-1].append(("text", x, self.y, s, font, size, align))
+        if self.owner is not None:
+            self.owners[-1].add(self.owner)
+
+    def mark_shown(self, k: int = 0) -> None:
+        self.shown[-1].add(k)
+
+    def blot(self, x: float, y: float, w: float, h: float, k: int) -> None:
+        """A black smear over identifier lines (fax dropout / ink blot): unreadable by design."""
+        self.pages[-1].append(("blot", x, y, w, h))
+        self.blotted[-1].add(k)
+        self.shown[-1].discard(k)
+
+    def page_meta(self) -> list[dict]:
+        return [{"owners": sorted(o), "shown": sorted(s), "blotted": sorted(b)} for o, s, b in zip(self.owners, self.shown, self.blotted)]
 
     def hline(self, x0: float = 54, x1: float = W - 54, width: float = 0.8) -> None:
         self.pages[-1].append(("line", x0, self.y, x1, self.y, width))
@@ -199,6 +236,9 @@ def render_pdf(path: str, parts: list[tuple[Doc, Optional[Callable]]], fax_heade
                 elif op[0] == "rect":
                     c.setLineWidth(0.8)
                     c.rect(op[1], op[2], op[3], op[4])
+                elif op[0] == "blot":
+                    c.setFillGray(0)
+                    c.rect(op[1], op[2], op[3], op[4], stroke=0, fill=1)
             if footer:
                 footer(c, i, len(doc.pages))
             if fax_header:
@@ -293,9 +333,12 @@ def reference_lab(spec: DocSpec) -> tuple[Doc, Callable]:
         if len(d.pages) > 1:
             d.put(54, f"{name_label} {banner_name}", "Helvetica", 9)
             d.put(330, f"{dob_label} {banner_dob}", "Helvetica", 9)
+            d.mark_shown()
             d.ln(18)
 
     d = Doc(page_top)
+    d.owner = 0
+    d.mark_shown()
     left = [f"{name_label} {banner_name}", f"{dob_label} {banner_dob}     Sex: {p.sex}", mrn_line(p), phone_line(p, rng.randint(0, 3))]
     right = [f"Specimen ID: {spec_id}", f"Collected: {spec.collected.strftime('%m/%d/%Y %H:%M')}",
              f"Received: {spec.collected.strftime('%m/%d/%Y')} {rng.randint(9, 14)}:{rng.randint(10, 59)}",
@@ -383,6 +426,7 @@ def hospital_lab(spec: DocSpec) -> tuple[Doc, Callable]:
         d.put(54, f"Birthdate: {dob}", "Times-Roman", 10)
         d.put(200, f"Age/Sex: {age}/{p.sex}", "Times-Roman", 10)
         d.put(330, "Location: Outpatient Lab", "Times-Roman", 10)
+        d.mark_shown()
         d.ln(13)
         if p.phone:
             d.put(54, phone_line(p, 0), "Times-Roman", 10)
@@ -391,6 +435,7 @@ def hospital_lab(spec: DocSpec) -> tuple[Doc, Callable]:
         d.ln(16)
 
     d = Doc(page_top)
+    d.owner = 0
     d.put(54, rng.choice(["FINAL LAB RESULTS", "LABORATORY RESULTS - FINAL", "Lab Results Report"]), "Times-Bold", 12)
     d.ln(15)
     d.put(54, f"Collection Date/Time: {spec.collected.strftime('%m/%d/%Y %H:%M')}", "Times-Roman", 10)
@@ -437,6 +482,7 @@ def small_clinic(spec: DocSpec) -> tuple[Doc, Callable]:
     s = spec.sender
     p = spec.patients[0]
     d = Doc()
+    d.owner = 0
     d.put(54, s["name"], "Helvetica-Bold", 13)
     d.ln(13)
     d.put(54, f"{s['city']}   Tel: {phone_fmt(s['phone'], 0)}   Fax: {phone_fmt(s['fax'], 0)}", "Helvetica", 9)
@@ -447,6 +493,7 @@ def small_clinic(spec: DocSpec) -> tuple[Doc, Callable]:
     d.put(54, f"{name_label} {name_fmt(p.first, p.middle, p.last, p.name_style)}", "Helvetica", 10)
     d.ln(14)
     d.put(54, f"{rng.choice(['Date of Birth:', 'DOB:', 'Birthdate:'])} {date_fmt(p.dob, p.dob_style)}", "Helvetica", 10)
+    d.mark_shown()
     d.ln(14)
     if p.phone:
         d.put(54, phone_line(p, 2), "Helvetica", 10)
@@ -486,30 +533,59 @@ ABBR = {"Sodium": "NA", "Potassium": "K", "Chloride": "CL", "CO2": "CO2", "BUN":
 
 
 def daily_batch(spec: DocSpec) -> tuple[Doc, Callable]:
+    """
+    One file, many patients. batch_style "per_page": each patient starts a new page and continuation
+    pages repeat the patient line; "no_repeat": new page per patient, continuation pages carry results
+    only; "packed": patients follow each other on the same page. Identifier lines listed in
+    spec.obscure are blotted out (a fax dropout), and patients in spec.long_patients carry a
+    cumulative history that runs onto a second page.
+    """
     rng = spec.rng
     s = spec.sender
     batch = f"{spec.reported.strftime('%Y%m%d')}-{rng.randint(1, 9):02d}"
+    style = spec.batch_style
+    acc = {k: f"SR{rng.randint(10000000, 99999999)}" for k in range(len(spec.patients))}
+    coll = {k: spec.collected if k == 0 else spec.collected.replace(hour=rng.randint(6, 11), minute=rng.randint(0, 59))
+            for k in range(len(spec.patients))}
+
+    def id_lines(d: Doc, k: int, cont: bool) -> None:
+        p = spec.patients[k]
+        top = d.y
+        tail = "  (CONTINUED)" if cont else ""
+        d.put(54, f"PT: {name_fmt(p.first, p.middle, p.last, p.name_style):<28} DOB: {date_fmt(p.dob, p.dob_style):<12} SEX: {p.sex}{tail}", "Courier", 8.5)
+        d.ln(11)
+        ids = f"{p.mrn_label} {p.mrn}" if p.mrn else ""
+        d.put(54, f"{ids:<26} ACC#: {acc[k]}   COLL: {coll[k].strftime('%m/%d/%Y %H:%M')}", "Courier", 8.5)
+        d.ln(11)
+        if p.phone and not cont:
+            d.put(54, f"{p.phone_label} {phone_fmt(p.phone, 1)}", "Courier", 8.5)
+            d.ln(11)
+        d.mark_shown(k)
+        if (k, d.patient_page.get(k, 0)) in spec.obscure:
+            d.blot(50, d.y + 4, 470, top - d.y + 6, k)
 
     def page_top(d: Doc) -> None:
         d.put(54, f"{s['name'].upper()} - DAILY BATCH RESULTS", "Courier-Bold", 11)
         d.ln(12)
         d.put(54, f"BATCH: {batch}   RUN DATE: {spec.reported.strftime('%m/%d/%Y')}   CLIENT: {CLINIC.upper()}", "Courier", 8.5)
         d.ln(16)
+        if style == "per_page" and d.owner is not None:
+            id_lines(d, d.owner, cont=True)
+            d.ln(4)
 
     d = Doc(page_top)
     for k, p in enumerate(spec.patients):
-        d.need(150)
+        if style == "packed" or k == 0:
+            d.owner = None
+            d.need(150)
+        else:
+            d.owner = None
+            d.new_page()
+        d.owner = k
+        d.patient_page[k] = 0
         d.put(54, "-" * 78, "Courier", 8.5)
         d.ln(11)
-        coll = spec.collected if k == 0 else spec.collected.replace(hour=rng.randint(6, 11), minute=rng.randint(0, 59))
-        d.put(54, f"PT: {name_fmt(p.first, p.middle, p.last, p.name_style):<28} DOB: {date_fmt(p.dob, p.dob_style):<12} SEX: {p.sex}", "Courier", 8.5)
-        d.ln(11)
-        ids = f"{p.mrn_label} {p.mrn}" if p.mrn else ""
-        d.put(54, f"{ids:<26} ACC#: SR{rng.randint(10000000, 99999999)}   COLL: {coll.strftime('%m/%d/%Y %H:%M')}", "Courier", 8.5)
-        d.ln(11)
-        if p.phone:
-            d.put(54, f"{p.phone_label} {phone_fmt(p.phone, 1)}", "Courier", 8.5)
-            d.ln(11)
+        id_lines(d, k, cont=False)
         prof = spec.profile if k == 0 else {**spec.profile, "critical": False}
         for panel, rows in lab_panels(rng, prof, "daily_batch"):
             rows = [r for r in rows if r.test in ABBR or rng.random() < 0.5]
@@ -517,10 +593,21 @@ def daily_batch(spec: DocSpec) -> tuple[Doc, Callable]:
             for r in rows:
                 d.put(54, f"  {ABBR.get(r.test, r.test.upper()[:10]):<10} {r.value:>7}{r.flag:<3} ({r.ref}) {r.units}", "Courier", 8.5)
                 d.ln(10.5)
+        if k in spec.long_patients:
+            d.ln(6)
+            d.put(54, "  CUMULATIVE HISTORY (PRIOR RESULTS)", "Courier-Bold", 8.5)
+            d.ln(11)
+            for m in range(rng.randint(48, 66)):
+                when = coll[k].replace(day=1).strftime("%m/%Y")
+                test = rng.choice(["CREAT", "EGFR", "K", "BUN", "PHOS", "HGB", "PTH-I", "UACR"])
+                d.put(54, f"  {test:<10} {round(rng.uniform(0.6, 60), 1):>7}    PRIOR {m + 1:>2}  {when}", "Courier", 8.5)
+                d.ln(10.5)
         d.ln(6)
-    d.put(54, "-" * 78, "Courier", 8.5)
-    d.ln(11)
-    d.put(54, f"END OF BATCH {batch}   {len(spec.patients)} PATIENT(S)", "Courier", 8.5)
+    d.owner = None
+    if style == "packed" or d.y - 30 >= BOTTOM:
+        d.put(54, "-" * 78, "Courier", 8.5)
+        d.ln(11)
+        d.put(54, f"END OF BATCH {batch}   {len(spec.patients)} PATIENT(S)", "Courier", 8.5)
 
     def footer(c, i, n):
         c.setFont("Courier", 8)
@@ -537,6 +624,7 @@ def imaging(spec: DocSpec) -> tuple[Doc, Callable]:
     s = spec.sender
     p = spec.patients[0]
     d = Doc()
+    d.owner = 0
     d.put(54, s["name"], "Times-Bold", 15)
     d.ln(14)
     d.put(54, f"{s['city']}  |  Phone {phone_fmt(s['phone'], 0)}  |  Fax {phone_fmt(s['fax'], 0)}", "Times-Roman", 9)
@@ -548,6 +636,7 @@ def imaging(spec: DocSpec) -> tuple[Doc, Callable]:
     lbl = rng.choice(["RE:", "Patient:", "Patient Name:"])
     d.put(54, f"{lbl} {name_fmt(p.first, p.middle, p.last, p.name_style)}", "Times-Bold", 11)
     d.put(330, f"{rng.choice(['D.O.B.', 'DOB:', 'Date of Birth:'])} {date_fmt(p.dob, p.dob_style)}", "Times-Roman", 11)
+    d.mark_shown()
     d.ln(14)
     if p.mrn:
         d.put(54, mrn_line(p), "Times-Roman", 11)
@@ -588,6 +677,7 @@ def consult(spec: DocSpec) -> tuple[Doc, Callable]:
     s = spec.sender
     p = spec.patients[0]
     d = Doc()
+    d.owner = 0
     d.put(W / 2, s["name"], "Times-Bold", 16, "center")
     d.ln(14)
     d.put(W / 2, f"{s['city']}  -  Telephone {phone_fmt(s['phone'], 0)}  -  Facsimile {phone_fmt(s['fax'], 0)}", "Times-Roman", 9, "center")
@@ -602,6 +692,7 @@ def consult(spec: DocSpec) -> tuple[Doc, Callable]:
     d.put(72, f"RE: {name_fmt(p.first, p.middle, p.last, p.name_style)}", "Times-Bold", 11)
     d.ln(14)
     d.put(72, f"{rng.choice(['DOB:', 'Date of Birth:', 'DOB'])} {date_fmt(p.dob, p.dob_style)}", "Times-Roman", 11)
+    d.mark_shown()
     d.ln(14)
     if p.mrn:
         d.put(72, mrn_line(p), "Times-Roman", 11)
@@ -644,13 +735,28 @@ LAYOUTS = {
 }
 
 
-def render(spec: DocSpec, path: str, with_fax_header: bool) -> int:
-    """Render one document to a PDF (cover sheet first when spec.cover). Returns page count."""
-    body, footer = LAYOUTS[spec.layout](spec)
+def render(spec: DocSpec, path: str, with_fax_header: bool, more: tuple[DocSpec, ...] = ()) -> tuple[int, list[dict]]:
+    """
+    Render one document to a PDF (cover sheet first when spec.cover). `more`: further single-patient
+    reports appended to the same fax (patient k = the k-th report). Returns (page count, per-page
+    truth): role "cover" or "result", owners / shown / blotted as patient indexes.
+    """
+    bodies = [LAYOUTS[spec.layout](spec)]
+    for k, extra in enumerate(more, 1):
+        bodies.append(LAYOUTS[extra.layout](extra))
+        spec.abnormal_markers |= extra.abnormal_markers
     parts: list[tuple[Doc, Optional[Callable]]] = []
+    meta: list[dict] = []
     if spec.cover:
         cov = cover_sheet(spec)
-        _fill_pages(cov, len(cov.pages) + len(body.pages))
+        _fill_pages(cov, len(cov.pages) + sum(len(b.pages) for b, _ in bodies))
         parts.append((cov, None))
-    parts.append((body, footer))
-    return render_pdf(path, parts, spec.fax_header if with_fax_header else None)
+        # A cover sheet's "RE:" may name the first patient (no DOB, so it never identifies anyone).
+        names = [0] if spec.cover_names_patient else []
+        meta += [{"role": "cover", "owners": [], "shown": [], "blotted": [], "names": names} for _ in cov.pages]
+    for k, (body, footer) in enumerate(bodies):
+        parts.append((body, footer))
+        shift = k if more else 0  # single-patient layouts draw as patient 0
+        for m in body.page_meta():
+            meta.append({"role": "result", **{f: [x + shift for x in m[f]] for f in ("owners", "shown", "blotted")}, "names": []})
+    return render_pdf(path, parts, spec.fax_header if with_fax_header else None), meta
