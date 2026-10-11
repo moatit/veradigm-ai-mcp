@@ -12,11 +12,12 @@ Staff-side add-on: documents faxed or dropped in by outside offices are read, ma
 | Field extraction (name, DOB, MRN, phone, sender, collection date, kind, abnormal flags) | `extract.ts` (pure, with confidences) |
 | Patient match (two-identifier rule) | `match.ts` (`decideMatch` is the pure decision table) |
 | Document type suggestion (`GetDocumentType`, cached 1 h) | `doctypes.ts` |
-| Processing queue (fetch → read → match → type) | `pipeline.ts` |
+| Local OCR for files without text (Tesseract 5 container, no outside service) | `ocr.ts` → `deploy/ocr` (`ocr` service, `INTAKE_OCR_URL`) |
+| Processing queue (fetch → read/OCR → match → type) | `pipeline.ts` |
 | Filing guard (`SaveDocumentImage` is a TODO) | `file.ts` |
 | Staff screens `/app/intake`, `/app/intake/item/:id`, upload | `index.ts` |
 
-Lifecycle: `received → read → matched | needs_review | failed`. `filed` and `sent_to_indexing` exist in the model but nothing sets them yet.
+Lifecycle: `received → read → matched | needs_review | failed` (a failed OCR or search is `failed` with its code; staff can retry). `filed` and `sent_to_indexing` exist in the model but nothing sets them yet.
 
 ### Webhook
 
@@ -35,9 +36,9 @@ After the 204, the item is processed in the background: `GET /api/v1/enterprise/
 
 `unity_search_patients` by last name, first name and DOB, through the same tool path as the phone agent (structured errors, audit). Outcomes:
 
-- **auto** (`matched`): exactly one patient matches name + DOB **and** a second identifier agrees: the MRN, or the exact full name + DOB + the patient phone on the document.
-- **review**: one match without a second identifier, a different MRN or phone on the document, or no EHR chart.
-- **none / ambiguous**: no match, or more than one patient.
+- **auto** (`matched`): exactly one patient matches name + DOB **and** a second identifier agrees: the MRN (the PM MRN **or** the EHR chart MRN / PatientNumber), or the exact full name + DOB + the patient phone on the document.
+- **review**: one match without a second identifier, an MRN that equals neither of the patient's MRNs, a different phone, an MRN label whose value OCR couldn't read (the phone never stands in for it), no EHR chart, or OCR text below `INTAKE_OCR_MIN_CONFIDENCE` (the candidate is shown, never auto-matched).
+- **none / ambiguous**: no match; more than one patient matches; or the document itself names more than one patient (a daily batch report, two patients' results in one fax), which staff must split.
 - **error** (`failed`): the search failed. A failed search is never treated as "no match".
 
 ### Filing (disabled)
@@ -62,6 +63,9 @@ The staff screen shows **File to chart** and **Send to indexing** disabled, with
 | `INTAKE_DROP_DIR` | `/app/intake/inbox` | Drop folder (dev: `deploy/local/intake/inbox`, git-ignored) |
 | `INTAKE_MAX_FILE_MB` | `25` | Larger files are not taken in |
 | `INTAKE_RETENTION_DAYS` | `30` | Originals of filed items are deleted after this (the item and its history stay) |
+| `INTAKE_OCR_URL` | `http://ocr:8090` | Local OCR container; `off` sends text-less files straight to review |
+| `INTAKE_OCR_MIN_CONFIDENCE` | `60` | Mean OCR confidence below which a document is never auto-matched |
+| `INTAKE_PRACTICE_NAME` | `Idaho Kidney Institute` | The receiving practice: never taken as the document's sender |
 | `CALL_RECORDS_DIR` | `/app/data` | Base of `intake/` |
 
 Secrets go in `.env` only. Logs carry item IDs, job IDs, counts and error codes. They never carry keys, file names, document text or patient identifiers.
@@ -69,10 +73,12 @@ Secrets go in `.env` only. Logs carry item IDs, job IDs, counts and error codes.
 ## Open TODOs
 
 - `SaveDocumentImage` call, read-back with `GetDocuments`, then the `SaveTask` provider review task (after the format is confirmed and the owner approves a sandbox test).
-- OCR for dropped and uploaded files without a text layer. Today they go to `needs_review`, or staff paste the text when they upload.
+- The real `unity_search_patients` rows must carry both MRNs (PM MRN and EHR PatientNumber) for the either-MRN rule to help; `toCandidates` already reads `mrn`, `patientNumber`, `chartMrn`, `ehrMrn`, `pmMrn`.
 - Confirm the MOATiT Fax job and download response fields against the live API.
 - Staff "pick a different patient" on the item screen.
 
 ## Tests
 
-`npm run smoke:intake` runs offline with made-up patients. It covers HMAC good/bad/missing, the event allowlist, durable dedupe, the webhook and staff routes on 127.0.0.1, extraction on three synthetic documents, the match decision table, document-type mapping and cache, the pipeline with fake Veradigm and MOATiT Fax, the drop folder, the filing guard, screen wording, and logs without content.
+`npm run smoke:intake` runs offline with made-up patients. It covers HMAC good/bad/missing, the event allowlist, durable dedupe, the webhook and staff routes on 127.0.0.1, extraction on three synthetic documents and under fax-OCR noise (multi-patient batch, unreadable MRN), the match decision table, document-type mapping and cache, the pipeline with fake Veradigm and MOATiT Fax, the OCR client and pipeline against a fake OCR server (success, low confidence, empty, 5xx, 4xx, bad JSON, timeout, unreachable), the drop folder, the filing guard, screen wording, and logs without content.
+
+`npm run eval:intake -- --set <dir>` measures accuracy on a large synthetic set (generator `tools/intake-synth`, OCR `deploy/ocr`): per-field accuracy, decisions against the expected ones, auto-file rate and wrong-patient auto-files (must be 0). Method and numbers: `docs/drawbridge/INTAKE_ACCURACY.md`.

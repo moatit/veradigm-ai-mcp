@@ -1,8 +1,10 @@
+import * as fs from 'fs';
 import type { PlatformDeps } from '../../registry';
 import { DocTypeCache } from './doctypes';
 import { extractFields } from './extract';
 import { matchPatient } from './match';
 import { FaxApiError, isOcrPending, MoatitFaxClient } from './moatit-fax';
+import { OcrClient, OcrError, ocrReviewReason } from './ocr';
 import { IntakeItem, IntakeStore } from './store';
 
 /**
@@ -10,7 +12,10 @@ import { IntakeItem, IntakeStore } from './store';
  *
  * 1. Fax items: fetch the job (OCR text, sender) and the original from MOATiT Fax. While OCR is
  *    still running the item waits (re-checked every OCR_WAIT_MS, at most OCR_MAX_WAITS times).
- * 2. Extract fields from the text (extract.ts).
+ * 2. Read: the text layer / MOATiT Fax OCR; when there is none, Drawbridge's own OCR container
+ *    (ocr.ts, INTAKE_OCR_URL). An OCR failure leaves the item 'failed' with an OCR_* code (staff
+ *    can retry); OCR text below INTAKE_OCR_MIN_CONFIDENCE is never auto-matched.
+ *    Then extract fields from the text (extract.ts).
  * 3. Match the patient through unity_search_patients (match.ts).
  * 4. Suggest a Veradigm® EHR document type (doctypes.ts).
  * Filing is a separate, staff-triggered step (file.ts) and is disabled on this branch.
@@ -27,6 +32,8 @@ export interface PipelineOptions {
   fax?: () => MoatitFaxClient | null;
   docTypes?: DocTypeCache | null;
   deps?: Pick<PlatformDeps, 'runTool'> | null;
+  /** Local OCR for files without text (default: OcrClient.fromEnv(); null = OCR off). */
+  ocr?: () => OcrClient | null;
   now?: () => Date;
   /** Schedule a delayed re-check (tests replace it). */
   later?: (fn: () => void, ms: number) => void;
@@ -81,16 +88,22 @@ export class IntakePipeline {
       item = store.get(id)!;
     }
 
-    // 2. Read
-    const text = store.readText(id);
+    // 2. Read (local OCR when the document came without text)
+    let text = store.readText(id);
+    if (!text.trim() && item.file) {
+      const ocr = this.opts.ocr ? this.opts.ocr() : OcrClient.fromEnv();
+      if (ocr) {
+        const done = await this.runOcr(store, item, ocr);
+        if (!done) return;
+        item = store.get(id)!;
+        text = store.readText(id);
+      }
+    }
     if (!text.trim()) {
-      store.update(
-        id,
-        { status: 'needs_review', note: 'No readable text in this document. Review it and pick the patient by hand.' },
-        'no readable text'
-      );
-      // TODO(OCR): dropped and uploaded files without a text layer need OCR (MOATiT Fax OCR service
-      // or a local engine) before they can be matched automatically.
+      const note = item.ocr
+        ? 'OCR found no readable text in this document. Review it and pick the patient by hand.'
+        : 'No readable text in this document. Review it and pick the patient by hand.';
+      store.update(id, { status: 'needs_review', note }, 'no readable text');
       return;
     }
     const extracted = extractFields(text, this.now());
@@ -117,14 +130,39 @@ export class IntakePipeline {
       }
     }
 
-    const status = match.decision === 'auto' ? 'matched' : 'needs_review';
+    // Low-confidence OCR text is never auto-matched (the candidate is still shown to staff).
+    const ocrGate = match.decision === 'auto' && item.ocr ? ocrReviewReason(item.ocr) : null;
+    const auto = match.decision === 'auto' && !ocrGate;
     store.update(
       id,
-      { status, match, document_type: documentType, note: match.decision === 'auto' ? undefined : match.reason },
-      `${match.decision === 'auto' ? 'matched' : `needs review: ${match.decision}`}${typeNote}`,
+      { status: auto ? 'matched' : 'needs_review', match, document_type: documentType, note: auto ? undefined : ocrGate || match.reason },
+      `${auto ? 'matched' : `needs review: ${ocrGate ? 'low OCR confidence' : match.decision}`}${typeNote}`,
       AUTO
     );
     // Auto-filing (INTAKE_FILING=auto) is deliberately not wired here: see file.ts.
+  }
+
+  /** Local OCR of the original. Returns false when it failed (the item is then 'failed' with a code). */
+  private async runOcr(store: IntakeStore, item: IntakeItem, ocr: OcrClient): Promise<boolean> {
+    const file = store.filePath(item);
+    if (!file) {
+      store.update(item.id, { status: 'failed', error_code: 'FILE_MISSING' }, 'original file missing; cannot run OCR');
+      return false;
+    }
+    try {
+      const r = await ocr.read(fs.readFileSync(file));
+      store.update(
+        item.id,
+        { ocr: { engine: 'local', pages: r.pages, mean_confidence: r.mean_confidence, used_text_layer: r.used_text_layer } },
+        r.used_text_layer ? `text layer read (${r.pages} page(s))` : `OCR read ${r.pages} page(s), confidence ${Math.round(r.mean_confidence)}`
+      );
+      if (r.text.trim()) store.saveText(item.id, r.text);
+      return true;
+    } catch (e: any) {
+      const code = e instanceof OcrError ? e.code : 'OCR_FAILED';
+      store.update(item.id, { status: 'failed', error_code: code }, `OCR failed (${code})`);
+      return false;
+    }
   }
 
   /** Fetch OCR + original. Returns false when the item is waiting or failed. */

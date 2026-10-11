@@ -66,6 +66,8 @@ export interface IntakeItem {
   reviewed_at?: string;
   /** Times processing waited for MOATiT Fax OCR. */
   ocr_waits?: number;
+  /** Set when Drawbridge's own OCR container (ocr.ts) read the file. */
+  ocr?: { engine: 'local'; pages: number; mean_confidence: number; used_text_layer: boolean };
   history: IntakeHistory[];
 }
 

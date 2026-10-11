@@ -155,6 +155,7 @@ export function itemPage(i: IntakeItem, message = ''): string {
 <dt>Status</dt><dd>${pill(STATUS_PILL[i.status], STATUS_LABEL[i.status])}${i.error_code ? ` <span class="muted" style="font-size:12px">${esc(i.error_code)}</span>` : ''}</dd>
 <dt>Received</dt><dd>${esc(fmtTime(i.received_at))} · ${esc(SOURCE_LABEL[i.source])}${i.sender_fax ? ` · from fax ${esc(i.sender_fax)}` : ''}</dd>
 <dt>File</dt><dd>${i.file ? `<a href="${APP_BASE}/intake/item/${encodeURIComponent(i.id)}/original" target="_blank" rel="noopener">${esc(i.file.name)}</a> <span class="muted" style="font-size:12px">${esc(kb(i.file.size))}</span>` : '<span class="muted">not downloaded yet</span>'}</dd>
+${i.ocr ? `<dt>Text</dt><dd>${i.ocr.used_text_layer ? 'From the PDF text layer' : `Read by Drawbridge OCR · ${esc(i.ocr.pages)} page(s) · confidence ${esc(Math.round(i.ocr.mean_confidence))}`}</dd>` : ''}
 ${i.duplicate_of ? `<dt>Duplicate</dt><dd>Same file as <a href="${APP_BASE}/intake/item/${encodeURIComponent(i.duplicate_of)}">an earlier document</a></dd>` : ''}
 ${i.note ? `<dt>Note</dt><dd>${esc(i.note)}</dd>` : ''}
 ${i.reviewed_by ? `<dt>Reviewed</dt><dd>${esc(i.reviewed_by)} · ${esc(fmtTime(i.reviewed_at || ''))}</dd>` : ''}

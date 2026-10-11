@@ -1,8 +1,9 @@
 /**
  * Offline checks for the document intake module (no network beyond 127.0.0.1, no credentials,
  * made-up patients only). Webhook HMAC (good / bad / missing), event allowlist, durable dedupe,
- * extraction on three synthetic documents, the match decision table, document-type mapping,
- * the pipeline with fake Veradigm and MOATiT Fax, the drop folder, the filing guard, screen
+ * extraction on three synthetic documents (plus fax-OCR noise and a multi-patient batch), the match
+ * decision table, document-type mapping, the pipeline with fake Veradigm and MOATiT Fax, the OCR
+ * client and pipeline against a fake OCR server, the drop folder, the filing guard, screen
  * wording, and that logs never carry document content.
  *
  *   npm run smoke:intake
@@ -18,9 +19,11 @@ const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'drawbridge-intake-'));
 process.env.CALL_RECORDS_DIR = TMP;
 process.env.INTAKE_DROP_DIR = path.join(TMP, 'inbox');
 process.env.CLINIC_TIMEZONE = 'America/Boise';
-for (const k of ['MOATIT_FAX_WEBHOOK_SECRET', 'MOATIT_FAX_BASE_URL', 'MOATIT_FAX_API_KEY', 'INTAKE_FILING', 'INTAKE_SAVE_DOCUMENT_FORMAT_CONFIRMED']) {
+for (const k of ['MOATIT_FAX_WEBHOOK_SECRET', 'MOATIT_FAX_BASE_URL', 'MOATIT_FAX_API_KEY', 'INTAKE_FILING', 'INTAKE_SAVE_DOCUMENT_FORMAT_CONFIRMED', 'INTAKE_OCR_MIN_CONFIDENCE']) {
   delete process.env[k];
 }
+// The OCR container is not running here: OCR is off except where a fake OCR server is wired in.
+process.env.INTAKE_OCR_URL = 'off';
 
 import assert from 'assert';
 import { createHmac } from 'crypto';
@@ -227,7 +230,46 @@ async function main(): Promise<void> {
   assert.strictEqual(normalizeDate('01/01/2030', { pastOnly: true, now: NOW }), '', 'future birth date');
   assert.strictEqual(parseName('Results pending 123'), null);
   assert.strictEqual(extractFields('Fax cover sheet. Pages: 3', NOW).kind.value, 'other');
+  assert.strictEqual(lab.patient_count, 1);
   ok('extraction: name, DOB (several formats), MRN, phone, sender, collection date, kind, abnormal flags on 3 synthetic documents');
+
+  // 5b. Fax OCR noise, plain "Phone:" in the patient block, surname particles, multi-patient batch
+  const NOISY = `From: LARKSPUR REF LAB 2085550151   Page 1/2   10/09/2026 08:14
+LARKSPUR REFERENCE LABORATORIES                         LABORATORY REPORT
+Meridian, ID 83642  Tel 208-555-0150  Fax 208-555-0151
+| Patient Name; TESTPATIENT, MARIGOLD J              Specimen ID; LR1234567
+D,O.B, 3/14/1961    Sex: F                            Collactad: 10/08/2026 06:24
+Patient 1D: 4824913                                    Received: 10/08/2026 10:13
+Critical values are telephoned to the ordering client per laboratory policy.
+Hemoglobin A1c         7.9 %       *H     (<5.7)
+Potassium              6.9 (C)            3.5-5.1 mmol/L
+`;
+  const noisy = extractFields(NOISY, NOW);
+  assert.deepStrictEqual([noisy.patient_name?.value.last, noisy.patient_name?.confidence, noisy.dob?.value], ['Testpatient', 'high', '03/14/1961']);
+  assert.deepStrictEqual([noisy.mrn?.value, noisy.mrn?.confidence], ['4824913', 'medium'], '"Patient 1D" read as Patient ID');
+  assert.strictEqual(noisy.collection_date?.value, '10/08/2026', '"Collactad" still a collection date');
+  assert.strictEqual(noisy.sender?.value, 'LARKSPUR REFERENCE LABORATORIES', 'letterhead, not the fax machine header');
+  assert.deepStrictEqual([noisy.abnormal.critical, noisy.abnormal.markers], [true, ['C', 'H']], '*H and (C); the policy line is not a critical value');
+  const clinic = extractFields('Juniper Flats Family Clinic   Tel: (208) 555-0150\nName: Van Wyk, Maxine\nDOB: 02/03/1950\nPhone: (986) 555-0123\n', NOW);
+  assert.deepStrictEqual([clinic.phone?.value, clinic.phone?.confidence], ['9865550123', 'medium'], 'plain Phone: inside the patient block');
+  assert.strictEqual(extractFields('Phone: (986) 555-0123\nRE: Maxine Van Wyk\nDOB: 02/03/1950', NOW).phone?.confidence, 'low', 'plain Phone: before the patient block');
+  assert.deepStrictEqual(parseName('Maxine Van Wyk'), { first: 'Maxine', last: 'Van Wyk', full: 'Maxine Van Wyk' });
+  assert.strictEqual(parseName('Report attached'), null);
+  assert.strictEqual(extractFields('RE: Lab results\nPatient: Orrin Lightfoot  DOB: 9/5/49', NOW).patient_name?.value.last, 'Lightfoot');
+  const BATCH = `SAWTOOTH RAPID LAB - DAILY BATCH RESULTS
+PT: TESTPATIENT,MARIGOLD      DOB: 1961-03-14   SEX: F
+MRN: 482913                   COLL: 10/08/2026 06:45
+  CREAT     2.41H  (0.60-1.30) mg/dL
+PT! ZEPHYR,QUILLON            DOB: 1958-07-02   SEX: M
+MRN: 771234                   COLL: 10/08/2026 07:10
+`;
+  const batch = extractFields(BATCH, NOW);
+  assert.deepStrictEqual([batch.patient_count, batch.patient_name?.value.last, batch.kind.value], [2, 'Testpatient', 'lab_result']);
+  assert.strictEqual(extractFields(BATCH.split('PT! ZEPHYR')[0] + 'PT: TESTPATIENT,MARIGOLD  DOB: 1961-03-14\n', NOW).patient_count, 1, 'a repeated header is one patient');
+  assert.strictEqual(extractFields(BATCH.replace('1958-07-02', '1961-03-14').replace('ZEPHYR,QUILLON', 'TESTPATIENT,MARIGOLO'), NOW).patient_count, 1, 'OCR noise is not a second patient');
+  const unread = extractFields('Patient: Marigold Testpatient\nDOB: 03/14/1961\nMed Ree #: ?????\nPatient Phone: (208) 555-0142', NOW);
+  assert.deepStrictEqual([unread.mrn, unread.mrn_unreadable], [undefined, true]);
+  ok('extraction under fax OCR noise: ";" "!" "," for ":", D,O.B., Patient 1D, Collactad, letterhead sender, *H / (C) flags, patient-block phone, particles, multi-patient count');
 
   // 6. Match decision table
   const cand = (o: Partial<Record<string, any>> = {}) => ({
@@ -250,6 +292,10 @@ async function main(): Promise<void> {
     ['DOB differs', lab, [cand({ dateOfBirth: '03/14/1962' })], 'none'],
     ['no DOB on the document', { ...lab, dob: undefined }, [cand()], 'none'],
     ['two patients', lab, [cand(), cand({ patientId: '9002', chartPatientId: '7002', mrn: '482913' })], 'ambiguous'],
+    ['document MRN = the EHR chart MRN (PatientNumber)', lab, [cand({ mrn: '17804', mrns: ['17804', '482913'] })], 'auto', 'mrn'],
+    ['document MRN = neither MRN', lab, [cand({ mrn: '17804', mrns: ['17804', '186770'] })], 'review'],
+    ['two patients named on the document', { ...lab, patient_count: 2 }, [cand()], 'ambiguous'],
+    ['MRN label unreadable, phone agrees', { ...noMrn, mrn_unreadable: true }, [cand({ mrn: '' })], 'review'],
   ];
   for (const [label, ex, cands, want, second] of table) {
     const r = decideMatch(ex, cands);
@@ -265,6 +311,8 @@ async function main(): Promise<void> {
   const m1 = await matchPatient(lab, fakeRun, () => NOW);
   assert.deepStrictEqual([m1.decision, m1.checked_at], ['auto', NOW.toISOString()]);
   assert.deepStrictEqual(calls[0], ['unity_search_patients', { lastName: 'Testpatient', firstName: 'Marigold', dateOfBirth: '03/14/1961' }]);
+  const both = await matchPatient(lab, async () => ({ patients: [{ ...cand(), mrn: '17804', patientNumber: '482913' }], total: 1 }), () => NOW);
+  assert.deepStrictEqual([both.decision, both.second_identifier], ['auto', 'mrn'], 'search rows carry PM MRN and EHR PatientNumber; either agrees');
   const failed = await matchPatient(lab, async () => ({ success: false, error_code: 'NETWORK_ERROR', retryable: true, tool: 'x', message: 'x' }));
   assert.deepStrictEqual([failed.decision, failed.error_code], ['error', 'NETWORK_ERROR'], 'a failed search is an error, never "no match"');
   const thrown = await matchPatient(lab, async () => {
@@ -369,6 +417,82 @@ async function main(): Promise<void> {
   await searchDown.process(up2.id);
   assert.deepStrictEqual([pStore.get(up2.id)!.status, pStore.get(up2.id)!.error_code], ['failed', 'AUTH_ERROR']);
   ok('pipeline: fax fetch + read + match + type; OCR wait; fetch failures and search failures end in "failed" with a code');
+
+  // 8b. Local OCR: client against a fake OCR server on 127.0.0.1, then the pipeline with it
+  const ocrMod = await import('../platform/modules/intake/ocr');
+  assert.strictEqual(ocrMod.ocrBaseUrl(), null, 'INTAKE_OCR_URL=off');
+  delete process.env.INTAKE_OCR_URL;
+  assert.strictEqual(ocrMod.ocrBaseUrl(), 'http://ocr:8090', 'default: the ocr service on the drawbridge network');
+  process.env.INTAKE_OCR_URL = 'off';
+  assert.strictEqual(ocrMod.ocrMinConfidence(), 60);
+  assert.strictEqual(ocrMod.ocrReviewReason({ mean_confidence: 59.9, used_text_layer: false }) !== null, true);
+  assert.strictEqual(ocrMod.ocrReviewReason({ mean_confidence: 88, used_text_layer: false }), null);
+  assert.strictEqual(ocrMod.ocrReviewReason({ mean_confidence: 0, used_text_layer: true }), null, 'text layer is exact');
+  assert.throws(() => ocrMod.parseOcrResult({ pages: 1 }), (e: any) => e.code === 'OCR_BAD_RESPONSE');
+
+  const ocrHits: string[] = [];
+  const ocrApp = express();
+  ocrApp.post('/ocr', express.raw({ type: '*/*', limit: '5mb' }), (req, res) => {
+    const body = Buffer.isBuffer(req.body) ? req.body.toString('latin1') : '';
+    const mark = (body.match(/OCRCASE:(\w+)/) || [])[1] || '';
+    ocrHits.push(mark);
+    if (mark === 'lab') return res.json({ text: LAB, pages: 1, mean_confidence: 88.5, used_text_layer: false });
+    if (mark === 'low') return res.json({ text: LAB, pages: 1, mean_confidence: 41.0, used_text_layer: false });
+    if (mark === 'empty') return res.json({ text: '  \n', pages: 1, mean_confidence: 0, used_text_layer: false });
+    if (mark === 'boom') return res.status(500).json({ error: 'OCR_FAILED' });
+    if (mark === 'bad') return res.type('text/plain').send('not json');
+    if (mark === 'unsupported') return res.status(400).json({ error: 'UNSUPPORTED_TYPE' });
+    if (mark === 'slow') return void setTimeout(() => res.json({ text: LAB, pages: 1, mean_confidence: 90, used_text_layer: false }), 400);
+    return res.status(404).end();
+  });
+  const ocrSrv = ocrApp.listen(0, '127.0.0.1');
+  await new Promise((r) => ocrSrv.once('listening', r));
+  const ocrUrl = `http://127.0.0.1:${(ocrSrv.address() as AddressInfo).port}`;
+  try {
+    const client = new ocrMod.OcrClient({ baseUrl: ocrUrl, sleep: async () => undefined });
+    const r = await client.read(Buffer.from('%PDF-1.4 OCRCASE:lab'));
+    assert.deepStrictEqual([r.pages, r.mean_confidence, r.used_text_layer, r.text.includes('Creatinine')], [1, 88.5, false, true]);
+    await assert.rejects(client.read(Buffer.from('OCRCASE:boom')), (e: any) => e.code === 'OCR_HTTP_500' && e.retryable === true);
+    assert.strictEqual(ocrHits.filter((x) => x === 'boom').length, 2, '5xx retried once');
+    await assert.rejects(client.read(Buffer.from('OCRCASE:unsupported')), (e: any) => e.code === 'OCR_UNSUPPORTED_TYPE' && !e.retryable);
+    await assert.rejects(client.read(Buffer.from('OCRCASE:bad')), (e: any) => e.code === 'OCR_BAD_RESPONSE');
+    await assert.rejects(
+      new ocrMod.OcrClient({ baseUrl: ocrUrl, timeoutMs: 50, attempts: 1 }).read(Buffer.from('OCRCASE:slow')),
+      (e: any) => e.code === 'OCR_TIMEOUT'
+    );
+    const closed = express().listen(0, '127.0.0.1');
+    await new Promise((r) => closed.once('listening', r));
+    const deadUrl = `http://127.0.0.1:${(closed.address() as AddressInfo).port}`;
+    await new Promise((r) => closed.close(r));
+    await assert.rejects(new ocrMod.OcrClient({ baseUrl: deadUrl, sleep: async () => undefined }).read(Buffer.from('x')), (e: any) => e.code === 'OCR_UNAVAILABLE');
+
+    const oStore = new IntakeStore(path.join(TMP, 'ocr'), () => NOW);
+    const oPipe = new IntakePipeline({ store: () => oStore, now: () => NOW, ocr: () => client, deps: { runTool: fakeRun } });
+    const addScan = (mark: string) =>
+      oStore.addDocument({ source: 'folder', source_ref: '', name: `scan-${mark}.tif`, mime: 'image/tiff', data: Buffer.from(`II*\u0000 OCRCASE:${mark}`) }).item.id;
+    const ids = Object.fromEntries(['lab', 'low', 'empty', 'boom', 'unsupported'].map((m) => [m, addScan(m)]));
+    quiet(() => Object.values(ids).forEach((id) => oPipe.enqueue(id)));
+    await oPipe.idle();
+    const got = (m: string) => oStore.get(ids[m])!;
+    assert.deepStrictEqual([got('lab').status, got('lab').match?.decision, got('lab').ocr?.mean_confidence], ['matched', 'auto', 88.5]);
+    assert.ok(oStore.readText(ids.lab).includes('Creatinine') && got('lab').history.some((x) => x.action === 'OCR read 1 page(s), confidence 89'));
+    assert.deepStrictEqual([got('low').status, got('low').match?.decision], ['needs_review', 'auto'], 'low OCR confidence: matched candidate shown, never auto');
+    assert.ok(/low confidence/.test(got('low').note || ''));
+    assert.deepStrictEqual([got('empty').status, got('empty').note?.startsWith('OCR found no readable text')], ['needs_review', true]);
+    assert.deepStrictEqual([got('boom').status, got('boom').error_code], ['failed', 'OCR_HTTP_500'], 'OCR down: failed with a code, staff can retry');
+    assert.deepStrictEqual([got('unsupported').status, got('unsupported').error_code], ['failed', 'OCR_UNSUPPORTED_TYPE']);
+    const withText = oStore.addDocument({ source: 'upload', source_ref: '', name: 'typed.pdf', mime: 'application/pdf', data: Buffer.from('%PDF typed OCRCASE:lab2'), text: LAB }).item.id;
+    const before = ocrHits.length;
+    await oPipe.process(withText);
+    assert.strictEqual(ocrHits.length, before, 'documents that come with text are not sent to OCR');
+    const offPipe = new IntakePipeline({ store: () => oStore, now: () => NOW, ocr: () => null, deps: { runTool: fakeRun } });
+    const offId = addScan('off');
+    await offPipe.process(offId);
+    assert.deepStrictEqual([oStore.get(offId)!.status, ocrHits.includes('off')], ['needs_review', false], 'OCR off: review by hand, nothing sent');
+  } finally {
+    ocrSrv.close();
+  }
+  ok('local OCR: client codes (500 retried, 4xx, bad JSON, timeout, unreachable), pipeline reads, gates low confidence, fails loudly, skips documents with text');
 
   // 9. Drop folder
   const inbox = process.env.INTAKE_DROP_DIR!;
