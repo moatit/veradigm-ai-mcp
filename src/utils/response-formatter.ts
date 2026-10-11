@@ -166,8 +166,9 @@ export function toVoiceSummary(
       .slice(0, 5)
       .map(patientLine);
     const andMore = n > 5 ? ` and ${n - 5} more` : "";
+    const note = typeof r.note === "string" && r.note ? ` ${r.note}` : "";
     return truncate(
-      `Found ${n} patient(s): ${list.join("; ")}${andMore}.`,
+      `Found ${n} patient(s): ${list.join("; ")}${andMore}.${note}`,
       maxLength,
     );
   }

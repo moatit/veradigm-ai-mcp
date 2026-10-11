@@ -113,6 +113,26 @@ function normalizeDob(v?: string): string {
   return `${m[1].padStart(2, "0")}/${m[2].padStart(2, "0")}/${m[3]}`;
 }
 
+/** American Soundex code ("Beasley" and "Beesly" are both B240). */
+function soundex(name: string): string {
+  const s = name.toUpperCase().replace(/[^A-Z]/g, "");
+  if (!s) return "";
+  const codes: Record<string, string> = { B: "1", F: "1", P: "1", V: "1", C: "2", G: "2", J: "2", K: "2", Q: "2", S: "2", X: "2", Z: "2", D: "3", T: "3", L: "4", M: "5", N: "5", R: "6" };
+  let out = s[0];
+  let prev = codes[s[0]] || "";
+  for (const ch of s.slice(1)) {
+    const c = codes[ch] || "";
+    if (c && c !== prev) out += c;
+    if (ch !== "H" && ch !== "W") prev = c;
+  }
+  return (out + "000").slice(0, 4);
+}
+
+/** Last names that sound the same: equal Soundex and same first letter. */
+function soundsAlike(a: string, b: string): boolean {
+  return Boolean(a && b) && soundex(a) === soundex(b);
+}
+
 /**
  * Unity Patient Tools
  *
@@ -330,6 +350,7 @@ export class UnityPatientTools {
     patients: ParsedPatient[];
     total: number;
     message: string;
+    note?: string;
   }> {
     try {
       if (!args.lastName && !args.firstName && !args.mrn) {
@@ -340,41 +361,36 @@ export class UnityPatientTools {
 
       console.error(`[Unity Patient] Searching patients (PM + EHR)`);
 
-      const criteria = { lastName: args.lastName, firstName: args.firstName, mrn: args.mrn };
-      const [pmRes, ehrRes] = await Promise.all(
-        (["PM", "EHR"] as UnityTargetSystem[]).map((t) =>
-          this.unityService.searchPatients(criteria, t).catch((e) => ({ success: false, error: String(e?.message || e) }) as any),
-        ),
+      const dob = normalizeDob(args.dateOfBirth) || args.dateOfBirth;
+      const exact = await this.searchBoth(
+        { lastName: args.lastName, firstName: args.firstName, mrn: args.mrn },
+        (list) => this.filterPatients(list, { ...args, dateOfBirth: dob }),
       );
+      let { patients } = exact;
+      const { pmOk } = exact;
+      let spellingNote = "";
 
-      // A failed search is an error, not "no match" (CLAUDE.md rule 5).
-      if (!pmRes.success && !ehrRes.success) {
-        throw UnityErrorHandler.createAPIError(
-          pmRes.error || ehrRes.error || "Patient search failed",
-          UnityActions.Patient.SEARCH_PATIENTS,
-        );
+      // Spelling-variant fallback. Phone speech recognition often mishears last names ("Beesly" heard
+      // as "Beasley"). Only with a full name AND birth date: search by the first two letters of the last
+      // name + first name, then require exact DOB, exact first name and a last name that sounds the same.
+      if (patients.length === 0 && args.lastName && args.firstName && normalizeDob(args.dateOfBirth)) {
+        const heard = args.lastName.trim();
+        const variant = await this.searchBoth(
+          { lastName: heard.slice(0, 2), firstName: args.firstName },
+          (list) =>
+            list.filter(
+              (p) =>
+                normalizeDob(p.dateOfBirth) === normalizeDob(args.dateOfBirth) &&
+                (p.firstName || "").trim().toLowerCase() === args.firstName!.trim().toLowerCase() &&
+                soundsAlike(p.lastName || "", heard),
+            ),
+        ).catch(() => ({ patients: [] as ParsedPatient[], pmOk: false }));
+        if (variant.patients.length === 1) {
+          patients = variant.patients;
+          const spelled = (patients[0].lastName || "").trim();
+          spellingNote = ` Matched on a spelling variant: the record's last name is ${spelled} (${spelled.toUpperCase().split("").join("-")}), not ${heard}. Read the spelling back and get a yes before sharing anything.`;
+        }
       }
-
-      const filter = (list: ParsedPatient[]) =>
-        this.filterPatients(
-          list.filter((p) => p.id),
-          { ...args, dateOfBirth: normalizeDob(args.dateOfBirth) || args.dateOfBirth },
-        );
-      const pm = pmRes.success ? filter(this.parsePatientsList(pmRes.data)) : [];
-      const ehr = ehrRes.success ? filter(this.parsePatientsList(ehrRes.data)) : [];
-
-      // One person per name + DOB: PM record first, EHR chart ID attached.
-      const key = (p: ParsedPatient) =>
-        `${(p.lastName || "").trim().toLowerCase()}|${(p.firstName || "").trim().toLowerCase()}|${normalizeDob(p.dateOfBirth)}`;
-      const merged = new Map<string, ParsedPatient>();
-      for (const p of pm) merged.set(key(p), { ...p, patientId: p.id });
-      for (const p of ehr) {
-        const k = key(p);
-        const existing = merged.get(k);
-        if (existing) existing.chartPatientId = p.id;
-        else merged.set(k, { ...p, chartPatientId: p.id });
-      }
-      let patients = [...merged.values()];
       if (args.limit) patients = patients.slice(0, args.limit);
 
       let message = `Found ${patients.length} patient(s)`;
@@ -383,15 +399,48 @@ export class UnityPatientTools {
           ? `No patient found with MRN ${args.mrn}. Try searching by patient name instead.`
           : "No patient matched that name and date of birth.";
       }
-      if (!pmRes.success) message += " (Veradigm PM could not be reached, so appointment and billing IDs are missing.)";
+      if (!pmOk) message += " (Veradigm PM could not be reached, so appointment and billing IDs are missing.)";
+      message += spellingNote;
 
-      return { patients, total: patients.length, message };
+      return { patients, total: patients.length, message, ...(spellingNote ? { note: spellingNote.trim() } : {}) };
     } catch (error) {
       if (error instanceof UnityMCPError) {
         throw error;
       }
       throw UnityErrorHandler.handleUnknownError(error, "SearchPatients");
     }
+  }
+
+  /** SearchPatients on PM and EHR; one entry per name + DOB (PM ID + EHR chart ID). Throws if both fail. */
+  private async searchBoth(
+    criteria: { lastName?: string; firstName?: string; mrn?: string },
+    keep: (list: ParsedPatient[]) => ParsedPatient[],
+  ): Promise<{ patients: ParsedPatient[]; pmOk: boolean }> {
+    const [pmRes, ehrRes] = await Promise.all(
+      (["PM", "EHR"] as UnityTargetSystem[]).map((t) =>
+        this.unityService.searchPatients(criteria, t).catch((e) => ({ success: false, error: String(e?.message || e) }) as any),
+      ),
+    );
+    // A failed search is an error, not "no match" (CLAUDE.md rule 5).
+    if (!pmRes.success && !ehrRes.success) {
+      throw UnityErrorHandler.createAPIError(
+        pmRes.error || ehrRes.error || "Patient search failed",
+        UnityActions.Patient.SEARCH_PATIENTS,
+      );
+    }
+    const pm = pmRes.success ? keep(this.parsePatientsList(pmRes.data).filter((p) => p.id)) : [];
+    const ehr = ehrRes.success ? keep(this.parsePatientsList(ehrRes.data).filter((p) => p.id)) : [];
+    const key = (p: ParsedPatient) =>
+      `${(p.lastName || "").trim().toLowerCase()}|${(p.firstName || "").trim().toLowerCase()}|${normalizeDob(p.dateOfBirth)}`;
+    const merged = new Map<string, ParsedPatient>();
+    for (const p of pm) merged.set(key(p), { ...p, patientId: p.id });
+    for (const p of ehr) {
+      const k = key(p);
+      const existing = merged.get(k);
+      if (existing) existing.chartPatientId = p.id;
+      else merged.set(k, { ...p, chartPatientId: p.id });
+    }
+    return { patients: [...merged.values()], pmOk: Boolean(pmRes.success) };
   }
 
   /**

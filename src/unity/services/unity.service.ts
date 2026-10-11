@@ -343,9 +343,16 @@ export class UnityService {
     }, '', target);
   }
 
-  /** Plain SearchPatients text: "Last, First", "Last", "First" or an MRN. */
+  /**
+   * Plain SearchPatients text: "Last, First", "Last", "First" or an MRN.
+   * Veradigm PM prefix-matches the last name and finds nothing once it contains a hyphen or space
+   * ("Okonkwo-Vance" no rows, "Okonkwo" finds Okonkwo-Vance; sandbox Oct 11). Speech also hears
+   * "Okonkwo Vance". So only the first part is sent; callers filter on the full name.
+   */
   private patientSearchText(criteria: { lastName?: string; firstName?: string; dob?: string; mrn?: string }): string {
-    const last = (criteria.lastName || '').trim();
+    const fullLast = (criteria.lastName || '').trim();
+    const head = fullLast.split(/[\s-]+/)[0];
+    const last = head.length >= 2 ? head : fullLast;
     const first = (criteria.firstName || '').trim();
     if (last && first) return `${last}, ${first}`;
     return last || first || (criteria.mrn || '').trim();
