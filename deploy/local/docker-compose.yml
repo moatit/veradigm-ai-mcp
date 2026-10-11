@@ -58,10 +58,28 @@ services:
       - CLINIC_TIMEZONE=America/Boise
       - ADMIN_PORTAL_URL=http://admin:5001
       - MCP_CHANNEL=RETELL
+      # Document intake: local OCR for files without a text layer (the ocr service below)
+      - INTAKE_OCR_URL=http://ocr:8090
     volumes:
       - drawbridge-data:/app/data
       # Document intake drop folder (PHI; git-ignored): put files in ./intake/inbox
       - ./intake:/app/intake
+    restart: unless-stopped
+    networks: [drawbridge]
+
+  # ---- Intake OCR (Tesseract 5, deploy/ocr): documents never leave this network ----
+  # No host ports: only unity reaches it, at http://ocr:8090.
+  ocr:
+    build:
+      context: ../ocr
+    image: drawbridge-intake-ocr
+    environment:
+      - OCR_CONCURRENCY=2
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
     restart: unless-stopped
     networks: [drawbridge]
 

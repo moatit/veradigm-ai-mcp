@@ -1,0 +1,31 @@
+# Drawbridge intake OCR: Tesseract 5 (English) + poppler, fax-image preprocessing, local only.
+#
+# Documents are PHI: this container makes no outbound calls and is reached only on the internal
+# `drawbridge` Docker network (no published ports). See deploy/ocr/README.md.
+#
+#   docker build -t drawbridge-intake-ocr deploy/ocr
+#   docker run --rm --network none -v <in>:/in:ro -v <out>:/out drawbridge-intake-ocr batch /in /out
+FROM python:3.12-slim
+
+# Debian (python:3.12-slim = trixie): tesseract-ocr 5.5.x, poppler-utils (pdftotext, pdftoppm, pdfinfo)
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends tesseract-ocr tesseract-ocr-eng poppler-utils \
+ && rm -rf /var/lib/apt/lists/*
+
+RUN pip install --no-cache-dir pillow==11.0.0 numpy==2.1.3 opencv-python-headless==4.10.0.84
+
+RUN useradd --system --uid 10001 --home-dir /app ocr && mkdir -p /app && chown ocr /app
+WORKDIR /app
+COPY ocr_service.py /app/ocr_service.py
+
+USER ocr
+# One Tesseract thread per job; concurrency comes from OCR_CONCURRENCY / --workers.
+ENV OMP_THREAD_LIMIT=1 \
+    PYTHONUNBUFFERED=1 \
+    OCR_PORT=8090 \
+    OCR_CONCURRENCY=2
+EXPOSE 8090
+HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
+  CMD python -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8090/health', timeout=4).status == 200 else 1)"
+ENTRYPOINT ["python", "/app/ocr_service.py"]
+CMD ["serve"]
