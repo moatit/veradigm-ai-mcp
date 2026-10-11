@@ -71,9 +71,9 @@ Assessment and Plan: Continue current regimen. Follow up in 3 months.
 async function main(): Promise<void> {
   const fax = await import('../platform/modules/intake/moatit-fax');
   const { IntakeStore, intakeStore } = await import('../platform/modules/intake/store');
-  const { extractFields, normalizeDate, parseName } = await import('../platform/modules/intake/extract');
+  const { extractFields, normalizeDate, parseName, classifySubtype } = await import('../platform/modules/intake/extract');
   const { decideMatch, matchPatient } = await import('../platform/modules/intake/match');
-  const { DocTypeCache, mapKindToType, parseDocumentTypes } = await import('../platform/modules/intake/doctypes');
+  const { DocTypeCache, mapKindToType, parseDocumentTypes, categoryOverrides } = await import('../platform/modules/intake/doctypes');
   const filing = await import('../platform/modules/intake/file');
   const { scanDropFolder } = await import('../platform/modules/intake/folder');
   const { IntakePipeline, OCR_MAX_WAITS, autoFileBlocker } = await import('../platform/modules/intake/pipeline');
@@ -345,6 +345,34 @@ MRN: 771234                   COLL: 10/08/2026 07:10
   assert.deepStrictEqual(mapKindToType('lab_result', types), { id: '12', name: 'Labs/Procedures', reason: 'keyword' });
   assert.deepStrictEqual(mapKindToType('consult', types), { id: '15', name: 'Consultant Letter', reason: 'keyword' });
   assert.deepStrictEqual(mapKindToType('imaging', types), { id: '1', name: '(ready for indexing)', reason: 'fallback' }, 'archived type skipped');
+  // Subtypes pick a finer category; the clinic's INTAKE_CATEGORY_MAP wins over both
+  const moreTypes = parseDocumentTypes([{ getdocumenttypeinfo: [
+    ...typeRows[0].getdocumenttypeinfo,
+    { DisplayName: 'CT Scan', EntryCode: '6', ID: '6', DocumentFormat: '', Archived: 'N' },
+    { DisplayName: 'Radiology Report', EntryCode: '40', ID: '40', DocumentFormat: '', Archived: 'N' },
+    { DisplayName: 'Pathology Report', EntryCode: '41', ID: '41', DocumentFormat: '', Archived: 'N' },
+    { DisplayName: 'Hospital Discharge Summary', EntryCode: '42', ID: '42', DocumentFormat: '', Archived: 'N' },
+    { DisplayName: 'Lab Results', EntryCode: '16', ID: '16', DocumentFormat: '', Archived: 'N' },
+  ] }]);
+  assert.strictEqual(mapKindToType('imaging', moreTypes, 'ct', {})!.name, 'CT Scan');
+  assert.strictEqual(mapKindToType('imaging', moreTypes, 'ultrasound', {})!.name, 'Radiology Report');
+  assert.strictEqual(mapKindToType('lab_result', moreTypes, 'pathology', {})!.name, 'Pathology Report');
+  assert.strictEqual(mapKindToType('other', moreTypes, 'discharge_summary', {})!.name, 'Hospital Discharge Summary');
+  assert.strictEqual(mapKindToType('other', moreTypes, undefined, {})!.reason, 'fallback', 'plain "other" still goes to indexing');
+  const clinicMap = { lab_result: 'Lab Results', 'imaging.ultrasound': 'CT Scan', pathology: 'No Such Type' };
+  assert.deepStrictEqual(mapKindToType('lab_result', moreTypes, undefined, clinicMap), { id: '16', name: 'Lab Results', reason: 'configured' });
+  assert.strictEqual(mapKindToType('imaging', moreTypes, 'ultrasound', clinicMap)!.name, 'CT Scan', 'kind.subtype key');
+  assert.strictEqual(mapKindToType('lab_result', moreTypes, 'pathology', clinicMap)!.name, 'Pathology Report', 'unknown configured name falls through');
+  assert.deepStrictEqual(categoryOverrides('{"Lab_Result":" Lab Results "}'), { lab_result: 'Lab Results' });
+  assert.deepStrictEqual(categoryOverrides('not json'), {});
+  const sub = (t: string, k: any) => classifySubtype(t, k)?.value;
+  assert.strictEqual(sub('RADIOLOGY REPORT\nEXAM: CT ABDOMEN AND PELVIS WITHOUT CONTRAST', 'imaging'), 'ct');
+  assert.strictEqual(sub('RENAL ULTRASOUND\nFINDINGS: right kidney 10.2 cm', 'imaging'), 'ultrasound');
+  assert.strictEqual(sub('CHEST X-RAY 2 VIEWS\nIMPRESSION: no acute process', 'imaging'), 'chest_xray');
+  assert.strictEqual(sub('SURGICAL PATHOLOGY REPORT\nKidney biopsy, left', 'lab_result'), 'pathology');
+  assert.strictEqual(sub('HOSPITAL DISCHARGE SUMMARY\nAdmit date 10/01/2026', 'other'), 'discharge_summary');
+  assert.strictEqual(sub('BASIC METABOLIC PANEL\nCreatinine 2.4 H', 'lab_result'), undefined, 'plain labs have no subtype');
+  assert.strictEqual(sub('CT ABDOMEN', 'lab_result'), undefined, 'subtype must fit the kind');
   assert.deepStrictEqual(mapKindToType('other', types)?.reason, 'fallback');
   assert.strictEqual(mapKindToType('lab_result', []), null);
   let t = 0;
@@ -367,7 +395,7 @@ MRN: 771234                   COLL: 10/08/2026 07:10
   await assert.rejects(new DocTypeCache({ executeAction: async () => ({ success: false, error: 'x' }) } as any).list(), (e: any) => typeof e.code === 'string');
   await assert.rejects(new DocTypeCache({ executeAction: async () => ({ success: true, data: [] }) } as any).list(), (e: any) => typeof e.code === 'string', 'empty list is an error');
   await assert.rejects(new DocTypeCache({ executeAction: async () => { throw new Error('down'); } } as any).list(), (e: any) => typeof e.code === 'string');
-  ok('document types: kind → Labs/Procedures / Consultant Letter, fallback "(ready for indexing)", 1 h cache, failures throw');
+  ok('document types: kind and subtype → category (CT Scan, Pathology Report, Hospital Discharge Summary...), clinic map, fallback "(ready for indexing)", 1 h cache, failures throw');
 
   // 8. Pipeline: upload with text, fax with fake MOATiT Fax, OCR wait, unconfigured API
   const pStore = new IntakeStore(path.join(TMP, 'pipeline'), () => NOW);
@@ -642,6 +670,12 @@ MRN: 771234                   COLL: 10/08/2026 07:10
   // 11. Screens: wording, escaping, disabled buttons
   const evil = pStore.update(up.item.id, { note: '<script>alert(1)</script>' });
   const html = intake.queuePage(pStore.list(), pStore.counts(), '') + intake.itemPage(pStore.get(fx.id)!, 'FILING_NOT_IMPLEMENTED') + intake.itemPage(evil);
+  const opts = [{ id: '16', name: 'Lab Results' }, { id: '6', name: '<CT Scan>' }];
+  const notFiled = { ...pStore.get(fx.id)!, status: 'matched' as const, filed: undefined, document_type: { id: '16', name: 'Lab Results', reason: 'staff' as const } };
+  const picker = intake.itemPage(notFiled, '', opts);
+  assert.ok(/name="type_id"/.test(picker) && /<option value="16" selected>Lab Results<\/option>/.test(picker) && picker.includes('&lt;CT Scan&gt;'), 'category picker, escaped');
+  assert.ok(/picked by staff/.test(picker));
+  assert.ok(!/name="type_id"/.test(intake.itemPage({ ...notFiled, status: 'filed' }, '', opts)), 'no picker once filed');
   assert.ok(!/\b(mcp|fhir|unity)\b/i.test(html), 'screens (and the upload script) never say MCP/FHIR/Unity');
   assert.ok(html.includes('Veradigm® EHR'));
   assert.ok(!html.includes('<script>alert(1)</script>') && html.includes('&lt;script&gt;alert(1)'), 'escaped');

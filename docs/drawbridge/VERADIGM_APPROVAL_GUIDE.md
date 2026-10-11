@@ -1,6 +1,6 @@
 # Getting Drawbridge approved by Veradigm
 
-Owner: **Musab** (Veradigm approvals). Claude prepares the technical material and keeps this file current. Status as of **Oct 9, 2026**.
+Owner: **Musab** (Veradigm approvals). Claude prepares the technical material and keeps this file current. Status as of **Oct 11, 2026**.
 
 Drawbridge talks to Veradigm two ways, and each needs its own approval:
 
@@ -14,14 +14,14 @@ Sources: developer.veradigm.com (Certification Process Overview, Client Activati
 ## Track A: Unity certification
 
 ### Prerequisites
-- [ ] Veradigm Connect membership on a **Gold or Platinum** plan (required to enter certification). *Musab: confirm MOATiT's current plan.*
+- [ ] Veradigm Connect membership on a **Gold or Platinum** plan (required to enter certification). Current plan: **Bronze Integrator** (portal dashboard, Oct 11). Ali: MOATiT upgrades to Gold when we start the certification process.
 - [x] Test environment and credentials (PM `VHCP001PM:PMGA02^8^`, EHR `AHMCP00101:CP00101^1^`, user `Kanhaiya.K.MOATiT`). Working as of Oct 9.
 
 ### Steps (Veradigm's order)
 1. **Security Questionnaire**: emailed to VeradigmConnect@veradigm.com. *Musab submits; Claude drafts the technical answers (hosting, encryption, logging, access control, credential storage).*
 2. **API Assessment**: submitted when code-complete and unit-tested. It must include:
    - [ ] Integration description. *Claude drafts from the deck.*
-   - [ ] **Full list of Unity actions**. *Claude: generated from `src/unity/config/unity-endpoints.ts`; only actions verified on the sandbox.*
+   - [ ] **Full list of Unity actions**. *Claude: generated from `src/unity/config/unity-endpoints.ts`; only actions verified on the sandbox.* Writes: `SaveAppointment`, `SetAppointmentStatus`, `SavePatient`, `SaveTask`, `SaveScanDocument` (fax/lab intake; verified Oct 11). The list goes in the Certification Package (portal dashboard → Certification); the app page in the portal has no action list.
    - [ ] System / sequence diagram. *Claude*
    - [ ] Install and configuration screenshots. *Claude*
    - [ ] **Narrated workflow video** against the test environments. *Claude writes the script and runs the calls; Musab or Ali narrates and records.*
@@ -36,7 +36,8 @@ Sources: developer.veradigm.com (Certification Process Overview, Client Activati
 **Important:** adding Unity actions or changing workflows later requires **recertification**. Submit the complete action list the first time, including the planned ones (staff task, recalls) and the **fax/document intake add-on**: `SaveDocumentImage` (file a received document to the chart), `GetDocumentType`, `GetDocuments`. See `docs/drawbridge/FAX_INTAKE_ADDON.md`.
 
 ### Before we can submit (engineering blockers)
-- [ ] **Write actions verified on the sandbox**: `SaveAppointment`, `SetAppointmentStatus` (cancel `X`, confirm), `SavePatient`, `SaveTask`. Waiting on Kanhaiya for the exact parameter layouts. No write is run without Ali's OK.
+- [ ] **Write actions verified on the sandbox**: `SavePatient`, `SaveScanDocument`, `SaveTask` verified Oct 11 (synthetic patients, Ali's OK). `SaveAppointment` and `SetAppointmentStatus` (cancel `X`, confirm) still to run. No write is run without Ali's OK.
+- [ ] **Dedicated integration user** (Veradigm requires one): requested in portal ticket **19046** (Oct 11) for the EHR and PM sandboxes; also asks whether filing into existing document types is fine for certification.
 - [x] Read actions verified Oct 9 (see `docs/handover/11_STATUS_2026-10-09_MORNING.md` and the commit log on `drawbridge/platform`).
 - [ ] `main` fixed: patient appointments must use `GetScheduleByPatientID`, not `GetSchedule` (privacy). Asked Kanhaiya Oct 9.
 - [ ] Unity service credentials removed from `postman/` on `main` and rotated.
@@ -58,7 +59,7 @@ Option: **test-app activation before certification** is possible if IKI has a te
 ### Current state (Oct 9)
 - App type **System**, purpose of use "healthcare operations", JWKS `https://drawbridge.moatit.dev/.well-known/jwks.json`, status **Test Only**, licensed by "Veradigm Connect".
 - Login with the original client secret works on the CP00101 sandbox (token 200, `system/*.read`).
-- **Blocker:** every read returns HTTP 500 "There is a Configurations Error … Invalid configuration". This is Veradigm-side. Request IDs: `ac4bb0a7-8da0-492f-8c31-3e1ae02bf0e2`, `3dbb7d8c-dae1-46a1-8d77-2e82b58009fa`, `9692b1da-3cae-4ade-badd-f86716296c29`. *Musab / Kanhaiya: open a Veradigm Connect ticket with these IDs.*
+- **Blocker:** every read returns HTTP 500 "There is a Configurations Error … Invalid configuration". This is Veradigm-side: Veradigm confirmed on ticket **16763** (Apr 27) it is a server-side CP00101 sandbox issue. Ticket **16777** (Kanhaiya, Feb) was answered Oct 11: still occurring, with the request IDs below. The client secret posted in 16763 must be rotated. Request IDs: `ac4bb0a7-8da0-492f-8c31-3e1ae02bf0e2`, `3dbb7d8c-dae1-46a1-8d77-2e82b58009fa`, `9692b1da-3cae-4ade-badd-f86716296c29`. *Musab / Kanhaiya: open a Veradigm Connect ticket with these IDs.*
 - The newer JWT key and the "drawbridge-dev" secret aren't synced to CP00101 yet (`invalid_client`). Veradigm syncs JWKS nightly.
 
 ### Steps

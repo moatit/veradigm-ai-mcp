@@ -130,11 +130,17 @@ export function clinicalDate(item: IntakeItem, now: Date): string {
 
 /** Veradigm® EHR shows about 50 characters of a scanned document's title (sandbox Oct 11). */
 export const TITLE_MAX = 50;
+const SUBTYPE_SHORT: Record<string, string> = {
+  ct: 'CT', mri: 'MRI', chest_xray: 'chest X-ray', xray: 'X-ray', mammogram: 'mammogram', ultrasound: 'ultrasound',
+  nuclear: 'nuclear scan', pathology: 'pathology', ekg: 'EKG', stress_test: 'stress test', colonoscopy: 'colonoscopy',
+  discharge_summary: 'discharge summary', history_physical: 'H&P', op_note: 'op note', progress_note: 'progress note',
+  referral_letter: 'referral', insurance_card: 'insurance card',
+};
 const KIND_SHORT: Record<string, string> = { lab_result: 'lab', imaging: 'imaging', consult: 'consult', referral: 'referral', other: 'document' };
 
 /** "Outside lab Oct 10 2026 - Summit Reference Laboratory", cut at a word to fit TITLE_MAX. */
 export function documentTitle(item: IntakeItem, now: Date): string {
-  const kind = KIND_SHORT[item.extracted?.kind?.value || 'other'] || 'document';
+  const kind = SUBTYPE_SHORT[item.extracted?.subtype?.value || ''] || KIND_SHORT[item.extracted?.kind?.value || 'other'] || 'document';
   const sender = plain(item.extracted?.sender?.value || '');
   const [m, d, y] = clinicalDate(item, now).split('/');
   const full = `Outside ${kind} ${MONTHS[+m - 1]} ${d} ${y}` + (sender ? ` - ${sender}` : '');

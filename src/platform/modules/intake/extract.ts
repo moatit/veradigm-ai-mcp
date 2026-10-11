@@ -21,6 +21,10 @@
  */
 export type Confidence = 'high' | 'medium' | 'low';
 export type DocumentKind = 'lab_result' | 'imaging' | 'consult' | 'referral' | 'other';
+export type DocumentSubtype =
+  | 'ct' | 'mri' | 'chest_xray' | 'xray' | 'mammogram' | 'ultrasound' | 'nuclear'
+  | 'pathology' | 'ekg' | 'stress_test' | 'colonoscopy'
+  | 'discharge_summary' | 'history_physical' | 'op_note' | 'progress_note' | 'referral_letter' | 'insurance_card';
 
 export interface Extracted<T = string> {
   value: T;
@@ -56,6 +60,8 @@ export interface ExtractedFields {
   /** MM/DD/YYYY: specimen collection, exam or service date. */
   collection_date?: Extracted;
   kind: Extracted<DocumentKind>;
+  /** Finer type for the chart category (e.g. ct, pathology, discharge_summary). Absent when unclear. */
+  subtype?: Extracted<DocumentSubtype>;
   abnormal: AbnormalFlags;
   /** Distinct patients named on the document (0 when none could be read). */
   patient_count?: number;
@@ -423,6 +429,52 @@ export function classifyKind(text: string): Extracted<DocumentKind> {
   return { value: top.kind, confidence: top.score >= 4 && top.score - next.score >= 2 ? 'high' : 'medium' };
 }
 
+/**
+ * Finer document type, used only to pick a more specific chart category (doctypes.ts). Title-like
+ * phrases near the top of the document count most; the first strong match wins.
+ */
+const SUBTYPE_TERMS: [DocumentSubtype, RegExp][] = [
+  ['discharge_summary', /\bdischarge\s+summary\b/i],
+  ['history_physical', /\bhistory\s+(?:and|&)\s+physical\b|\bH\s*&\s*P\b/],
+  ['op_note', /\b(?:operative|procedure|op)\s+(?:note|report)\b/i],
+  ['pathology', /\b(?:surgical\s+)?pathology\s+report\b|\bkidney\s+biopsy\b|\brenal\s+biopsy\b/i],
+  ['colonoscopy', /\bcolonoscopy\b/i],
+  ['stress_test', /\b(?:cardiac\s+)?stress\s+test\b|\bnuclear\s+stress\b/i],
+  ['ekg', /\b(?:EKG|ECG|electrocardiogram)\b/],
+  ['mammogram', /\bmammogra\w*\b/i],
+  ['ct', /\bCT\s+(?:scan|abdomen|chest|head|pelvis|renal|urogram|of)\b|\bcomputed\s+tomography\b/i],
+  ['mri', /\bMRI\b|\bmagnetic\s+resonance\b/],
+  ['nuclear', /\bnuclear\s+medicine\b|\brenal\s+scan\b|\bMAG-?3\b|\bPET\b/i],
+  ['chest_xray', /\bchest\s+(?:x-?ray|radiograph)\b|\bCXR\b/i],
+  ['xray', /\bx-?ray\b|\bradiograph\b/i],
+  ['ultrasound', /\bultrasound\b|\bsonogra\w*\b|\bduplex\b|\bdoppler\b/i],
+  ['referral_letter', /\breferral\s+(?:letter|form|request)\b|\breason\s+for\s+referral\b/i],
+  ['progress_note', /\bprogress\s+note\b|\boffice\s+visit\s+note\b/i],
+  ['insurance_card', /\binsurance\s+card\b|\bmember\s+ID\b.*\bgroup\b/i],
+];
+
+/** Which subtypes make sense for a kind ('other' accepts the non-imaging, non-lab ones). */
+const SUBTYPE_KINDS: Record<DocumentSubtype, DocumentKind[]> = {
+  ct: ['imaging'], mri: ['imaging'], chest_xray: ['imaging'], xray: ['imaging'], mammogram: ['imaging'],
+  ultrasound: ['imaging'], nuclear: ['imaging'],
+  pathology: ['lab_result', 'other'], ekg: ['other', 'imaging'], stress_test: ['other', 'imaging'], colonoscopy: ['other'],
+  discharge_summary: ['other', 'consult'], history_physical: ['other', 'consult'], op_note: ['other', 'consult'],
+  progress_note: ['other', 'consult'], referral_letter: ['referral', 'other'], insurance_card: ['other'],
+};
+
+export function classifySubtype(text: string, kind: DocumentKind): Extracted<DocumentSubtype> | undefined {
+  const head = text.slice(0, 1500);
+  for (const [subtype, re] of SUBTYPE_TERMS) {
+    if (!SUBTYPE_KINDS[subtype].includes(kind)) continue;
+    if (re.test(head)) return { value: subtype, confidence: 'high' };
+  }
+  for (const [subtype, re] of SUBTYPE_TERMS) {
+    if (!SUBTYPE_KINDS[subtype].includes(kind)) continue;
+    if (re.test(text)) return { value: subtype, confidence: 'medium' };
+  }
+  return undefined;
+}
+
 // ── Abnormal flags ───────────────────────────────────────────────────────────
 
 /** A value followed by a lab flag: "2.1  H  0.6-1.3", "2.1H", "142 (L)", "6.8 *HH". */
@@ -471,6 +523,8 @@ export function extractFields(
   const clean = String(text || '').replace(/\r/g, '').replace(/\f/g, '\n').slice(0, 200_000);
   const lines = clean.split('\n');
   const out: ExtractedFields = { kind: classifyKind(clean), abnormal: abnormalFlags(clean) };
+  const subtype = classifySubtype(clean, out.kind.value);
+  if (subtype) out.subtype = subtype;
   const names = allNames(lines);
   if (names.length) out.patient_name = { value: names[0].name, confidence: names[0].confidence };
   const dobs = allDobs(lines, now);

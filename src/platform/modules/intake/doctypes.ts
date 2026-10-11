@@ -2,7 +2,7 @@ import type { UnityService } from '../../../unity/services/unity.service';
 import { UnityActions } from '../../../unity/config/unity-endpoints';
 import { UnityErrorHandler, UnityMCPError } from '../../../unity/utils/error-handler';
 import { pick, unityRows } from '../../../unity/utils/unity-rows';
-import type { DocumentKind } from './extract';
+import type { DocumentKind, DocumentSubtype } from './extract';
 
 /**
  * Veradigm® EHR document types (GetDocumentType) and the kind → type mapping.
@@ -22,8 +22,11 @@ export interface DocType {
 export interface DocTypeSuggestion {
   id: string;
   name: string;
-  /** keyword: matched the document kind; fallback: "(ready for indexing)". */
-  reason: 'keyword' | 'fallback';
+  /**
+   * configured: the clinic's INTAKE_CATEGORY_MAP; keyword: matched the document kind or subtype;
+   * staff: picked on the item screen; fallback: "(ready for indexing)".
+   */
+  reason: 'configured' | 'keyword' | 'staff' | 'fallback';
 }
 
 export const READY_FOR_INDEXING_CODE = '-1000999';
@@ -37,6 +40,48 @@ export const KIND_TYPE_KEYWORDS: Record<DocumentKind, string[]> = {
   referral: ['Referral', 'Referral Letter'],
   other: [],
 };
+
+/** Category names per subtype, best first (sandbox SCAN_DOCUMENTTYPE names, Oct 11). */
+export const SUBTYPE_TYPE_KEYWORDS: Record<DocumentSubtype, string[]> = {
+  ct: ['CT Scan', 'Radiology Report', 'Diagnostic Imaging Report'],
+  mri: ['MRI', 'Radiology Report', 'Diagnostic Imaging Report'],
+  chest_xray: ['CXR', 'Radiology Report', 'Diagnostic Imaging Report'],
+  xray: ['Radiology Report', 'Diagnostic Imaging Report'],
+  mammogram: ['Mammography Results', 'Radiology Report'],
+  ultrasound: ['Radiology Report', 'Diagnostic Imaging Report'],
+  nuclear: ['Radiology Report', 'Diagnostic Imaging Report'],
+  pathology: ['Pathology Report'],
+  ekg: ['EKG'],
+  stress_test: ['Stress Test'],
+  colonoscopy: ['Colonoscopy Report'],
+  discharge_summary: ['Hospital Discharge Summary', 'Discharge Summary Report', 'Discharge Summary'],
+  history_physical: ['History and Physical Report', 'History and Physical'],
+  op_note: ['Procedure/Op Note', 'Operative Note'],
+  progress_note: ['Progress Note'],
+  referral_letter: ['Referral Letter', 'Referral'],
+  insurance_card: ['Insurance Card'],
+};
+
+/**
+ * Clinic overrides, INTAKE_CATEGORY_MAP: JSON object from "kind" or "kind.subtype" (or "subtype")
+ * to the clinic's own category name, e.g. {"lab_result":"Lab Results","imaging.ultrasound":"Diagnostic Imaging Report"}.
+ * Most specific key wins. Bad JSON is ignored (logged once).
+ */
+let mapWarned = false;
+export function categoryOverrides(raw = process.env.INTAKE_CATEGORY_MAP || ''): Record<string, string> {
+  if (!raw.trim()) return {};
+  try {
+    const v = JSON.parse(raw);
+    if (v && typeof v === 'object' && !Array.isArray(v)) {
+      return Object.fromEntries(Object.entries(v).filter(([, n]) => typeof n === 'string' && n.trim()).map(([k, n]) => [k.toLowerCase(), String(n).trim()]));
+    }
+  } catch {
+    /* fall through */
+  }
+  if (!mapWarned) console.error('[Intake] INTAKE_CATEGORY_MAP is not a JSON object; ignored');
+  mapWarned = true;
+  return {};
+}
 
 const truthy = (v: string) => /^(1|y|yes|true)$/i.test(v.trim());
 
@@ -57,10 +102,34 @@ export function readyForIndexing(types: DocType[]): DocType | undefined {
   return live.find((t) => t.entryCode === READY_FOR_INDEXING_CODE) || live.find((t) => /ready for indexing/i.test(t.name));
 }
 
-/** Pick the document type for a kind; "(ready for indexing)" when nothing fits. Null when neither exists. */
-export function mapKindToType(kind: DocumentKind, types: DocType[]): DocTypeSuggestion | null {
+/**
+ * Pick the document type: for the subtype (clinic map, then our categories), then for the kind (clinic map, then ours);
+ * "(ready for indexing)" when nothing fits. Null when neither exists.
+ */
+export function mapKindToType(
+  kind: DocumentKind,
+  types: DocType[],
+  subtype?: DocumentSubtype,
+  overrides: Record<string, string> = categoryOverrides()
+): DocTypeSuggestion | null {
   const live = types.filter((t) => !t.archived);
   const lower = (s: string) => s.toLowerCase();
+  const configured = (key: string): DocTypeSuggestion | null => {
+    const name = overrides[key.toLowerCase()];
+    const t = name ? live.find((x) => lower(x.name) === lower(name)) : undefined;
+    return t ? { id: t.id, name: t.name, reason: 'configured' } : null;
+  };
+  // Most specific first: clinic map for the subtype, our subtype categories, then the kind.
+  if (subtype) {
+    const hit = configured(`${kind}.${subtype}`) || configured(subtype);
+    if (hit) return hit;
+    for (const kw of SUBTYPE_TYPE_KEYWORDS[subtype] || []) {
+      const exact = live.find((t) => lower(t.name) === lower(kw));
+      if (exact) return { id: exact.id, name: exact.name, reason: 'keyword' };
+    }
+  }
+  const forKind = configured(kind);
+  if (forKind) return forKind;
   for (const kw of KIND_TYPE_KEYWORDS[kind] || []) {
     const exact = live.find((t) => lower(t.name) === lower(kw));
     if (exact) return { id: exact.id, name: exact.name, reason: 'keyword' };
@@ -96,8 +165,8 @@ export class DocTypeCache {
     return this.inflight;
   }
 
-  async suggest(kind: DocumentKind): Promise<DocTypeSuggestion | null> {
-    return mapKindToType(kind, await this.list());
+  async suggest(kind: DocumentKind, subtype?: DocumentSubtype): Promise<DocTypeSuggestion | null> {
+    return mapKindToType(kind, await this.list(), subtype);
   }
 
   private async load(): Promise<DocType[]> {

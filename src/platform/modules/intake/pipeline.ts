@@ -127,7 +127,7 @@ export class IntakePipeline {
     let typeNote = '';
     if (this.opts.docTypes) {
       try {
-        documentType = await this.opts.docTypes.suggest(extracted.kind.value);
+        documentType = await this.opts.docTypes.suggest(extracted.kind.value, extracted.subtype?.value);
       } catch (e: any) {
         typeNote = ` (document types unavailable: ${e?.code || 'error'})`;
       }
@@ -234,7 +234,7 @@ export function autoFileBlocker(item: IntakeItem): string {
   if (filingMode() !== 'auto') return 'filing mode is not auto';
   if (!filingStatus().enabled) return 'filing disabled';
   if (item.match?.decision !== 'auto') return 'not auto-matched';
-  if (item.document_type?.reason !== 'keyword') return 'no specific document type';
+  if (!item.document_type || item.document_type.reason === 'fallback') return 'no specific document type';
   const sender = (item.extracted?.sender?.value || '').toLowerCase();
   const blocked = String(process.env.INTAKE_NO_AUTO_SENDERS || '')
     .split(',')

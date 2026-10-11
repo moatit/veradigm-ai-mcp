@@ -1,7 +1,7 @@
 import express, { Request, Response, Router } from 'express';
 import { PlatformModule } from '../../registry';
 import { APP_BASE, esc, fmtTime, page } from '../../shell';
-import { DocTypeCache } from './doctypes';
+import { DocTypeCache, type DocType } from './doctypes';
 import type { Confidence, DocumentKind, Extracted } from './extract';
 import { fileToChart, filingStatus, IntakeFilingError, sendToIndexing, setFilingDeps, type FilingResult } from './file';
 import { startFolderWatcher } from './folder';
@@ -65,6 +65,8 @@ const MESSAGES: Record<string, string> = {
   FILING_REJECTED: 'Veradigm® EHR did not accept the document. It was not filed.',
   FILING_UNCERTAIN: 'Veradigm® EHR did not answer. Check the patient chart before trying again.',
   filed: 'Filed to the patient chart in Veradigm® EHR.',
+  category: 'Category changed.',
+  category_unknown: 'That category is not available in Veradigm® EHR.',
   filed_task_failed: 'Filed to the patient chart, but the review task could not be sent. Tell the provider.',
 };
 
@@ -142,7 +144,14 @@ function actionButton(id: string, path: string, label: string, enabled: boolean,
 <button${secondary ? ' class="secondary"' : ''}${enabled ? '' : ' disabled title="' + esc(why) + '" style="opacity:.5;cursor:not-allowed"'}>${esc(label)}</button></form>`;
 }
 
-export function itemPage(i: IntakeItem, message = ''): string {
+const TYPE_REASON: Record<string, string> = {
+  fallback: 'no specific category fits; staff index it',
+  keyword: 'from what the document is',
+  configured: "from the clinic's category settings",
+  staff: 'picked by staff',
+};
+
+export function itemPage(i: IntakeItem, message = '', typeOptions: { id: string; name: string }[] = []): string {
   const filing = filingStatus();
   const x = i.extracted;
   const m = i.match;
@@ -193,8 +202,15 @@ ${m.second_identifier ? `<dt>Second identifier</dt><dd>${esc(m.second_identifier
 
   const type = `<div class="card">${
     i.document_type
-      ? `<strong>${esc(i.document_type.name)}</strong> <span class="muted" style="font-size:13px">${esc(i.document_type.reason === 'fallback' ? 'no specific type fits; staff index it' : 'from the document kind')}</span>`
+      ? `<strong>${esc(i.document_type.name)}</strong> <span class="muted" style="font-size:13px">${esc(TYPE_REASON[i.document_type.reason] || '')}</span>`
       : '<span class="muted">No suggestion yet.</span>'
+  }${
+    typeOptions.length && !done
+      ? `<form method="post" action="${APP_BASE}/intake/item/${encodeURIComponent(i.id)}/category" class="row" style="margin-top:10px">
+<select name="type_id" aria-label="Chart category">${typeOptions
+          .map((t) => `<option value="${esc(t.id)}"${t.id === i.document_type?.id ? ' selected' : ''}>${esc(t.name)}</option>`)
+          .join('')}</select> <button class="secondary">Change category</button></form>`
+      : ''
   }</div>`;
 
   const actions = `<div class="card"><div class="row">
@@ -212,10 +228,11 @@ ${i.status === 'failed' ? actionButton(i.id, 'retry', 'Try again', true, '', tru
 
   return `<p><a href="${APP_BASE}/intake">← Document intake</a></p>${flash}
 <h2 style="margin-top:4px">Document</h2>${doc}<h2>Read from the document</h2>${fields}<h2>Patient match</h2>${match}
-<h2>Suggested document type</h2>${type}<h2>Actions</h2>${actions}<h2>History</h2>${history}`;
+<h2>Chart category</h2>${type}<h2>Actions</h2>${actions}<h2>History</h2>${history}`;
 }
 
 let stopWatcher: (() => void) | null = null;
+let docTypeCache: DocTypeCache | null = null;
 
 export const intakeModule: PlatformModule = {
   name: 'intake',
@@ -245,7 +262,40 @@ export const intakeModule: PlatformModule = {
         return;
       }
       const m = typeof req.query.m === 'string' && MESSAGES[req.query.m] ? req.query.m : '';
-      show(req, res, 'Document', itemPage(item, m));
+      const options = async () => {
+        try {
+          return docTypeCache ? (await docTypeCache.list()).filter((t) => !t.archived).sort((a, b) => a.name.localeCompare(b.name)) : [];
+        } catch {
+          return []; // the page still works; only the picker is missing
+        }
+      };
+      options().then((types) => show(req, res, 'Document', itemPage(item, m, types)));
+    });
+
+    router.post('/item/:id/category', express.urlencoded({ extended: false, limit: '4kb' }), async (req, res) => {
+      const store = intakeStore();
+      const item = store.get(req.params.id);
+      if (!item) {
+        res.status(404).send('Not found');
+        return;
+      }
+      if (item.status === 'filed' || item.status === 'sent_to_indexing') {
+        back(res, item.id, 'ALREADY_FILED');
+        return;
+      }
+      let types: DocType[] = [];
+      try {
+        types = docTypeCache ? await docTypeCache.list() : [];
+      } catch {
+        /* handled below */
+      }
+      const t = types.find((x) => x.id === String(req.body?.type_id || '') && !x.archived);
+      if (!t) {
+        back(res, item.id, 'category_unknown');
+        return;
+      }
+      store.update(item.id, { document_type: { id: t.id, name: t.name, reason: 'staff' } }, `category set to ${t.name}`, user(req));
+      back(res, item.id, 'category');
     });
 
     router.get('/item/:id/original', (req, res) => {
@@ -334,7 +384,8 @@ export const intakeModule: PlatformModule = {
   },
 
   start(deps) {
-    intakePipeline.setDeps(deps, new DocTypeCache(deps.unity));
+    docTypeCache = new DocTypeCache(deps.unity);
+    intakePipeline.setDeps(deps, docTypeCache);
     setFilingDeps({ unity: deps.unity, store: intakeStore });
     setFaxRecordedHandler((id) => intakePipeline.enqueue(id));
     stopWatcher?.();
