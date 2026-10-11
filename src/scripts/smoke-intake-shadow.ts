@@ -150,7 +150,9 @@ async function main(): Promise<void> {
     'staff search: name prefix, DOB, MRN (leading zeros), phone end, all words'
   );
   assert.deepStrictEqual([r1.resolve('482913')?.key, r1.resolve('7002')?.key, r1.resolve('E48291')?.key, r1.resolve('999')], ['7001', '7002', '7001', null], 'resolve by MRN or key');
-  ok('roster: header variants (BOM, ; tab, "Patient Name"), DOB formats, merge, skip, required columns, same search shape, staff search');
+  const exampleDir = path.join(__dirname, '..', '..', 'deploy', 'datacenter', 'examples');
+  assert.strictEqual(roster.Roster.fromText(fs.readFileSync(path.join(exampleDir, 'roster.example.csv'), 'utf8'), NOW).stats.patients, 3, 'the shipped example list parses');
+  ok('roster: header variants (BOM, ; tab, "Patient Name"), DOB formats, merge, skip, required columns, same search shape, staff search, example file');
 
   // 2. matchPatient on the roster: same decision table, failures are errors
   const rosterFile = path.join(TMP, 'roster.csv');
@@ -190,6 +192,7 @@ async function main(): Promise<void> {
   assert.deepStrictEqual(await csv.suggest('lab_result'), { id: 'Labs/Procedures', name: 'Labs/Procedures', reason: 'keyword' });
   assert.deepStrictEqual((await csv.suggest('other'))?.reason, 'fallback');
   await assert.rejects(() => new CsvDocTypes(path.join(TMP, 'nope.csv')).list());
+  assert.strictEqual((await new CsvDocTypes(path.join(__dirname, '..', '..', 'deploy', 'datacenter', 'examples', 'categories.example.csv')).list()).length, 7, 'the shipped example list parses');
   const liveTypes = { async executeAction() { return { success: true, data: TYPE_ROWS }; } } as any;
   const downTypes = { async executeAction() { return { success: false, error: 'down' }; } } as any;
   assert.strictEqual((await new FallbackDocTypes(new DocTypeCache(liveTypes), csv).suggest('lab_result'))?.id, '12', 'live GetDocumentType first');
@@ -402,7 +405,8 @@ async function main(): Promise<void> {
   assert.ok(insideDir(path.join(TMP, 'intake', 'reports', 'x.csv'), path.join(TMP, 'intake')) && !insideDir(path.join(TMP, 'x.csv'), path.join(TMP, 'intake')));
   // The CLI end to end: exit 1 (a wrong-patient file), report and PHI file written inside the data directory.
   const cli = spawnSync(process.execPath, ['-r', 'ts-node/register/transpile-only', path.join(__dirname, 'eval-shadow.ts'), '--dir', path.join(TMP, 'intake'), '--csv'], {
-    env: { ...process.env, TS_NODE_TRANSPILE_ONLY: 'true' },
+    // No Veradigm credentials at all (patient-list mode): the report must still run.
+    env: { ...process.env, TS_NODE_TRANSPILE_ONLY: 'true', UNITY_APP_NAME: '', UNITY_SVC_USERNAME: '', UNITY_SVC_PASSWORD: '', UNITY_EHR_USERNAME: '', UNITY_EHR_PASSWORD: '' },
     encoding: 'utf8',
   });
   assert.strictEqual(cli.status, 1, cli.stderr);

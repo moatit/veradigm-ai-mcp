@@ -17,9 +17,7 @@
  */
 import * as fs from 'fs';
 import * as path from 'path';
-import { loadRoster, rosterPath } from '../platform/modules/intake/roster';
-import { buildShadowReport, documentCsv, findLeaks, identifiersOf, shadowReportMarkdown } from '../platform/modules/intake/shadow-report';
-import { intakeDir, type IntakeItem } from '../platform/modules/intake/store';
+import type { IntakeItem } from '../platform/modules/intake/store';
 
 function args() {
   const a = process.argv.slice(2);
@@ -28,7 +26,7 @@ function args() {
     return i >= 0 ? a[i + 1] : undefined;
   };
   return {
-    dir: path.resolve(get('--dir') || intakeDir()),
+    dir: path.resolve(get('--dir') || path.join(process.env.CALL_RECORDS_DIR || '/app/data', 'intake')),
     out: get('--out'),
     csv: a.includes('--csv'),
     minSender: Number(get('--min-sender') || 5),
@@ -42,7 +40,14 @@ export function insideDir(file: string, dir: string): boolean {
   return !!rel && !rel.startsWith('..') && !path.isAbsolute(rel);
 }
 
-function main(): void {
+async function main(): Promise<void> {
+  // The report never calls Veradigm. Without credentials (patient-list mode), the shared Unity config
+  // still loads with inert values, as in the shadow server.
+  for (const k of ['UNITY_APP_NAME', 'UNITY_SVC_USERNAME', 'UNITY_SVC_PASSWORD', 'UNITY_EHR_USERNAME', 'UNITY_EHR_PASSWORD']) {
+    if (!process.env[k]) process.env[k] = 'report-no-veradigm';
+  }
+  const { loadRoster, rosterPath } = await import('../platform/modules/intake/roster');
+  const { buildShadowReport, documentCsv, findLeaks, identifiersOf, shadowReportMarkdown } = await import('../platform/modules/intake/shadow-report');
   const o = args();
   let items: IntakeItem[];
   try {
@@ -101,4 +106,9 @@ function main(): void {
   if (w) process.exitCode = 1;
 }
 
-if (require.main === module) main();
+if (require.main === module) {
+  main().catch((e) => {
+    console.error(`FAIL ${e?.code || e?.name || 'error'}`);
+    process.exitCode = 2;
+  });
+}
