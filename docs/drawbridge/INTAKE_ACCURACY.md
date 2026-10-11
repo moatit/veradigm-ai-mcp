@@ -229,6 +229,20 @@ The same pipeline, running in the local Drawbridge stack, on 40 synthetic faxes 
 
 Same-name patients (two "Harlan Quillfeather", different DOB) each got their own documents; hyphenated names matched; both batch faxes with two patients were held. Every miss went to staff, never to a guess. Sandbox documents 22604-22614, tasks 21709-21719.
 
+## Live sandbox run: batch lab (Oct 11, 2026)
+
+15 synthetic batch-lab faxes (the daily-batch layout, standing in for Express Lab) about the sandbox's synthetic patients, with `INTAKE_BATCH_SENDERS` set to that lab and splitting on. 11 single-patient files plus 4 multi-patient files (3 to 6 patients each).
+
+| Outcome | Count |
+|---|---:|
+| Files split automatically into one part per patient | 2 (into 3 and 2 parts) |
+| Documents filed (whole files and split parts) | 9 |
+| ...to the right patient, checked page by page | **9** |
+| ...found in the chart with the right page count | 9 |
+| To staff: identical-looking patients on two pages, several patients on one page, a page without a readable identifier, wrong MRN, no match, one identifier only | 9 |
+
+Sandbox documents 22615-22623, tasks 21722-21730. Running total of owner-approved sandbox writes: 11 synthetic patients, 23 documents, 22 tasks.
+
 ## How to run
 
 ```
