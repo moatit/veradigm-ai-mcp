@@ -172,6 +172,23 @@ On seed 2002, 124 of the 954 documents that should auto-file did not. 117 of the
 5. **Ask labs to echo IKI's MRN** (client patient ID) on orders. MRN is the strongest second identifier, and consults and hospital labs often lack it.
 6. **Review-mode helpers.** When name or DOB can't be read but the MRN can, search by MRN and *suggest* the candidate to staff. This would be review only, never auto.
 
+## Live sandbox run (Oct 11, 2026)
+
+The same pipeline, running in the local Drawbridge stack, on 40 synthetic faxes about the 11 synthetic patients created in the Veradigm sandbox (owner-approved; generator `--roster-file`, seed 1011). Settings: `INTAKE_FILING=auto`, `INTAKE_DOC_STATUS=approved`, the batch lab in `INTAKE_NO_AUTO_SENDERS`.
+
+| Outcome | Docs |
+|---|---:|
+| Auto-filed with `SaveScanDocument` + review task | 11 |
+| ...to the right patient | **11** |
+| ...found in the chart by `GetDocuments` (right category and clinical date) | 11 |
+| Matched but held: batch sender set to staff review | 2 |
+| Needs review (one match, no second identifier; wrong MRN) | 15 |
+| No match (not in the sandbox, or name/DOB unreadable) | 10 |
+| Ambiguous (more than one patient on the fax) | 2 |
+| Failed | 0 |
+
+Same-name patients (two "Harlan Quillfeather", different DOB) each got their own documents; hyphenated names matched; both batch faxes with two patients were held. Every miss went to staff, never to a guess. Sandbox documents 22604-22614, tasks 21709-21719.
+
 ## How to run
 
 ```

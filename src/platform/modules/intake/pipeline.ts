@@ -145,7 +145,11 @@ export class IntakePipeline {
 
     // 5. Auto-file
     const why = auto ? autoFileBlocker(store.get(id)!) : 'not auto-matched';
-    if (why) return;
+    if (why) {
+      // In auto mode, say why a matched document still waits (e.g. a batch sender set to staff review).
+      if (auto && filingMode() === 'auto') store.update(id, { note: `Matched, waiting for staff: ${why}.` }, `not auto-filed: ${why}`, AUTO);
+      return;
+    }
     try {
       const r = await fileToChart(store.get(id)!, AUTO);
       console.log(`[Intake] auto-filed ${id}${r.task_error ? ` (review task: ${r.task_error})` : ''}`);
