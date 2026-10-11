@@ -693,14 +693,14 @@ MRN: 771234                   COLL: 10/08/2026 07:10
   assert.strictEqual(r2.task_error, 'TASK_REJECTED');
   assert.strictEqual(pStore.get(big.id)!.status, 'filed', 'a failed task does not undo the filing');
 
-  // Send to indexing: "(ready for indexing)", status Ready for Indexing, no task
+  // Send to indexing: "(ready for indexing)", status Approved (SaveScanDocument refuses 1), no task
   const idx = pStore.addDocument({ source: 'upload', source_ref: '', name: 'idx.pdf', mime: 'application/pdf', data: Buffer.from('%PDF-1.4\nidx'), by: 't' }).item;
   pStore.update(idx.id, { status: 'needs_review', match: { ...ready.match!, decision: 'review' } });
   unityMode = 'ok';
   fcalls.length = 0;
   await filing.sendToIndexing(pStore.get(idx.id)!, 't', deps);
   assert.deepStrictEqual(fcalls.map((c) => [c.action, c.params.Parameter1]), [['SaveScanDocument', '(ready for indexing)']]);
-  assert.ok(/<docstatus>1<\/docstatus>/.test(fcalls[0].params.Parameter3));
+  assert.ok(/<docstatus>4<\/docstatus>/.test(fcalls[0].params.Parameter3), 'Veradigm refuses status 1; indexing uses Approved');
   assert.strictEqual(pStore.get(idx.id)!.status, 'sent_to_indexing');
 
   // Auto-filing gate (pipeline step 5)

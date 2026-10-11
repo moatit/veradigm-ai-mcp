@@ -41,8 +41,12 @@ export function saveFormatConfirmed(): boolean {
   return String(process.env.INTAKE_SAVE_DOCUMENT_FORMAT_CONFIRMED || '').trim().toLowerCase() === 'true';
 }
 
-/** SCANSTATUS entry codes (sandbox Oct 11). */
-export const SCAN_STATUS = { READY_FOR_INDEXING: '1', SUBMITTED: '2', APPROVED: '4' } as const;
+/**
+ * SCANSTATUS entry codes (sandbox Oct 11). 1 (Ready for Indexing) is in the dictionary but SaveScanDocument
+ * refuses it ("not supported by SaveTIFF"), so indexing uses the "(ready for indexing)" type with Approved,
+ * the same as the documents already in the sandbox's queue.
+ */
+export const SCAN_STATUS = { SUBMITTED: '2', APPROVED: '4' } as const;
 
 export function filedDocStatus(): string {
   return String(process.env.INTAKE_DOC_STATUS || '').trim().toLowerCase() === 'approved' ? SCAN_STATUS.APPROVED : SCAN_STATUS.SUBMITTED;
@@ -268,7 +272,7 @@ async function file(item: IntakeItem, target: 'chart' | 'indexing', by: string, 
   const now = deps.now ? deps.now() : new Date();
   const chartId = current.match!.patient!.chartPatientId;
   const docType = target === 'chart' ? current.document_type!.name : '(ready for indexing)';
-  const status = target === 'chart' ? filedDocStatus() : SCAN_STATUS.READY_FOR_INDEXING;
+  const status = target === 'chart' ? filedDocStatus() : SCAN_STATUS.APPROVED;
   const title = documentTitle(current, now);
   const data = fs.readFileSync(p);
 
@@ -323,7 +327,7 @@ export function fileToChart(item: IntakeItem, by = 'drawbridge', deps: FilingDep
   return file(item, 'chart', by, deps);
 }
 
-/** File under "(ready for indexing)" for the matched patient (status Ready for Indexing). */
+/** File under "(ready for indexing)" for the matched patient (status Approved; see SCAN_STATUS). */
 export function sendToIndexing(item: IntakeItem, by = 'drawbridge', deps: FilingDeps | null = configured): Promise<FilingResult> {
   return file(item, 'indexing', by, deps);
 }

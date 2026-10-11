@@ -215,7 +215,7 @@ export function itemPage(i: IntakeItem, message = '', typeOptions: { id: string;
 ${i.ocr ? `<dt>Text</dt><dd>${i.ocr.used_text_layer ? 'From the PDF text layer' : `Read by Drawbridge OCR · ${esc(i.ocr.pages)} page(s) · confidence ${esc(Math.round(i.ocr.mean_confidence))}`}</dd>` : ''}
 ${i.duplicate_of ? `<dt>Duplicate</dt><dd>Same file as <a href="${APP_BASE}/intake/item/${encodeURIComponent(i.duplicate_of)}">an earlier document</a></dd>` : ''}
 ${i.note ? `<dt>Note</dt><dd>${esc(i.note)}</dd>` : ''}
-${i.filed ? `<dt>In the chart</dt><dd>Document ${esc(i.filed.document_id)} · ${esc(i.filed.document_type)} · ${esc(i.filed.doc_status === '4' ? 'approved' : i.filed.doc_status === '1' ? 'ready for indexing' : 'waiting for approval in Veradigm® EHR')}${i.filed.task_id ? ` · review task ${esc(i.filed.task_id)}` : ''} · ${esc(fmtTime(i.filed.at))} by ${esc(i.filed.by)}</dd>` : ''}
+${i.filed ? `<dt>In the chart</dt><dd>Document ${esc(i.filed.document_id)} · ${esc(i.filed.document_type)} · ${esc(i.filed.doc_status === '4' ? 'approved' : i.filed.document_type === '(ready for indexing)' ? 'ready for indexing' : 'waiting for approval in Veradigm® EHR')}${i.filed.task_id ? ` · review task ${esc(i.filed.task_id)}` : ''} · ${esc(fmtTime(i.filed.at))} by ${esc(i.filed.by)}</dd>` : ''}
 ${i.reviewed_by ? `<dt>Reviewed</dt><dd>${esc(i.reviewed_by)} · ${esc(fmtTime(i.reviewed_at || ''))}</dd>` : ''}
 </dl></div>`;
 
