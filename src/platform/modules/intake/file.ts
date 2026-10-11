@@ -96,6 +96,7 @@ export function assertFilingEnabled(): void {
 export function filingPreconditions(item: IntakeItem, target: 'chart' | 'indexing'): string[] {
   const problems: string[] = [];
   if (item.status === 'filed' || item.status === 'sent_to_indexing' || item.filed?.document_id) problems.push('already filed');
+  if (item.status === 'split') problems.push('split into one document per patient (file each part)');
   if (!item.file) problems.push('no original file');
   if (!item.match?.patient?.chartPatientId) problems.push('no matched patient chart');
   if (target === 'chart') {

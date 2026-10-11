@@ -1,6 +1,6 @@
 # Intake module (fax and document intake)
 
-Staff-side add-on: documents faxed or dropped in by outside offices are read, matched to one patient and queued for staff. Design, hosting and safety rules: `docs/drawbridge/FAX_INTAKE_ADDON.md`. **Scaffold only. Nothing is filed to a chart on this branch.**
+Staff-side add-on: documents faxed or dropped in by outside offices are read, matched to one patient and queued for staff. Design, hosting and safety rules: `docs/drawbridge/FAX_INTAKE_ADDON.md`. Filing to the chart is built and off by default (`INTAKE_FILING=off`). Batch faxes with several patients are split into one document per patient.
 
 ## What it does
 
@@ -10,14 +10,23 @@ Staff-side add-on: documents faxed or dropped in by outside offices are read, ma
 | MOATiT Fax webhook `POST /webhooks/moatit-fax` + enterprise API client | `moatit-fax.ts`, `mountFaxWebhook(app)` in `src/unity/unity-test-server.ts` (before `express.json()`) |
 | Drop folder watcher (every 30 s, PDF/TIFF/PNG/JPEG untouched for 10 s) | `folder.ts`, `INTAKE_DROP_DIR` |
 | Field extraction (name, DOB, MRN, phone, sender, collection date, kind, abnormal flags) | `extract.ts` (pure, with confidences) |
+| Per-page check and split plan (which patient each page belongs to; batch senders) | `pages.ts` (pure) |
 | Patient match (two-identifier rule) | `match.ts` (`decideMatch` is the pure decision table) |
 | Document type suggestion (`GetDocumentType`, cached 1 h) | `doctypes.ts` |
 | Local OCR for files without text (Tesseract 5 container, no outside service) | `ocr.ts` → `deploy/ocr` (`ocr` service, `INTAKE_OCR_URL`) |
-| Processing queue (fetch → read/OCR → match → type) | `pipeline.ts` |
+| Processing queue (fetch → read/OCR → pages/split → match → type → auto-file) | `pipeline.ts` |
 | Filing guard (`SaveDocumentImage` is a TODO) | `file.ts` |
 | Staff screens `/app/intake`, `/app/intake/item/:id`, upload | `index.ts` |
 
-Lifecycle: `received → read → matched | needs_review | failed` (a failed OCR or search is `failed` with its code; staff can retry). `filed` and `sent_to_indexing` exist in the model but nothing sets them yet.
+Lifecycle: `received → read → split | matched | needs_review | failed → filed | sent_to_indexing` (a failed OCR, split or search is `failed` with its code; staff can retry). `split`: the file showed several patients and was cut into one part per patient; the parent is never filed, each part is its own item.
+
+### Pages, batch senders and splitting
+
+Text is kept per page: the OCR container returns `page_texts` and `page_confidences` (and `text` joined with form feeds, as before); a PDF text layer is split at pdftotext's form feeds; MOATiT Fax `ocr.raw_text` "--- Page N ---" markers become form feeds (`parseFaxJob`, which now also reads `ocr.raw_text` and `page_count`).
+
+`pages.ts` runs for a batch sender (`INTAKE_BATCH_SENDERS`: part of the name in the extracted sender or anywhere in the text, or the sending fax number) and for any document naming more than one patient. Each page is read with `extractFields`; a page identifies a patient with name + DOB or an MRN. Cover sheets before the first patient page are left out. Continuation pages (no identifier) go with the patient before them, except for batch senders, where any page without a full identifier sends the file to staff. Identifiers are compared exactly; near-equal ones (OCR noise or similar patients) send the file to staff, except the same MRN read exactly. Other review triggers: two patients on a page, non-contiguous pages, results above a page's patient line or a ruled-off block of results without one, page-count mismatch, a part that still names two patients. Every review carries a staff-readable reason.
+
+Split (`pipeline.ts` `splitFile`): `OcrClient.extractPages` → `POST /pages?select=…` on the OCR container cuts each part (same format; `X-Source-Pages` must equal the text's page count). Parts are created only after every cut succeeded (`IntakeStore.addPart`, keyed `split:<parent>:p<pages>`, so re-processing reuses them), carry their pages' text and OCR confidence (`partOcr`), `parent_id` and `part {index, of, pages}`, and get a passed `pages_check`. Then each part runs through match, `suggest(kind, subtype)` and the auto-file gate on its own. The parent gets `status: 'split'` and `split {children, pages, cover_pages}`.
 
 ### Webhook
 
@@ -38,18 +47,12 @@ After the 204, the item is processed in the background: `GET /api/v1/enterprise/
 
 - **auto** (`matched`): exactly one patient matches name + DOB **and** a second identifier agrees: the MRN (the PM MRN **or** the EHR chart MRN / PatientNumber), or the exact full name + DOB + the patient phone on the document.
 - **review**: one match without a second identifier, an MRN that equals neither of the patient's MRNs, a different phone, an MRN label whose value OCR couldn't read (the phone never stands in for it), no EHR chart, or OCR text below `INTAKE_OCR_MIN_CONFIDENCE` (the candidate is shown, never auto-matched).
-- **none / ambiguous**: no match; more than one patient matches; or the document itself names more than one patient (a daily batch report, two patients' results in one fax), which staff must split.
+- **none / ambiguous**: no match; more than one patient matches; or the document itself names more than one patient (a daily batch report, two patients' results in one fax). Such a document is split into one part per patient when its pages allow it (above); otherwise staff split it.
 - **error** (`failed`): the search failed. A failed search is never treated as "no match".
 
-### Filing (disabled)
+### Filing
 
-`fileToChart` and `sendToIndexing` throw a structured error (`{ success:false, error_code, retryable }`):
-
-- `FILING_DISABLED` unless `INTAKE_FILING` is `review` or `auto` **and** `INTAKE_SAVE_DOCUMENT_FORMAT_CONFIRMED=true`
-- `NOT_READY` / `ALREADY_FILED` for item problems
-- `FILING_NOT_IMPLEMENTED` otherwise. The `SaveDocumentImage` call is a marked TODO in `file.ts`, because its parameter layout is unconfirmed.
-
-The staff screen shows **File to chart** and **Send to indexing** disabled, with the reason. Every refused attempt is written to the item's history.
+`file.ts`: `SaveScanDocument` (+ a linked `SaveTask` review task when `INTAKE_REVIEW_USER` is set), verified on the sandbox Oct 11. Refusals are structured (`{ success:false, error_code, retryable }`): `FILING_DISABLED` unless `INTAKE_FILING` is `review` or `auto` **and** `INTAKE_SAVE_DOCUMENT_FORMAT_CONFIRMED=true`; `NOT_READY` (including a `split` parent: file its parts) / `ALREADY_FILED`; `FILING_REJECTED` / `FILING_UNCERTAIN` from Veradigm® EHR. Auto-filing (`autoFileBlocker` in `pipeline.ts`) also needs a specific chart category, a passed page check for batch senders, no `duplicate_of`, and a sender outside `INTAKE_NO_AUTO_SENDERS`. Every refused attempt is written to the item's history.
 
 ## Environment
 
@@ -66,19 +69,23 @@ The staff screen shows **File to chart** and **Send to indexing** disabled, with
 | `INTAKE_OCR_URL` | `http://ocr:8090` | Local OCR container; `off` sends text-less files straight to review |
 | `INTAKE_OCR_MIN_CONFIDENCE` | `60` | Mean OCR confidence below which a document is never auto-matched |
 | `INTAKE_PRACTICE_NAME` | `Idaho Kidney Institute` | The receiving practice: never taken as the document's sender |
+| `INTAKE_BATCH_SENDERS` | unset | Batch-report senders (comma-separated, case-insensitive part of the name, or a 10-digit fax number): every page must identify its patient; multi-patient files are split. Replaces listing the batch lab in `INTAKE_NO_AUTO_SENDERS` |
+| `INTAKE_SPLIT` | `on` | `off`: multi-patient files go to staff instead of being split |
+| `INTAKE_NO_AUTO_SENDERS` | unset | Optional: senders whose documents always wait for staff (same matching as above) |
 | `CALL_RECORDS_DIR` | `/app/data` | Base of `intake/` |
 
 Secrets go in `.env` only. Logs carry item IDs, job IDs, counts and error codes. They never carry keys, file names, document text or patient identifiers.
 
 ## Open TODOs
 
-- `SaveDocumentImage` call, read-back with `GetDocuments`, then the `SaveTask` provider review task (after the format is confirmed and the owner approves a sandbox test).
+- Staff split by hand on the item screen (pick the pages per patient) for files the page check sends to review.
+- Confirm Express Lab's real layout on de-identified samples: one patient per page with the patient line repeated on every page is what auto-files; packed pages (several patients per page) always go to staff.
 - The real `unity_search_patients` rows must carry both MRNs (PM MRN and EHR PatientNumber) for the either-MRN rule to help; `toCandidates` already reads `mrn`, `patientNumber`, `chartMrn`, `ehrMrn`, `pmMrn`.
 - Confirm the MOATiT Fax job and download response fields against the live API.
 - Staff "pick a different patient" on the item screen.
 
 ## Tests
 
-`npm run smoke:intake` runs offline with made-up patients. It covers HMAC good/bad/missing, the event allowlist, durable dedupe, the webhook and staff routes on 127.0.0.1, extraction on three synthetic documents and under fax-OCR noise (multi-patient batch, unreadable MRN), the match decision table, document-type mapping and cache, the pipeline with fake Veradigm and MOATiT Fax, the OCR client and pipeline against a fake OCR server (success, low confidence, empty, 5xx, 4xx, bad JSON, timeout, unreachable), the drop folder, the filing guard, screen wording, and logs without content.
+`npm run smoke:intake` runs offline with made-up patients. It covers HMAC good/bad/missing, the event allowlist, durable dedupe, the webhook and staff routes on 127.0.0.1, extraction on three synthetic documents and under fax-OCR noise (multi-patient batch, unreadable MRN), the match decision table, document-type mapping and cache, the pipeline with fake Veradigm and MOATiT Fax, the OCR client and pipeline against a fake OCR server (success, low confidence, empty, 5xx, 4xx, bad JSON, timeout, unreachable), the drop folder, the filing guard, screen wording, and logs without content. Pages and batches: form feeds and MOATiT Fax page markers, sender lists, every page rule and review trigger, and a batch fax end to end against a fake OCR server (`/ocr` per page, `/pages` cuts): split, parts matched and auto-filed to their own charts, the blind spot to review, idempotent re-processing, split failure and retry, page-count mismatch, OCR off, screens and retention.
 
-`npm run eval:intake -- --set <dir>` measures accuracy on a large synthetic set (generator `tools/intake-synth`, OCR `deploy/ocr`): per-field accuracy, decisions against the expected ones, auto-file rate and wrong-patient auto-files (must be 0). Method and numbers: `docs/drawbridge/INTAKE_ACCURACY.md`.
+`npm run eval:intake -- --set <dir>` measures accuracy on a large synthetic set (generator `tools/intake-synth`, OCR `deploy/ocr`): per-field accuracy, decisions against the expected ones, auto-file rate, and page by page the filing outcome before / after batch splitting, with **wrong-patient pages filed** (must be 0). Method and numbers: `docs/drawbridge/INTAKE_ACCURACY.md`.

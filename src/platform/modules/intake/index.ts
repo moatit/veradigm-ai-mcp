@@ -35,6 +35,7 @@ export const STATUS_LABEL: Record<IntakeStatus, string> = {
   needs_review: 'Needs review',
   filed: 'Filed',
   sent_to_indexing: 'Sent to indexing',
+  split: 'Split by patient',
   failed: 'Failed',
 };
 const STATUS_PILL: Record<IntakeStatus, string> = {
@@ -44,8 +45,16 @@ const STATUS_PILL: Record<IntakeStatus, string> = {
   needs_review: 'warn',
   filed: 'ok',
   sent_to_indexing: 'ok',
+  split: 'ok',
   failed: 'urgent',
 };
+/** "pages 1-3" / "page 4" / "pages 1, 3". */
+const pageList = (ps: number[]) =>
+  ps.length === 1
+    ? `page ${ps[0]}`
+    : ps[ps.length - 1] - ps[0] === ps.length - 1
+      ? `pages ${ps[0]}-${ps[ps.length - 1]}`
+      : `pages ${ps.join(', ')}`;
 export const KIND_LABEL: Record<DocumentKind, string> = {
   lab_result: 'Lab result',
   imaging: 'Imaging report',
@@ -77,6 +86,7 @@ const field = <T,>(f: Extracted<T> | undefined, show: (v: T) => string = (v) => 
 const kb = (n: number) => (n >= 1048576 ? `${(n / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`);
 
 function patientCell(i: IntakeItem): string {
+  if (i.status === 'split' && i.split) return `<span class="muted">${esc(i.split.children.length)} patients, one document each</span>`;
   if (i.match?.patient) return `${esc(i.match.patient.name)}<div class="muted" style="font-size:12px">DOB ${esc(i.match.patient.dateOfBirth)}</div>`;
   if (i.extracted?.patient_name) return `<span class="muted">${esc(i.extracted.patient_name.value.full)} (from document)</span>`;
   return '<span class="muted">—</span>';
@@ -101,7 +111,9 @@ export function queuePage(items: IntakeItem[], counts: Record<IntakeStatus, numb
           const kind = i.extracted ? KIND_LABEL[i.extracted.kind.value] : '';
           const flags = i.extracted?.abnormal.critical ? pill('urgent', 'critical') : i.extracted?.abnormal.flagged ? pill('warn', 'abnormal') : '';
           return `<tr><td><a href="${APP_BASE}/intake/item/${encodeURIComponent(i.id)}">${esc(fmtTime(i.received_at))}</a></td><td>${esc(SOURCE_LABEL[i.source])}</td>
-<td>${esc(kind) || '<span class="muted">—</span>'} ${flags}${i.extracted?.sender ? `<div class="muted" style="font-size:12px">${esc(i.extracted.sender.value)}</div>` : ''}</td>
+<td>${esc(kind) || '<span class="muted">—</span>'} ${flags}${i.extracted?.sender ? `<div class="muted" style="font-size:12px">${esc(i.extracted.sender.value)}</div>` : ''}${
+            i.part ? `<div class="muted" style="font-size:12px">Part ${esc(i.part.index + 1)} of ${esc(i.part.of)} (${esc(pageList(i.part.pages))})</div>` : ''
+          }</td>
 <td>${patientCell(i)}</td><td>${pill(STATUS_PILL[i.status], STATUS_LABEL[i.status])}</td></tr>`;
         })
         .join('')}</tbody></table>${items.length > LIST_MAX ? `<p class="muted" style="font-size:13px">Showing the latest ${LIST_MAX} of ${esc(items.length)}.</p>` : ''}</div>`
@@ -151,15 +163,48 @@ const TYPE_REASON: Record<string, string> = {
   staff: 'picked by staff',
 };
 
-export function itemPage(i: IntakeItem, message = '', typeOptions: { id: string; name: string }[] = []): string {
+/** A split file's parts, or a part's parent (store look-ups done by the route). */
+export interface ItemFamily {
+  parent?: IntakeItem;
+  children?: IntakeItem[];
+}
+
+function familyCard(i: IntakeItem, fam: ItemFamily): string {
+  const link = (c: IntakeItem, label: string) => `<a href="${APP_BASE}/intake/item/${encodeURIComponent(c.id)}">${esc(label)}</a>`;
+  if (i.split) {
+    const kids = (fam.children || []).filter((c) => c.parent_id === i.id);
+    const rows = i.split.children
+      .map((id, k) => {
+        const c = kids.find((x) => x.id === id);
+        const pages = i.split!.pages[k] || [];
+        if (!c) return `<tr><td>Part ${k + 1}</td><td>${esc(pageList(pages))}</td><td colspan="2" class="muted">not found</td></tr>`;
+        return `<tr><td>${link(c, `Part ${k + 1}`)}</td><td>${esc(pageList(pages))}</td><td>${patientCell(c)}</td><td>${pill(STATUS_PILL[c.status], STATUS_LABEL[c.status])}</td></tr>`;
+      })
+      .join('');
+    return `<h2>Split by patient</h2><div class="card scroll"><p style="margin-top:0">This file showed ${esc(i.split.children.length)} patients. Each part holds only that patient's pages and is matched and filed on its own.${
+      i.split.cover_pages.length ? ` The cover sheet (${esc(pageList(i.split.cover_pages))}) stays with this original.` : ''
+    }</p><table><thead><tr><th>Part</th><th>Pages of this file</th><th>Patient</th><th>Status</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+  }
+  if (i.parent_id && i.part) {
+    const p = fam.parent;
+    return `<h2>Split from</h2><div class="card">Part ${esc(i.part.index + 1)} of ${esc(i.part.of)}: ${esc(pageList(i.part.pages))} of ${
+      p ? link(p, p.file?.name || 'the original') : esc('the original')
+    }. The other pages name other patients and are in the other parts.</div>`;
+  }
+  return '';
+}
+
+export function itemPage(i: IntakeItem, message = '', typeOptions: { id: string; name: string }[] = [], family: ItemFamily = {}): string {
   const filing = filingStatus();
   const x = i.extracted;
   const m = i.match;
-  const done = i.status === 'filed' || i.status === 'sent_to_indexing';
+  const split = i.status === 'split';
+  const done = i.status === 'filed' || i.status === 'sent_to_indexing' || split;
   const canFile = filing.enabled && !done && !!m?.patient?.chartPatientId && (m.decision === 'auto' || !!i.reviewed_by);
   const canIndex = filing.enabled && !done && !!m?.patient?.chartPatientId;
-  const fileWhy = !filing.enabled ? filing.reason : done ? 'Already filed.' : 'Needs a patient matched by two identifiers, or marked reviewed.';
-  const indexWhy = !filing.enabled ? filing.reason : done ? 'Already filed.' : 'Needs a matched patient.';
+  const doneWhy = split ? 'Split by patient: file each part.' : 'Already filed.';
+  const fileWhy = !filing.enabled ? filing.reason : done ? doneWhy : 'Needs a patient matched by two identifiers, or marked reviewed.';
+  const indexWhy = !filing.enabled ? filing.reason : done ? doneWhy : 'Needs a matched patient.';
 
   const flash = message ? `<div class="card" style="border-color:var(--accent)">${esc(MESSAGES[message] || '')}</div>` : '';
 
@@ -216,7 +261,7 @@ ${m.second_identifier ? `<dt>Second identifier</dt><dd>${esc(m.second_identifier
   const actions = `<div class="card"><div class="row">
 ${actionButton(i.id, 'file-to-chart', 'File to chart', canFile, fileWhy)}
 ${actionButton(i.id, 'send-to-indexing', 'Send to indexing', canIndex, indexWhy, true)}
-${actionButton(i.id, 'reviewed', i.reviewed_by ? 'Reviewed ✓' : 'Mark reviewed', !i.reviewed_by && !done, i.reviewed_by ? 'Already reviewed.' : 'Already filed.', true)}
+${actionButton(i.id, 'reviewed', i.reviewed_by ? 'Reviewed ✓' : 'Mark reviewed', !i.reviewed_by && !done, i.reviewed_by ? 'Already reviewed.' : doneWhy, true)}
 ${i.status === 'failed' ? actionButton(i.id, 'retry', 'Try again', true, '', true) : ''}
 </div>${filing.enabled ? '' : `<p class="muted" style="font-size:13px;margin-bottom:0">${esc(filing.reason)}</p>`}
 <p class="muted" style="font-size:13px;margin-bottom:0">Mark reviewed records that you checked the original and the patient. Nothing is written to the Veradigm® EHR chart from this screen until filing is turned on.</p></div>`;
@@ -227,7 +272,7 @@ ${i.status === 'failed' ? actionButton(i.id, 'retry', 'Try again', true, '', tru
     .join('')}</tbody></table></div>`;
 
   return `<p><a href="${APP_BASE}/intake">← Document intake</a></p>${flash}
-<h2 style="margin-top:4px">Document</h2>${doc}<h2>Read from the document</h2>${fields}<h2>Patient match</h2>${match}
+<h2 style="margin-top:4px">Document</h2>${doc}${familyCard(i, family)}<h2>Read from the document</h2>${fields}<h2>Patient match</h2>${match}
 <h2>Chart category</h2>${type}<h2>Actions</h2>${actions}<h2>History</h2>${history}`;
 }
 
@@ -269,7 +314,12 @@ export const intakeModule: PlatformModule = {
           return []; // the page still works; only the picker is missing
         }
       };
-      options().then((types) => show(req, res, 'Document', itemPage(item, m, types)));
+      const store = intakeStore();
+      const family: ItemFamily = {
+        parent: item.parent_id ? store.get(item.parent_id) : undefined,
+        children: item.split ? item.split.children.map((c) => store.get(c)).filter((c): c is IntakeItem => !!c) : undefined,
+      };
+      options().then((types) => show(req, res, 'Document', itemPage(item, m, types, family)));
     });
 
     router.post('/item/:id/category', express.urlencoded({ extended: false, limit: '4kb' }), async (req, res) => {
@@ -279,8 +329,8 @@ export const intakeModule: PlatformModule = {
         res.status(404).send('Not found');
         return;
       }
-      if (item.status === 'filed' || item.status === 'sent_to_indexing') {
-        back(res, item.id, 'ALREADY_FILED');
+      if (item.status === 'filed' || item.status === 'sent_to_indexing' || item.status === 'split') {
+        back(res, item.id, item.status === 'split' ? 'NOT_READY' : 'ALREADY_FILED');
         return;
       }
       let types: DocType[] = [];

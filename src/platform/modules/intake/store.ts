@@ -19,8 +19,9 @@ import type { DocTypeSuggestion } from './doctypes';
  * the SHA-256 of the file. Nothing here logs file contents, document text or patient identifiers.
  */
 export type IntakeSource = 'moatit_fax' | 'folder' | 'upload';
-export type IntakeStatus = 'received' | 'read' | 'matched' | 'needs_review' | 'filed' | 'sent_to_indexing' | 'failed';
-export const INTAKE_STATUSES: IntakeStatus[] = ['received', 'read', 'matched', 'needs_review', 'filed', 'sent_to_indexing', 'failed'];
+/** 'split': a file with several patients, split into one part (child item) per patient; never filed itself. */
+export type IntakeStatus = 'received' | 'read' | 'matched' | 'needs_review' | 'filed' | 'sent_to_indexing' | 'split' | 'failed';
+export const INTAKE_STATUSES: IntakeStatus[] = ['received', 'read', 'matched', 'needs_review', 'filed', 'sent_to_indexing', 'split', 'failed'];
 
 export interface IntakeHistory {
   ts: string;
@@ -70,9 +71,31 @@ export interface IntakeItem {
   filed?: { document_id: string; document_type: string; doc_status: string; task_id?: string; at: string; by: string };
   /** Times processing waited for MOATiT Fax OCR. */
   ocr_waits?: number;
-  /** Set when Drawbridge's own OCR container (ocr.ts) read the file. */
-  ocr?: { engine: 'local'; pages: number; mean_confidence: number; used_text_layer: boolean };
+  /** Set when Drawbridge's own OCR container (ocr.ts) read the file. page_confidences: one per page. */
+  ocr?: { engine: 'local'; pages: number; mean_confidence: number; used_text_layer: boolean; page_confidences?: number[] };
+  /** Pages in the file when the source said (MOATiT Fax page_count, OCR). */
+  page_count?: number;
+  /** Per-page patient check (pages.ts). ok = it may be filed as one patient's document. */
+  pages_check?: { ok: boolean; batch_sender: boolean; pages: number; cover_pages?: number[]; reason: string };
+  /** Parent (status 'split'): its parts, one per patient, in page order. */
+  split?: { at: string; children: string[]; pages: number[][]; cover_pages: number[] };
+  /** Part of a split file: the parent item and which of its pages this part holds. */
+  parent_id?: string;
+  part?: { index: number; of: number; pages: number[] };
   history: IntakeHistory[];
+}
+
+export interface NewPart {
+  /** 0-based position among the parent's parts. */
+  index: number;
+  of: number;
+  /** 1-based pages of the parent's file. */
+  pages: number[];
+  data: Buffer;
+  mime: string;
+  /** The part's own pages' text, joined with form feeds. */
+  text: string;
+  ocr?: IntakeItem['ocr'];
 }
 
 export interface NewDocument {
@@ -256,6 +279,54 @@ export class IntakeStore {
     return { item, duplicate: false };
   }
 
+  /** Dedupe key of one part of a split file: the parent and its pages, so re-processing finds it again. */
+  static partRef(parentId: string, pages: number[]): string {
+    return `split:${parentId}:p${pages.join('.')}`;
+  }
+
+  /**
+   * One part of a split file (the pages of one patient) as a new item, linked to its parent. Idempotent:
+   * the same parent and pages return the existing part. A part whose bytes equal another item's file
+   * is created but flagged duplicate_of (never auto-filed).
+   */
+  addPart(parent: IntakeItem, part: NewPart): AddResult {
+    const sourceRef = IntakeStore.partRef(parent.id, part.pages);
+    const existing = this.findBySourceRef(sourceRef);
+    if (existing) return { item: existing, duplicate: true };
+    const hash = sha256(part.data);
+    const dup = this.findBySha(hash);
+    const mime = ALLOWED_MIME.has(part.mime) ? part.mime : 'application/octet-stream';
+    const id = newId();
+    const storedAs = `${id}${EXT_BY_MIME[mime] || '.bin'}`;
+    this.writeBlob(storedAs, part.data);
+    if (part.text.trim()) this.writeBlob(`${id}.txt`, part.text);
+    const ts = this.now().toISOString();
+    const range = part.pages.length > 1 && part.pages[part.pages.length - 1] - part.pages[0] === part.pages.length - 1
+      ? `${part.pages[0]}-${part.pages[part.pages.length - 1]}`
+      : part.pages.join(',');
+    const base = (parent.file?.name || 'document').replace(/(\.[A-Za-z0-9]{2,4})$/, '');
+    const item: IntakeItem = {
+      id,
+      source: parent.source,
+      source_ref: sourceRef,
+      received_at: ts,
+      updated_at: ts,
+      status: 'received',
+      file: { name: safeFileName(`${base} (pages ${range})${EXT_BY_MIME[mime] || ''}`), mime, sha256: hash, size: part.data.length, stored_as: storedAs },
+      has_text: !!part.text.trim(),
+      ...(parent.sender_fax ? { sender_fax: parent.sender_fax } : {}),
+      ...(part.ocr ? { ocr: part.ocr } : {}),
+      page_count: part.pages.length,
+      parent_id: parent.id,
+      part: { index: part.index, of: part.of, pages: part.pages },
+      ...(dup ? { duplicate_of: dup.id } : {}),
+      history: [{ ts, action: `split from ${parent.id} (page${part.pages.length > 1 ? 's' : ''} ${range}, part ${part.index + 1} of ${part.of})`, by: 'drawbridge' }],
+    };
+    this.load().push(item);
+    this.persist();
+    return { item, duplicate: false };
+  }
+
   /** Attach the original to an existing item (fax download). Flags, never drops, a same-hash file. */
   attachFile(id: string, data: Buffer, name: string, mime: string): IntakeItem {
     const item = this.require(id);
@@ -314,13 +385,16 @@ export class IntakeStore {
 
   /**
    * Delete originals (and text) of items filed or sent to indexing more than `days` ago; the chart
-   * copy is the record. The item and its audit history stay. Returns files removed.
+   * copy is the record. A split file's original goes once every part is filed or sent to indexing
+   * and the last of them is that old. The item and its audit history stay. Returns files removed.
    */
   pruneFiled(days: number): number {
     const cutoff = this.now().getTime() - days * 86_400_000;
+    const done = (i: IntakeItem | undefined) => !!i && (i.status === 'filed' || i.status === 'sent_to_indexing') && Date.parse(i.updated_at) <= cutoff;
     let removed = 0;
     for (const item of this.load()) {
-      if ((item.status !== 'filed' && item.status !== 'sent_to_indexing') || Date.parse(item.updated_at) > cutoff) continue;
+      const parentDone = item.status === 'split' && !!item.split?.children.length && item.split.children.every((c) => done(this.get(c)));
+      if (!parentDone && !done(item)) continue;
       for (const name of [item.file?.stored_as, `${item.id}.txt`]) {
         if (!name || !/^[\w.-]+$/.test(name)) continue;
         try {

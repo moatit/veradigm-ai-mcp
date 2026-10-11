@@ -2,6 +2,7 @@ import { createHmac, timingSafeEqual } from 'crypto';
 import express, { Express, Request, Response } from 'express';
 
 type FetchResponse = Awaited<ReturnType<typeof fetch>>;
+import { pagesFromMarkers } from './pages';
 import { intakeStore, IntakeStore } from './store';
 
 /**
@@ -168,6 +169,8 @@ export interface FaxJob {
   text: string;
   /** Sending fax number. */
   sender_fax: string;
+  /** Pages in the fax (0 when MOATiT Fax doesn't say). */
+  page_count: number;
 }
 
 export interface FaxDownload {
@@ -193,10 +196,18 @@ function firstString(obj: any, paths: string[]): string {
   return '';
 }
 
-/** GET /fax/{job_id} body → the fields intake needs. Field names unconfirmed: several are tried. */
+/**
+ * GET /fax/{job_id} body → the fields intake needs. Field names unconfirmed: several are tried.
+ * MOATiT Fax's enterprise API (apps/api/app/routers/enterprise.py) returns ocr.raw_text with
+ * "--- Page N ---" markers, and page_count. The markers become form feeds (pages.ts) so intake can
+ * tell pages apart; blank pages, which MOATiT Fax OCR leaves out, come back as empty pages.
+ */
 export function parseFaxJob(json: unknown): FaxJob {
   if (!json || typeof json !== 'object') throw new FaxApiError('FAX_API_BAD_RESPONSE', false);
-  const text = firstString(json, ['ocr_text', 'ocrText', 'ocr.text', 'ocr.full_text', 'ocr_result.text', 'ocr.content', 'text']);
+  const pageCount = Number(firstString(json, ['page_count', 'pageCount', 'pages', 'ocr.page_count']));
+  const pages = Number.isInteger(pageCount) && pageCount > 0 && pageCount <= 500 ? pageCount : 0;
+  const raw = firstString(json, ['ocr_text', 'ocrText', 'ocr.raw_text', 'ocr.text', 'ocr.full_text', 'ocr_result.text', 'ocr.content', 'raw_text', 'text']);
+  const text = pagesFromMarkers(raw.slice(0, 500_000), pages || undefined);
   return {
     status: firstString(json, ['status', 'state', 'job_status']).slice(0, 40),
     ocr_state: firstString(json, ['ocr_status', 'ocr_state', 'ocrStatus', 'ocr.status', 'ocr.state']).slice(0, 40),
@@ -204,6 +215,7 @@ export function parseFaxJob(json: unknown): FaxJob {
     sender_fax: firstString(json, ['from_number', 'fromNumber', 'from', 'caller_id', 'sender_number', 'remote_number', 'remote_station_id'])
       .replace(/[^\d+]/g, '')
       .slice(0, 20),
+    page_count: pages,
   };
 }
 

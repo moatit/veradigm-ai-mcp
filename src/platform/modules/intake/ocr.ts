@@ -1,3 +1,5 @@
+import { splitPages } from './pages';
+
 type FetchResponse = Awaited<ReturnType<typeof fetch>>;
 
 /**
@@ -8,7 +10,11 @@ type FetchResponse = Awaited<ReturnType<typeof fetch>>;
  *   INTAKE_OCR_URL              default http://ocr:8090; "off" disables OCR (items go to review)
  *   INTAKE_OCR_MIN_CONFIDENCE   default 60; below it a document is never auto-matched
  *
- *   POST {INTAKE_OCR_URL}/ocr   body = file bytes → {text, pages, mean_confidence, used_text_layer}
+ *   POST {INTAKE_OCR_URL}/ocr   body = file bytes → {text, pages, mean_confidence, used_text_layer,
+ *                               page_texts?, page_confidences?} (pages joined by a form feed in text)
+ *   POST {INTAKE_OCR_URL}/pages?select=1,2   body = file bytes → a new file with only those pages
+ *                               (same format; X-Source-Pages = pages in the input). Used to split a
+ *                               batch fax into one file per patient (pipeline.ts).
  *
  * Failures throw OcrError with a code (never an empty text that looks like "nothing on the page"):
  *   OCR_UNAVAILABLE   network error / DNS / refused (retryable)
@@ -27,6 +33,17 @@ export interface OcrResult {
   /** Mean Tesseract word confidence 0-100; 100 when the PDF text layer was used. */
   mean_confidence: number;
   used_text_layer: boolean;
+  /** One text per page (from page_texts, or the text split at form feeds). */
+  page_texts: string[];
+  /** Mean word confidence per page; empty when the service did not report it. */
+  page_confidences: number[];
+}
+
+export interface PagesResult {
+  data: Buffer;
+  mime: string;
+  /** Page count of the file that was sent. */
+  source_pages: number;
 }
 
 export class OcrError extends Error {
@@ -70,7 +87,13 @@ export function parseOcrResult(json: any): OcrResult {
   const pages = Number(json.pages);
   const conf = Number(json.mean_confidence);
   if (!Number.isFinite(pages) || pages < 0 || !Number.isFinite(conf)) throw new OcrError('OCR_BAD_RESPONSE', false);
-  return { text: json.text, pages, mean_confidence: conf, used_text_layer: json.used_text_layer === true };
+  const pageTexts =
+    Array.isArray(json.page_texts) && json.page_texts.every((t: unknown) => typeof t === 'string') ? (json.page_texts as string[]) : splitPages(json.text, pages);
+  const pageConfs =
+    Array.isArray(json.page_confidences) && json.page_confidences.length === pageTexts.length && json.page_confidences.every((c: unknown) => Number.isFinite(Number(c)))
+      ? json.page_confidences.map(Number)
+      : [];
+  return { text: json.text, pages, mean_confidence: conf, used_text_layer: json.used_text_layer === true, page_texts: pageTexts, page_confidences: pageConfs };
 }
 
 export interface OcrClientOptions {
@@ -100,7 +123,7 @@ export class OcrClient {
 
   /** Read one document (PDF, TIFF, PNG, JPEG). */
   async read(data: Buffer): Promise<OcrResult> {
-    const res = await this.post(data);
+    const res = await this.post('/ocr', data);
     let json: unknown;
     try {
       json = await res.json();
@@ -110,9 +133,32 @@ export class OcrClient {
     return parseOcrResult(json);
   }
 
-  private async post(data: Buffer): Promise<FetchResponse> {
+  /**
+   * A new file holding only `pages` (1-based, increasing) of `data`, in the same format. Throws
+   * OcrError (OCR_BAD_PAGES, OCR_PAGE_OUT_OF_RANGE, OCR_BAD_RESPONSE, ...) like read().
+   */
+  async extractPages(data: Buffer, pages: number[]): Promise<PagesResult> {
+    if (!pages.length || pages.some((p, i) => !Number.isInteger(p) || p < 1 || (i > 0 && p <= pages[i - 1]))) {
+      throw new OcrError('OCR_BAD_PAGES', false);
+    }
+    const res = await this.post(`/pages?select=${pages.join(',')}`, data);
+    const sourcePages = Number(res.headers.get('x-source-pages'));
+    const mime = String(res.headers.get('content-type') || '').split(';')[0].trim().toLowerCase();
+    let out: Buffer;
+    try {
+      out = Buffer.from(await res.arrayBuffer());
+    } catch {
+      throw new OcrError('OCR_BAD_RESPONSE', true);
+    }
+    if (!out.length || !Number.isInteger(sourcePages) || sourcePages < 1 || !/^(application\/pdf|image\/(tiff|png|jpeg))$/.test(mime)) {
+      throw new OcrError('OCR_BAD_RESPONSE', false);
+    }
+    return { data: out, mime, source_pages: sourcePages };
+  }
+
+  private async post(pathAndQuery: string, data: Buffer): Promise<FetchResponse> {
     const attempts = Math.max(1, Math.min(4, this.opts.attempts ?? 2));
-    const url = `${this.opts.baseUrl.replace(/\/+$/, '')}/ocr`;
+    const url = `${this.opts.baseUrl.replace(/\/+$/, '')}${pathAndQuery}`;
     let last = new OcrError('OCR_UNAVAILABLE', true);
     for (let i = 0; i < attempts; i++) {
       if (i > 0) await this.sleep(2000 * 2 ** (i - 1));
@@ -121,7 +167,7 @@ export class OcrClient {
       try {
         const res = await this.fetchImpl(url, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/octet-stream', Accept: 'application/json' },
+          headers: { 'Content-Type': 'application/octet-stream', Accept: pathAndQuery === '/ocr' ? 'application/json' : '*/*' },
           body: new Uint8Array(data),
           signal: ctrl.signal,
           redirect: 'error',

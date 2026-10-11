@@ -6,10 +6,13 @@ import { extractFields } from './extract';
 import { matchPatient } from './match';
 import { FaxApiError, isOcrPending, MoatitFaxClient } from './moatit-fax';
 import { OcrClient, OcrError, ocrReviewReason } from './ocr';
+import { isListedSender, partOcr, segmentItem, splitPages, type PageSegmentation } from './pages';
 import { IntakeItem, IntakeStore } from './store';
 
+export { partOcr, segmentItem, splitEnabled } from './pages';
+
 /**
- * Intake processing: received → read → matched | needs_review | failed.
+ * Intake processing: received → read → split | matched | needs_review | failed.
  *
  * 1. Fax items: fetch the job (OCR text, sender) and the original from MOATiT Fax. While OCR is
  *    still running the item waits (re-checked every OCR_WAIT_MS, at most OCR_MAX_WAITS times).
@@ -17,11 +20,17 @@ import { IntakeItem, IntakeStore } from './store';
  *    (ocr.ts, INTAKE_OCR_URL). An OCR failure leaves the item 'failed' with an OCR_* code (staff
  *    can retry); OCR text below INTAKE_OCR_MIN_CONFIDENCE is never auto-matched.
  *    Then extract fields from the text (extract.ts).
- * 3. Match the patient through unity_search_patients (match.ts).
- * 4. Suggest a Veradigm® EHR document type (doctypes.ts).
- * 5. Auto-file (file.ts) only when INTAKE_FILING=auto, filing is enabled, the match is 'auto', the
- *    document type was found by keyword and the sender is not in INTAKE_NO_AUTO_SENDERS (batch
- *    reports such as a lab's daily file). Everything else waits for staff.
+ * 3. Pages (pages.ts): for a batch sender (INTAKE_BATCH_SENDERS) or a document naming more than one
+ *    patient, every page is read on its own. Several patients, cleanly separated: the file is split
+ *    into one part per patient (the OCR container's /pages cuts the original; each part keeps its
+ *    pages' text) and the parent becomes 'split'. Each part then goes through steps 2-6 like any
+ *    document; parts are never split again. Any doubt about the pages: the whole file goes to review.
+ * 4. Match the patient through unity_search_patients (match.ts).
+ * 5. Suggest a Veradigm® EHR document type (doctypes.ts).
+ * 6. Auto-file (file.ts) only when INTAKE_FILING=auto, filing is enabled, the match is 'auto', the
+ *    chart category is not the "(ready for indexing)" fallback, the page check passed (always
+ *    required for batch senders), the file is not a duplicate, and the sender is not in
+ *    INTAKE_NO_AUTO_SENDERS. Everything else waits for staff.
  *
  * One item at a time (a serial queue), so a burst of faxes never floods Veradigm or MOATiT Fax.
  * Without platform deps (before the module starts) items stop at 'read' and are resumed at start.
@@ -67,9 +76,13 @@ export class IntakePipeline {
       .catch((e: any) => console.error(`[Intake] processing ${id} failed: ${e?.code || e?.name || 'error'}`));
   }
 
-  /** Resolves when everything queued so far is done (tests, shutdown). */
-  idle(): Promise<void> {
-    return this.queue;
+  /** Resolves when the queue is empty, including parts queued by a split while it ran (tests, shutdown). */
+  async idle(): Promise<void> {
+    let q: Promise<void>;
+    do {
+      q = this.queue;
+      await q;
+    } while (q !== this.queue);
   }
 
   /** Re-queue items left unfinished by a restart. */
@@ -110,19 +123,35 @@ export class IntakePipeline {
       return;
     }
     const extracted = extractFields(text, this.now());
+    const parent = item.parent_id ? store.get(item.parent_id) : undefined;
+    // A part keeps its parent's sender when its own pages don't name one (display, sender lists).
+    if (!extracted.sender && parent?.extracted?.sender) extracted.sender = parent.extracted.sender;
     item = store.update(id, { status: 'read', extracted, error_code: undefined }, 'read');
 
     const deps = this.opts.deps;
     if (!deps) return; // resumed once the module starts
 
-    // 3. Match
+    // 3. Pages: one patient per filed document. Parts were checked as part of their parent.
+    let pagesCheck = item.pages_check;
+    if (!item.parent_id) {
+      const seg = segmentItem(item, text, extracted, this.now());
+      if (seg.decision === 'split') {
+        await this.splitFile(store, item, text, seg);
+        return;
+      }
+      pagesCheck = { ok: seg.decision === 'single', batch_sender: seg.batch_sender, pages: seg.page_count, cover_pages: seg.cover_pages, reason: seg.reason };
+      item = store.update(id, { pages_check: pagesCheck }, seg.checked ? `pages checked: ${seg.decision === 'single' ? 'one patient' : 'needs review'}` : undefined);
+    }
+    const pageGate = pagesCheck && !pagesCheck.ok ? pagesCheck.reason : null;
+
+    // 4. Match
     const match = await matchPatient(extracted, deps.runTool, () => this.now());
     if (match.decision === 'error') {
       store.update(id, { status: 'failed', match, error_code: match.error_code }, `patient search failed (${match.error_code})`);
       return;
     }
 
-    // 4. Document type (a failure here leaves the suggestion empty; it never blocks the match)
+    // 5. Document type (a failure here leaves the suggestion empty; it never blocks the match)
     let documentType = item.document_type ?? null;
     let typeNote = '';
     if (this.opts.docTypes) {
@@ -133,21 +162,23 @@ export class IntakePipeline {
       }
     }
 
-    // Low-confidence OCR text is never auto-matched (the candidate is still shown to staff).
+    // Low-confidence OCR text is never auto-matched (the candidate is still shown to staff), and
+    // neither is a file whose pages could not be checked (the page check's reason is shown).
     const ocrGate = match.decision === 'auto' && item.ocr ? ocrReviewReason(item.ocr) : null;
-    const auto = match.decision === 'auto' && !ocrGate;
+    const auto = match.decision === 'auto' && !ocrGate && !pageGate;
+    const why = pageGate ? 'page check' : ocrGate ? 'low OCR confidence' : match.decision;
     store.update(
       id,
-      { status: auto ? 'matched' : 'needs_review', match, document_type: documentType, note: auto ? undefined : ocrGate || match.reason },
-      `${auto ? 'matched' : `needs review: ${ocrGate ? 'low OCR confidence' : match.decision}`}${typeNote}`,
+      { status: auto ? 'matched' : 'needs_review', match, document_type: documentType, note: auto ? undefined : pageGate || ocrGate || match.reason },
+      `${auto ? 'matched' : `needs review: ${why}`}${typeNote}`,
       AUTO
     );
 
-    // 5. Auto-file
-    const why = auto ? autoFileBlocker(store.get(id)!) : 'not auto-matched';
-    if (why) {
-      // In auto mode, say why a matched document still waits (e.g. a batch sender set to staff review).
-      if (auto && filingMode() === 'auto') store.update(id, { note: `Matched, waiting for staff: ${why}.` }, `not auto-filed: ${why}`, AUTO);
+    // 6. Auto-file
+    const blocker = auto ? autoFileBlocker(store.get(id)!) : 'not auto-matched';
+    if (blocker) {
+      // In auto mode, say why a matched document still waits (e.g. a sender set to staff review).
+      if (auto && filingMode() === 'auto') store.update(id, { note: `Matched, waiting for staff: ${blocker}.` }, `not auto-filed: ${blocker}`, AUTO);
       return;
     }
     try {
@@ -172,7 +203,16 @@ export class IntakePipeline {
       const r = await ocr.read(fs.readFileSync(file));
       store.update(
         item.id,
-        { ocr: { engine: 'local', pages: r.pages, mean_confidence: r.mean_confidence, used_text_layer: r.used_text_layer } },
+        {
+          ocr: {
+            engine: 'local',
+            pages: r.pages,
+            mean_confidence: r.mean_confidence,
+            used_text_layer: r.used_text_layer,
+            ...(r.page_confidences.length === r.pages ? { page_confidences: r.page_confidences } : {}),
+          },
+          page_count: r.pages,
+        },
         r.used_text_layer ? `text layer read (${r.pages} page(s))` : `OCR read ${r.pages} page(s), confidence ${Math.round(r.mean_confidence)}`
       );
       if (r.text.trim()) store.saveText(item.id, r.text);
@@ -181,6 +221,100 @@ export class IntakePipeline {
       const code = e instanceof OcrError ? e.code : 'OCR_FAILED';
       store.update(item.id, { status: 'failed', error_code: code }, `OCR failed (${code})`);
       return false;
+    }
+  }
+
+  /**
+   * One part per patient (seg.decision === 'split'). The original is cut by the OCR container
+   * (/pages); each part keeps only its pages and their text. Nothing is created until every part is
+   * cut and the file's page count equals the text's. Parts made by an earlier attempt are reused
+   * (same parent + pages), so re-processing never duplicates them; an earlier attempt with other
+   * parts sends the file to staff. The parent becomes 'split' only once every part exists.
+   */
+  private async splitFile(store: IntakeStore, item: IntakeItem, text: string, seg: PageSegmentation): Promise<void> {
+    const n = seg.patients.length;
+    const review = (note: string, action: string) =>
+      store.update(
+        item.id,
+        { status: 'needs_review', note, pages_check: { ok: false, batch_sender: seg.batch_sender, pages: seg.page_count, cover_pages: seg.cover_pages, reason: note } },
+        action
+      );
+    const file = store.filePath(item);
+    if (!file) {
+      store.update(item.id, { status: 'failed', error_code: 'FILE_MISSING' }, 'original file missing; cannot split');
+      return;
+    }
+    const ocr = this.opts.ocr ? this.opts.ocr() : OcrClient.fromEnv();
+    if (!ocr) {
+      review(`The document shows ${n} patients. Splitting needs the OCR service, which is turned off: split it by hand.`, 'not split: OCR service off');
+      return;
+    }
+    const refs = seg.patients.map((g) => IntakeStore.partRef(item.id, g.pages));
+    if (store.list().some((c) => c.parent_id === item.id && !refs.includes(c.source_ref))) {
+      review('An earlier split of this document made different parts. Check by hand.', 'not split: differs from an earlier split');
+      return;
+    }
+
+    const data = fs.readFileSync(file);
+    const cut: ({ data: Buffer; mime: string } | null)[] = [];
+    try {
+      for (const [k, g] of seg.patients.entries()) {
+        if (store.findBySourceRef(refs[k])) {
+          cut.push(null);
+          continue;
+        }
+        const r = await ocr.extractPages(data, g.pages);
+        if (r.source_pages !== seg.page_count) {
+          review(`The file has ${r.source_pages} page(s) but its text has ${seg.page_count}, so it was not split. Split it by hand.`, 'not split: page count mismatch');
+          return;
+        }
+        cut.push(r);
+      }
+    } catch (e: any) {
+      const code = e instanceof OcrError ? e.code : 'OCR_FAILED';
+      store.update(item.id, { status: 'failed', error_code: code }, `split failed (${code})`);
+      return;
+    }
+
+    const pageTexts = splitPages(text, seg.page_count);
+    const ids: string[] = [];
+    const fresh: string[] = [];
+    for (const [k, g] of seg.patients.entries()) {
+      const c = cut[k];
+      const existing = store.findBySourceRef(refs[k]);
+      if (existing || !c) {
+        ids.push(existing!.id);
+        continue;
+      }
+      const part = store.addPart(item, {
+        index: k,
+        of: n,
+        pages: g.pages,
+        data: c.data,
+        mime: c.mime,
+        text: g.pages.map((p) => pageTexts[p - 1]).join('\f'),
+        ocr: partOcr(item.ocr, g.pages),
+      }).item;
+      store.update(part.id, {
+        pages_check: { ok: true, batch_sender: seg.batch_sender, pages: g.pages.length, reason: `Pages checked with the original (part ${k + 1} of ${n}).` },
+      });
+      ids.push(part.id);
+      fresh.push(part.id);
+    }
+    store.update(
+      item.id,
+      {
+        status: 'split',
+        note: `Split into ${n} documents, one per patient. Each is matched and filed on its own.`,
+        split: { at: this.now().toISOString(), children: ids, pages: seg.patients.map((g) => g.pages), cover_pages: seg.cover_pages },
+        pages_check: { ok: true, batch_sender: seg.batch_sender, pages: seg.page_count, cover_pages: seg.cover_pages, reason: seg.reason },
+      },
+      `split into ${n} documents, one per patient (${seg.reason})`
+    );
+    console.log(`[Intake] split ${item.id} into ${n} part(s)`);
+    for (const id of ids) {
+      const s = store.get(id)?.status;
+      if (s === 'received' || s === 'read') this.enqueue(id);
     }
   }
 
@@ -194,7 +328,9 @@ export class IntakePipeline {
     try {
       if (!item.has_text) {
         const job = await client.getJob(item.job_id || '');
-        if (job.sender_fax) store.update(item.id, { sender_fax: job.sender_fax });
+        if (job.sender_fax || job.page_count) {
+          store.update(item.id, { ...(job.sender_fax ? { sender_fax: job.sender_fax } : {}), ...(job.page_count ? { page_count: job.page_count } : {}) });
+        }
         if (isOcrPending(job)) {
           const waits = (item.ocr_waits || 0) + 1;
           if (waits > OCR_MAX_WAITS) {
@@ -233,13 +369,15 @@ export class IntakePipeline {
 export function autoFileBlocker(item: IntakeItem): string {
   if (filingMode() !== 'auto') return 'filing mode is not auto';
   if (!filingStatus().enabled) return 'filing disabled';
+  if (item.status === 'split') return 'split into one document per patient';
   if (item.match?.decision !== 'auto') return 'not auto-matched';
   if (!item.document_type || item.document_type.reason === 'fallback') return 'no specific document type';
-  const sender = (item.extracted?.sender?.value || '').toLowerCase();
-  const blocked = String(process.env.INTAKE_NO_AUTO_SENDERS || '')
-    .split(',')
-    .map((x) => x.trim().toLowerCase())
-    .filter(Boolean);
-  if (sender && blocked.some((b) => sender.includes(b))) return 'sender is set to staff review';
+  if (item.duplicate_of) return 'same file as an earlier document';
+  if (item.pages_check && !item.pages_check.ok) return 'pages not checked';
+  const who = { sender: item.extracted?.sender?.value, senderFax: item.sender_fax };
+  if ((item.pages_check?.batch_sender || isListedSender('INTAKE_BATCH_SENDERS', who)) && !item.pages_check?.ok) {
+    return 'batch sender: every page must be checked first';
+  }
+  if (isListedSender('INTAKE_NO_AUTO_SENDERS', who)) return 'sender is set to staff review';
   return '';
 }

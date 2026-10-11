@@ -274,6 +274,67 @@ MRN: 771234                   COLL: 10/08/2026 07:10
   assert.strictEqual(extractFields(IMAGING + 'IMPRESSION: Findings consistent with medical renal disease.\n', NOW).mrn_unreadable, undefined, 'prose is not an MRN label');
   ok('extraction under fax OCR noise: ";" "!" "," for ":", D,O.B., Patient 1D, Collactad, letterhead sender, *H / (C) flags, patient-block phone, particles, multi-patient count');
 
+  // 5c. Pages: per-page text, sender lists, which patient each page belongs to
+  const pages = await import('../platform/modules/intake/pages');
+  assert.deepStrictEqual(pages.splitPages('a\f\nb\f'), ['a', '\nb'], 'trailing form feed dropped');
+  assert.deepStrictEqual(pages.splitPages('a\fb\f', 3), ['a', 'b', ''], 'a blank last page kept when the count says so');
+  assert.deepStrictEqual(pages.splitPages('no breaks'), ['no breaks']);
+  assert.strictEqual(pages.pagesFromMarkers('--- Page 1 ---\nalpha\n\n--- Page 3 ---\ngamma', 3), 'alpha\f\fgamma', 'MOATiT Fax markers; a blank page 2 comes back empty');
+  assert.strictEqual(pages.pagesFromMarkers('plain text'), 'plain text');
+  const job = fax.parseFaxJob({ id: 7, page_count: 3, ocr: { status: 'complete', raw_text: '--- Page 1 ---\nA\n\n--- Page 2 ---\nB\n\n--- Page 3 ---\nC' }, from_number: '+12085550163' });
+  assert.deepStrictEqual([job.text, job.page_count, job.ocr_state], ['A\fB\fC', 3, 'complete'], 'MOATiT Fax enterprise ocr.raw_text is read, page by page');
+  process.env.INTAKE_BATCH_SENDERS = ' Sawtooth Rapid Lab , 208-555-0163';
+  assert.ok(pages.isListedSender('INTAKE_BATCH_SENDERS', { sender: 'SAWTOOTH RAPID LAB' }));
+  assert.ok(pages.isListedSender('INTAKE_BATCH_SENDERS', { sender: 'S4WTOOTH', text: 'x\nSAWTOOTH  RAPID LAB - DAILY BATCH' }), 'the name anywhere in the text counts (OCR may misread one copy)');
+  assert.ok(pages.isListedSender('INTAKE_BATCH_SENDERS', { senderFax: '+1 (208) 555-0163' }), 'a fax number entry matches the sending fax');
+  assert.ok(!pages.isListedSender('INTAKE_BATCH_SENDERS', { sender: 'Larkspur Reference Laboratories', senderFax: '2085550151', text: 'call 208-555-0163' }), 'a number entry never matches text');
+  delete process.env.INTAKE_BATCH_SENDERS;
+  assert.ok(!pages.isListedSender('INTAKE_BATCH_SENDERS', { sender: 'SAWTOOTH RAPID LAB' }), 'empty list');
+
+  const HEAD = 'SAWTOOTH RAPID LAB - DAILY BATCH RESULTS\nBATCH: 20261009-03   RUN DATE: 10/09/2026\n';
+  const pt = (name: string, dob: string, mrn: string, cont = '') => `${HEAD}PT: ${name.padEnd(26)} DOB: ${dob}   SEX: F${cont}\nMRN: ${mrn}                ACC#: SR1001   COLL: 10/08/2026 06:45\n  CREAT      2.41H (0.60-1.30) mg/dL\n  K           4.1  (3.5-5.1) mmol/L\n`;
+  const RESULTS_ONLY = `${HEAD}  BUN          31H (7-20) mg/dL\n  PHOS        5.2H (2.5-4.5) mg/dL\n`;
+  const COVER = 'FAX\nSawtooth Rapid Lab\nTo:     Idaho Kidney Institute\nFrom:   Sawtooth Rapid Lab\nPages:  4 (including cover)\nRE:     Lab results\nCONFIDENTIALITY NOTICE: protected health information.';
+  const A = (c = '') => pt('TESTPATIENT,MARIGOLD', '1961-03-14', '482913', c);
+  const B = pt('ZEPHYR,QUILLON', '1958-07-02', '771234');
+  const C = pt('LIGHTFOOT,ORRIN', '1949-09-05', '330017');
+  const seg = (texts: string[], batch: boolean, more: Partial<Parameters<typeof pages.segmentPages>[1]> = {}) =>
+    pages.segmentPages(texts, { batch, wholeCount: extractFields(texts.join('\f'), NOW).patient_count ?? 0, expectedPages: texts.length, now: NOW, ...more });
+  const sp1 = seg([COVER, A(), A('  (CONTINUED)'), B, C], true);
+  assert.deepStrictEqual([sp1.decision, sp1.cover_pages, sp1.patients.map((g) => g.pages)], ['split', [1], [[2, 3], [4], [5]]], 'batch: one part per patient, cover kept out');
+  assert.deepStrictEqual([seg([A(), A('  (CONTINUED)')], true).decision, seg([A(), A('  (CONTINUED)')], true).checked], ['single', true], 'batch, one patient on every page');
+  // The blind spot: the second patient's identifiers are all unreadable, so the file looks like one patient.
+  const blind = seg([A(), RESULTS_ONLY], true);
+  assert.deepStrictEqual([blind.decision, /Page 2 has no readable patient identifier/.test(blind.reason)], ['review', true], 'batch sender: a page without an identifier sends the whole file to staff');
+  assert.strictEqual(seg([A(), RESULTS_ONLY], false).decision, 'single', 'other senders: one patient on the document, filed whole as before');
+  const contd = seg([A(), RESULTS_ONLY, B], false);
+  assert.deepStrictEqual([contd.decision, contd.patients.map((g) => g.pages)], ['split', [[1, 2], [3]]], 'other senders: a continuation page goes with the patient before it');
+  assert.strictEqual(seg([A(), RESULTS_ONLY, B], true).decision, 'review', 'batch sender: no continuation pages');
+  assert.match(seg([A(), B, A()], true).reason, /also appears on page 1, with another patient in between/, 'pages of one patient not contiguous');
+  assert.match(seg([A() + B, C], true).reason, /Page 1 shows more than one patient/);
+  const dropMrn = (t: string) => t.replace(/MRN: \d*/, 'ACCT:');
+  assert.match(seg([dropMrn(A()), dropMrn(pt('TESTPATIENT,MARIGOLD', '1961-03-15', '')), B], true).reason, /almost, but not exactly/, 'a DOB one digit off: never merged, never split');
+  assert.deepStrictEqual(seg([A(), pt('TESTPATIENT,MARIGOLO', '1961-03-14', '482913'), B], true).patients.map((g) => g.pages), [[1, 2], [3]], 'the same MRN read exactly: OCR noise in the name is the same patient');
+  assert.match(seg([A(), pt('TESTPATIENT,MARIGOLD', '1961-03-14', '482918'), B], true).reason, /almost, but not exactly/, 'an MRN one digit off is not the same MRN');
+  assert.deepStrictEqual(seg([COVER.replace('Lab results', 'TESTPATIENT, MARIGOLD J'), A(), B], true).cover_pages, [1], 'a cover sheet naming the patient (no DOB) is still a cover');
+  // A packed batch: page 2 starts with the end of the first patient's results, then the next patient.
+  const packed2 = `${HEAD}  BUN          31H (7-20) mg/dL\n  PHOS        5.2H (2.5-4.5) mg/dL\n--------------------\n${B.slice(HEAD.length)}`;
+  assert.match(seg([A(), packed2], true).reason, /Page 2 has results above its patient line/, 'results above a new patient line: review, never given to that patient');
+  assert.match(seg([A(), packed2], false).reason, /Page 2 has results above its patient line/, 'the same for any sender');
+  // A packed page: the first patient's line on top, a second patient below whose line is unreadable.
+  const hidden = `${A()}------------------------------------------\n##########  ######   #####\n  CREAT      1.10  (0.60-1.30) mg/dL\n  K           3.9  (3.5-5.1) mmol/L\n`;
+  assert.match(seg([hidden], true).reason, /Page 1 has a block of results without a readable patient line/, 'in-page blind spot (ruled-off block without a patient line): review');
+  assert.strictEqual(seg([`${A()}------------------------------------------\nEND OF BATCH 20261009-03   1 PATIENT(S)\n`], true).decision, 'single', 'a closing rule is not a block');
+  assert.match(seg([pt('QUILLFEATHER,MARK', '1970-05-05', ''), pt('QUILLFEATHER,MARY', '1970-05-05', '')].map((t) => t.replace('MRN: ', 'ACCT: ')), true).reason, /almost, but not exactly/, 'twins Mark / Mary: staff decide');
+  assert.match(seg([A(), B], true, { expectedPages: 3 }).reason, /text has 2 page\(s\) but the file has 3/, 'page count mismatch');
+  assert.match(seg([A(), B], false, { split: false }).reason, /splitting is turned off/);
+  assert.strictEqual(seg([A(), B], true, { expectedPages: undefined }).decision, 'split', 'page count from the text when the source did not say');
+  assert.match(seg([A().replace(/MRN: \d+/, 'MRN: ').replace('DOB: 1961-03-14', 'DOB: ??')], true, { expectedPages: undefined }).reason, /page count of the file is unknown/);
+  assert.match(seg([A(), A().replace(/DOB: [\d-]+/, 'DOB: ????').replace(/MRN: \d+/, 'MRN: ')], true).reason, /Page 2 has no readable patient name and date of birth or MRN/, 'batch: a name alone is not enough');
+  assert.strictEqual(seg([A(), A().replace(/DOB: [\d-]+/, 'DOB: ????').replace(/MRN: \d+/, 'MRN: '), B], false).decision, 'split', 'other senders: a name that agrees is enough for a continuation page');
+  assert.strictEqual(pages.segmentPages([LAB], { batch: false, wholeCount: 1, now: NOW }).checked, false, 'other single-patient documents are not re-read page by page');
+  ok('pages: form feeds and MOATiT Fax markers, sender lists (name, text, fax number), split by patient, cover sheets, continuation rules, and every doubt (blind spot, non-contiguous, two on a page, near-identical, page count) goes to review');
+
   // 6. Match decision table
   const cand = (o: Partial<Record<string, any>> = {}) => ({
     patientId: '9001', chartPatientId: '7001', firstName: 'Marigold', lastName: 'Testpatient',
@@ -666,6 +727,148 @@ MRN: 771234                   COLL: 10/08/2026 07:10
     assert.ok(!/SaveScanDocument|SAVE_SCAN_DOCUMENT|SAVE_DOCUMENT_IMAGE|SaveDocumentImage|SaveTask|SAVE_TASK/.test(src), `${f}: only file.ts writes to Veradigm`);
   }
   ok('filing: guards, SaveScanDocument (single and 3 chunks), review task, rejected/uncertain handling, no duplicate filing, send to indexing; only file.ts writes');
+
+  // 10b. Batch faxes end to end: per-page OCR, split into one part per patient, each part matched
+  //      and auto-filed on its own; the blind spot to review; re-processing makes no duplicates.
+  const batchPages: Record<string, string[]> = {
+    batch: [COVER, A(), A('  (CONTINUED)'), B, C],
+    blind: [A(), RESULTS_ONLY],
+    mismatch: [A(), B],
+    pagesdown: [A(), B],
+  };
+  let pagesDown = true;
+  const pageCalls: string[] = [];
+  const bOcrApp = express();
+  bOcrApp.post(['/ocr', '/pages'], express.raw({ type: '*/*', limit: '5mb' }), (req, res) => {
+    const mark = (req.body.toString('latin1').match(/BATCHCASE:(\w+)/) || [])[1] || '';
+    const texts = batchPages[mark];
+    if (!texts) return res.status(404).end();
+    if (req.path === '/ocr') {
+      return res.json({ text: texts.join('\f\n'), pages: texts.length, mean_confidence: 86, used_text_layer: false, page_texts: texts, page_confidences: texts.map((_, i) => 80 + i) });
+    }
+    const select = String(req.query.select || '');
+    pageCalls.push(`${mark}:${select}`);
+    if (mark === 'pagesdown' && pagesDown) return res.status(500).json({ error: 'OCR_FAILED' });
+    res.setHeader('X-Source-Pages', String(mark === 'mismatch' ? texts.length + 1 : texts.length));
+    return res.type('application/pdf').send(Buffer.from(`%PDF-1.4\n% part of BATCHCASE:${mark} pages ${select}\n%%EOF\n`));
+  });
+  const bSrv = bOcrApp.listen(0, '127.0.0.1');
+  await new Promise((r) => bSrv.once('listening', r));
+  const bClient = new ocrMod.OcrClient({ baseUrl: `http://127.0.0.1:${(bSrv.address() as AddressInfo).port}`, sleep: async () => undefined });
+  const PEOPLE: Record<string, any> = {
+    testpatient: { patientId: '9001', chartPatientId: '7001', firstName: 'Marigold', lastName: 'Testpatient', dateOfBirth: '03/14/1961', mrn: '482913' },
+    zephyr: { patientId: '9002', chartPatientId: '7002', firstName: 'Quillon', lastName: 'Zephyr', dateOfBirth: '07/02/1958', mrn: '771234' },
+    lightfoot: { patientId: '9003', chartPatientId: '7003', firstName: 'Orrin', lastName: 'Lightfoot', dateOfBirth: '09/05/1949', mrn: '330017' },
+  };
+  const searched: string[] = [];
+  const batchRun = async (_name: string, a: any) => {
+    searched.push(String(a.lastName).toLowerCase());
+    const p = PEOPLE[String(a.lastName).toLowerCase()];
+    return { patients: p ? [p] : [], total: p ? 1 : 0 };
+  };
+  const bStore = new IntakeStore(path.join(TMP, 'batch'), () => NOW);
+  const bCalls: { action: string; pid: string; data: string; type: string }[] = [];
+  const bUnity = {
+    async executeAction(action: string, params: any, pid: string) {
+      if (action === 'GetDocumentType') return { success: true, data: typeRows };
+      bCalls.push({ action, pid, data: Buffer.from(params.Data || '', 'base64').toString('latin1'), type: params.Parameter1 });
+      return { success: true, data: [{ savescandocumentinfo: [{ documentID: String(5000 + bCalls.length) }] }] };
+    },
+  } as any;
+  const bPipe = new IntakePipeline({ store: () => bStore, now: () => NOW, ocr: () => bClient });
+  bPipe.setDeps({ runTool: batchRun }, new DocTypeCache(bUnity));
+  filing.setFilingDeps({ unity: bUnity, store: () => bStore, now: () => NOW });
+  Object.assign(process.env, { INTAKE_FILING: 'auto', INTAKE_SAVE_DOCUMENT_FORMAT_CONFIRMED: 'true', INTAKE_BATCH_SENDERS: 'Sawtooth Rapid Lab' });
+  const addBatch = (mark: string) =>
+    bStore.addDocument({ source: 'folder', source_ref: '', name: `batch-${mark}.tif`, mime: 'image/tiff', data: Buffer.from(`II*\u0000 BATCHCASE:${mark}`) }).item.id;
+  try {
+    const parentId = addBatch('batch');
+    quiet(() => bPipe.enqueue(parentId));
+    await bPipe.idle();
+    const parentItem = bStore.get(parentId)!;
+    assert.deepStrictEqual([parentItem.status, parentItem.split?.pages, parentItem.split?.cover_pages], ['split', [[2, 3], [4], [5]], [1]], 'parent split by patient');
+    assert.ok(!parentItem.match && !parentItem.filed, 'the parent itself is never matched or filed');
+    assert.deepStrictEqual(pageCalls.splice(0), ['batch:2,3', 'batch:4', 'batch:5'], 'the OCR container cut one file per patient');
+    const kids = parentItem.split!.children.map((id) => bStore.get(id)!);
+    assert.deepStrictEqual(kids.map((k) => [k.parent_id, k.part?.index, k.part?.of, k.part?.pages]), [[parentId, 0, 3, [2, 3]], [parentId, 1, 3, [4]], [parentId, 2, 3, [5]]], 'parts link back to the parent');
+    assert.deepStrictEqual(kids.map((k) => [k.status, k.match?.patient?.chartPatientId, k.document_type?.name]), [
+      ['filed', '7001', 'Labs/Procedures'],
+      ['filed', '7002', 'Labs/Procedures'],
+      ['filed', '7003', 'Labs/Procedures'],
+    ], 'each part matched (two identifiers), typed with suggest(kind, subtype) and auto-filed');
+    assert.deepStrictEqual(kids.map((k) => k.ocr?.mean_confidence), [81.5, 83, 84], 'a part is gated on its own pages\' OCR confidence');
+    assert.ok(!bStore.readText(kids[0].id).includes('ZEPHYR') && !bStore.readText(kids[1].id).includes('TESTPATIENT') && !bStore.readText(kids[0].id).includes('CONFIDENTIALITY'), 'a part holds only its own pages (no cover)');
+    assert.deepStrictEqual(bCalls.map((c) => [c.action, c.pid, c.data.match(/pages ([\d,]+)/)?.[1]]), [
+      ['SaveScanDocument', '7001', '2,3'],
+      ['SaveScanDocument', '7002', '4'],
+      ['SaveScanDocument', '7003', '5'],
+    ], 'each chart gets only its patient\'s pages');
+    assert.ok(/pages 2-3/.test(kids[0].file!.name) && kids[0].history[0].action.startsWith(`split from ${parentId}`));
+    // Re-processing (a crash before the parent was marked split): the same parts, nothing new, nothing filed twice.
+    bStore.update(parentId, { status: 'read' });
+    quiet(() => bPipe.enqueue(parentId));
+    await bPipe.idle();
+    assert.deepStrictEqual([bStore.get(parentId)!.status, bStore.list().filter((i) => i.parent_id === parentId).length, bCalls.length, pageCalls.length], ['split', 3, 3, 0], 'idempotent: no duplicate parts, no second filing');
+    assert.strictEqual(bStore.addDocument({ source: 'upload', source_ref: '', name: 'again.tif', mime: 'image/tiff', data: Buffer.from('II*\u0000 BATCHCASE:batch') }).duplicate, true, 'the same batch file again is a duplicate');
+    await assert.rejects(filing.fileToChart(bStore.get(parentId)!, 'staff', { unity: bUnity, store: () => bStore, now: () => NOW }), (e: any) => e.error_code === 'NOT_READY', 'a split parent cannot be filed');
+
+    // The blind spot: page 2 shows no identifier. Batch sender → the whole file goes to staff, nothing filed.
+    const blindId = addBatch('blind');
+    await bPipe.process(blindId);
+    const blindItem = bStore.get(blindId)!;
+    assert.deepStrictEqual([blindItem.status, blindItem.match?.decision, blindItem.pages_check?.ok, bCalls.length], ['needs_review', 'auto', false, 3], 'one-patient-looking batch with an unidentified page: review, candidate shown');
+    assert.match(blindItem.note || '', /Page 2 has no readable patient identifier/);
+    // The split endpoint fails: parent failed with the code, no parts; a retry splits it.
+    const downId = addBatch('pagesdown');
+    await quiet(() => bPipe.process(downId));
+    assert.deepStrictEqual([bStore.get(downId)!.status, bStore.get(downId)!.error_code, bStore.list().filter((i) => i.parent_id === downId).length], ['failed', 'OCR_HTTP_500', 0]);
+    pagesDown = false;
+    bStore.update(downId, { status: 'received', error_code: undefined });
+    quiet(() => bPipe.enqueue(downId));
+    await bPipe.idle();
+    assert.deepStrictEqual([bStore.get(downId)!.status, bStore.list().filter((i) => i.parent_id === downId).length], ['split', 2], 'retry after the OCR service is back');
+    // The file has a different page count than the text: not split.
+    const misId = addBatch('mismatch');
+    await bPipe.process(misId);
+    assert.deepStrictEqual([bStore.get(misId)!.status, bStore.list().filter((i) => i.parent_id === misId).length], ['needs_review', 0]);
+    assert.match(bStore.get(misId)!.note || '', /file has 3 page\(s\) but its text has 2/);
+    // OCR off: a multi-patient document that came with text is not split.
+    const offPipe2 = new IntakePipeline({ store: () => bStore, now: () => NOW, ocr: () => null, deps: { runTool: batchRun } });
+    const typed = bStore.addDocument({ source: 'upload', source_ref: '', name: 'typed.pdf', mime: 'application/pdf', data: Buffer.from('%PDF typed batch'), text: [A(), B].join('\f') }).item.id;
+    await offPipe2.process(typed);
+    assert.match(bStore.get(typed)!.note || '', /Splitting needs the OCR service/);
+
+    // Auto-file gate: a batch sender's document without a passed page check, a duplicate file.
+    const autoBase = { ...kids[1], status: 'matched' as const, filed: undefined };
+    assert.strictEqual(autoFileBlocker({ ...autoBase, pages_check: undefined }), 'batch sender: every page must be checked first');
+    assert.strictEqual(autoFileBlocker({ ...autoBase, filed: undefined }), '');
+    assert.strictEqual(autoFileBlocker({ ...autoBase, duplicate_of: 'in_other000' }), 'same file as an earlier document');
+    process.env.INTAKE_NO_AUTO_SENDERS = 'sawtooth';
+    assert.strictEqual(autoFileBlocker(autoBase), 'sender is set to staff review', 'INTAKE_NO_AUTO_SENDERS still holds a sender back');
+    delete process.env.INTAKE_NO_AUTO_SENDERS;
+
+    // Screens: the parent lists its parts, a part links back.
+    const fam = { children: kids.map((k) => bStore.get(k.id)!) };
+    const ph = intake.itemPage(bStore.get(parentId)!, '', [], fam);
+    assert.ok(ph.includes('Split by patient') && kids.every((k) => ph.includes(`/intake/item/${k.id}`)) && ph.includes('pages 2-3') && ph.includes('cover sheet (page 1)'));
+    assert.ok(/<button[^>]*disabled[^>]*>File to chart</.test(ph), 'no filing button for a split parent');
+    const ch = intake.itemPage(bStore.get(kids[1].id)!, '', [], { parent: bStore.get(parentId)! });
+    assert.ok(ch.includes('Part 2 of 3') && ch.includes(`/intake/item/${parentId}`));
+    const qh = intake.queuePage(bStore.list(), bStore.counts(), '');
+    assert.ok(qh.includes('3 patients, one document each') && qh.includes('Part 1 of 3 (pages 2-3)') && qh.includes('Split by patient'));
+    assert.ok(!/\b(mcp|fhir|unity)\b/i.test(ph + ch + qh));
+
+    // Retention: the split original goes once every part is filed and old enough.
+    const later = new IntakeStore(path.join(TMP, 'batch'), () => new Date(NOW.getTime() + 31 * 86_400_000));
+    assert.ok(fs.existsSync(later.filePath(later.get(parentId)!)));
+    later.pruneFiled(30);
+    assert.ok(!later.filePath(later.get(parentId)!) && later.get(parentId)!.status === 'split', 'split original removed after its parts were filed; the item stays');
+  } finally {
+    bSrv.close();
+    filing.setFilingDeps(null);
+    for (const k of ['INTAKE_FILING', 'INTAKE_SAVE_DOCUMENT_FORMAT_CONFIRMED', 'INTAKE_BATCH_SENDERS']) delete process.env[k];
+  }
+  ok('batch fax: per-page OCR, split into one part per patient (OCR container cuts the file), each part matched, typed and auto-filed to its own chart; blind spot to review; idempotent; split failures, page mismatch and OCR off leave nothing half-done; screens link parent and parts');
 
   // 11. Screens: wording, escaping, disabled buttons
   const evil = pStore.update(up.item.id, { note: '<script>alert(1)</script>' });

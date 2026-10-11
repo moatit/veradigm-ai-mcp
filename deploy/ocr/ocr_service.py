@@ -6,8 +6,13 @@ that is removed after each request, and logs method, path, status, size and time
 
   serve                        HTTP on 0.0.0.0:$OCR_PORT (default 8090)
       POST /ocr                body = the file bytes (PDF, TIFF, PNG, JPEG)
-                               200 {text, pages, mean_confidence, used_text_layer}
+                               200 {text, pages, mean_confidence, used_text_layer,
+                                    page_texts, page_confidences}
                                400 unsupported type, 413 too large, 422 unreadable, 503 busy
+      POST /pages?select=1,2   body = the file bytes; 200 = a new file holding only those pages, in
+                               that order. PDF stays PDF (pages copied, not re-rendered), TIFF stays
+                               TIFF (lossless). Header X-Source-Pages = page count of the input.
+                               400 BAD_PAGES, 422 PAGE_OUT_OF_RANGE, plus the /ocr errors
       GET  /health             {ok, tesseract}
   batch IN_DIR OUT_DIR         every PDF/TIFF/PNG/JPEG in IN_DIR -> OUT_DIR/<stem>.txt + <stem>.json
       [--workers=N] [--force]
@@ -22,6 +27,11 @@ Reading order:
        -> tesseract --oem 1 --psm $OCR_PSM -c preserve_interword_spaces=1
      Interword spaces are kept so "Patient Name: X      DOB: Y" stays two fields for the extractor.
   mean_confidence is the mean Tesseract word confidence (0-100) over all pages.
+
+Per page: `text` joins the pages with a form feed, as before. `page_texts` has one entry per page of
+the file ('' for a blank page) and `page_confidences` the mean word confidence of each page (100 for
+a text layer, 0 for a page without words). The intake pipeline uses them to find which patient each
+page belongs to, and /pages to split a batch fax into one file per patient.
 """
 from __future__ import annotations
 
@@ -205,6 +215,21 @@ def pdf_pages(path: str) -> int:
     return int(m.group(1))
 
 
+def page_mean(confs: list[float]) -> float:
+    return round(float(np.mean(confs)), 1) if confs else 0.0
+
+
+def layer_pages(layer: str, pages: int) -> list[str]:
+    """pdftotext output -> one string per page (pdftotext ends every page with a form feed)."""
+    parts = layer.split("\f")
+    if len(parts) == pages + 1 and not parts[-1].strip():
+        parts = parts[:-1]
+    if len(parts) != pages:
+        # Never guess page boundaries: the caller sees a count that does not match and does not split.
+        return [layer]
+    return [p.rstrip() for p in parts]
+
+
 def ocr_bytes(data: bytes) -> dict:
     kind = sniff(data)
     if not kind:
@@ -216,6 +241,7 @@ def ocr_bytes(data: bytes) -> dict:
         os.chmod(work, 0o700)
         texts: list[str] = []
         confs: list[float] = []
+        page_confs: list[float] = []
         if kind == "pdf":
             src = os.path.join(work, "in.pdf")
             with open(src, "wb") as f:
@@ -226,7 +252,8 @@ def ocr_bytes(data: bytes) -> dict:
             r = run(["pdftotext", "-layout", "-enc", "UTF-8", src, "-"], timeout=60)
             layer = r.stdout.decode("utf-8", "replace") if r.returncode == 0 else ""
             if len(re.findall(r"[A-Za-z0-9]", layer)) >= MIN_TEXT_LAYER_CHARS * pages:
-                return {"text": layer, "pages": pages, "mean_confidence": 100.0, "used_text_layer": True}
+                return {"text": layer, "pages": pages, "mean_confidence": 100.0, "used_text_layer": True,
+                        "page_texts": layer_pages(layer, pages), "page_confidences": [100.0] * pages}
             r = run(["pdftoppm", "-r", str(TARGET_DPI), "-gray", "-png", src, os.path.join(work, "pg")], timeout=PAGE_TIMEOUT_S * 2)
             if r.returncode != 0:
                 raise OcrFailure("UNREADABLE_PDF", 422)
@@ -236,6 +263,7 @@ def ocr_bytes(data: bytes) -> dict:
                 with Image.open(os.path.join(work, name)) as im:
                     t, c = tesseract_page(preprocess(im, (TARGET_DPI, TARGET_DPI)), work, i)
                 texts.append(t)
+                page_confs.append(page_mean(c))
                 confs += c
         else:
             try:
@@ -249,10 +277,88 @@ def ocr_bytes(data: bytes) -> dict:
             for i, (frame, dpi) in enumerate(frames):
                 t, c = tesseract_page(preprocess(frame, dpi), work, i)
                 texts.append(t)
+                page_confs.append(page_mean(c))
                 confs += c
-        text = "\f\n".join(t.rstrip() for t in texts)
+        page_texts = [t.rstrip() for t in texts]
+        text = "\f\n".join(page_texts)
         mean = round(float(np.mean(confs)), 1) if confs else 0.0
-        return {"text": text, "pages": pages, "mean_confidence": mean, "used_text_layer": False}
+        return {"text": text, "pages": pages, "mean_confidence": mean, "used_text_layer": False,
+                "page_texts": page_texts, "page_confidences": page_confs}
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
+
+
+# ── Page selection (one file per patient from a batch fax) ───────────────────
+
+def parse_select(raw: str) -> list[int]:
+    """'1,2,5' -> [1, 2, 5]. Strictly increasing page numbers from 1, at most MAX_PAGES of them."""
+    if not re.fullmatch(r"\d{1,3}(?:,\d{1,3})*", raw or ""):
+        raise OcrFailure("BAD_PAGES", 400)
+    pages = [int(x) for x in raw.split(",")]
+    if len(pages) > MAX_PAGES or pages[0] < 1 or any(b <= a for a, b in zip(pages, pages[1:])):
+        raise OcrFailure("BAD_PAGES", 400)
+    return pages
+
+
+def select_pages(data: bytes, pages: list[int]) -> tuple[bytes, str, int]:
+    """(new file, media type, page count of the input). Same format as the input; never re-OCRs."""
+    kind = sniff(data)
+    if not kind:
+        raise OcrFailure("UNSUPPORTED_TYPE", 400)
+    if len(data) > MAX_BYTES:
+        raise OcrFailure("TOO_LARGE", 413)
+    if kind in ("png", "jpeg"):
+        if pages != [1]:
+            raise OcrFailure("PAGE_OUT_OF_RANGE", 422)
+        return data, "image/png" if kind == "png" else "image/jpeg", 1
+    if kind == "tiff":
+        try:
+            im = Image.open(io.BytesIO(data))
+            frames = [f.copy() for f in ImageSequence.Iterator(im)]
+        except Exception:
+            raise OcrFailure("UNREADABLE_IMAGE", 422)
+        total = len(frames)
+        if total > MAX_PAGES:
+            raise OcrFailure("TOO_MANY_PAGES", 413)
+        if pages[-1] > total:
+            raise OcrFailure("PAGE_OUT_OF_RANGE", 422)
+        chosen = [frames[p - 1] for p in pages]
+        first = chosen[0]
+        out = io.BytesIO()
+        # Fax TIFFs are 1-bit: CCITT G4. Anything else: LZW. Both lossless; the resolution tag is kept
+        # (fax pages share one resolution).
+        first.save(out, format="TIFF", save_all=True, append_images=chosen[1:],
+                   compression="group4" if first.mode == "1" else "tiff_lzw",
+                   dpi=first.info.get("dpi") or page_dpi(first))
+        return out.getvalue(), "image/tiff", total
+    work = tempfile.mkdtemp(prefix="pages-")
+    try:
+        os.chmod(work, 0o700)
+        src = os.path.join(work, "in.pdf")
+        with open(src, "wb") as f:
+            f.write(data)
+        total = pdf_pages(src)
+        if total > MAX_PAGES:
+            raise OcrFailure("TOO_MANY_PAGES", 413)
+        if pages[-1] > total:
+            raise OcrFailure("PAGE_OUT_OF_RANGE", 422)
+        parts = []
+        for p in pages:
+            dst = os.path.join(work, f"p{p}.pdf")
+            r = run(["pdfseparate", "-f", str(p), "-l", str(p), src, dst], timeout=60)
+            if r.returncode != 0 or not os.path.exists(dst):
+                raise OcrFailure("UNREADABLE_PDF", 422)
+            parts.append(dst)
+        out = parts[0]
+        if len(parts) > 1:
+            out = os.path.join(work, "out.pdf")
+            r = run(["pdfunite", *parts, out], timeout=60)
+            if r.returncode != 0:
+                raise OcrFailure("UNREADABLE_PDF", 422)
+        if pdf_pages(out) != len(pages):
+            raise OcrFailure("UNREADABLE_PDF", 422)
+        with open(out, "rb") as f:
+            return f.read(), "application/pdf", total
     finally:
         shutil.rmtree(work, ignore_errors=True)
 
@@ -288,11 +394,35 @@ class Handler(BaseHTTPRequestHandler):
         else:
             self._send(404, {"error": "NOT_FOUND"}, t)
 
+    def _send_file(self, data: bytes, mime: str, source_pages: int, started: float, size: int) -> None:
+        self.send_response(200)
+        self.send_header("Content-Type", mime)
+        self.send_header("Content-Length", str(len(data)))
+        self.send_header("X-Source-Pages", str(source_pages))
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        self.wfile.write(data)
+        ms = int((time.time() - started) * 1000)
+        print(f"[ocr] {self.command} {self.path.split('?')[0]} 200 bytes={size} ms={ms}", flush=True)
+
     def do_POST(self) -> None:
         t = time.time()
-        if self.path.split("?")[0] != "/ocr":
+        route, _, query = self.path.partition("?")
+        if route not in ("/ocr", "/pages"):
             self._send(404, {"error": "NOT_FOUND"}, t)
             return
+        select: list[int] = []
+        if route == "/pages":
+            raw = ""
+            for kv in query.split("&"):
+                k, _, v = kv.partition("=")
+                if k == "select":
+                    raw = v.replace("%2C", ",").replace("%2c", ",")
+            try:
+                select = parse_select(raw)
+            except OcrFailure as e:
+                self._send(e.status, {"error": e.code}, t)
+                return
         try:
             length = int(self.headers.get("Content-Length") or "0")
         except ValueError:
@@ -308,7 +438,11 @@ class Handler(BaseHTTPRequestHandler):
             self._send(503, {"error": "BUSY"}, t, length)
             return
         try:
-            self._send(200, ocr_bytes(data), t, length)
+            if route == "/pages":
+                out, mime, total = select_pages(data, select)
+                self._send_file(out, mime, total, t, length)
+            else:
+                self._send(200, ocr_bytes(data), t, length)
         except OcrFailure as e:
             self._send(e.status, {"error": e.code}, t, length)
         except subprocess.TimeoutExpired:
@@ -343,7 +477,7 @@ def _batch_one(args: tuple[str, str, bool]) -> tuple[str, Optional[str]]:
     try:
         with open(src, "rb") as f:
             r = ocr_bytes(f.read())
-        meta = {k: v for k, v in r.items() if k != "text"}
+        meta = {k: v for k, v in r.items() if k not in ("text", "page_texts")}
         text = r["text"]
         err = None
     except OcrFailure as e:

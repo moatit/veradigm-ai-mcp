@@ -17,10 +17,11 @@ On 452 standard and poor fax pages, PSM 6 with blur and despeckle was the best o
 
 | | |
 |---|---|
-| `POST /ocr` | body = file bytes → `200 {text, pages, mean_confidence, used_text_layer}`; `400 {error: UNSUPPORTED_TYPE \| EMPTY_BODY}`, `413 TOO_LARGE \| TOO_MANY_PAGES`, `422 UNREADABLE_PDF \| UNREADABLE_IMAGE`, `500 OCR_FAILED \| OCR_TIMEOUT \| TESSERACT_FAILED`, `503 BUSY` |
+| `POST /ocr` | body = file bytes → `200 {text, pages, mean_confidence, used_text_layer, page_texts, page_confidences}`; `400 {error: UNSUPPORTED_TYPE \| EMPTY_BODY}`, `413 TOO_LARGE \| TOO_MANY_PAGES`, `422 UNREADABLE_PDF \| UNREADABLE_IMAGE`, `500 OCR_FAILED \| OCR_TIMEOUT \| TESSERACT_FAILED`, `503 BUSY` |
+| `POST /pages?select=2,3` | body = file bytes → `200` a new file holding only those pages, in that order, same format (PDF pages copied with `pdfseparate`/`pdfunite`, not re-rendered; TIFF frames kept, CCITT G4 for fax images, LZW otherwise; PNG/JPEG page 1 only). Header `X-Source-Pages` = pages in the input. `400 BAD_PAGES` (not strictly increasing from 1), `422 PAGE_OUT_OF_RANGE`, plus the `/ocr` errors. Used to split a batch fax into one file per patient. |
 | `GET /health` | `{ok, tesseract}` |
 
-Pages are joined with a form feed. `mean_confidence` is the mean Tesseract word confidence (0–100).
+Pages are joined with a form feed in `text` (unchanged). `page_texts` holds one text per page of the file (`''` for a blank page; a text layer is split at pdftotext's form feeds, and if that doesn't give one piece per page, `page_texts` is the whole text as one entry so the count never matches by accident) and `page_confidences` the mean word confidence per page (100 for a text layer). `mean_confidence` is the mean Tesseract word confidence (0–100) over all words. Batch mode writes `page_confidences` into `<stem>.json`.
 
 | Env | Default | |
 |---|---|---|
