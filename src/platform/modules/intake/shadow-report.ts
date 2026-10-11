@@ -1,6 +1,6 @@
 import { createHash } from 'crypto';
 import { splitPages } from './pages';
-import { agreement, REASON_LABEL, unitTruth, wrongPatient, type UnitTruth } from './shadow';
+import { agreement, observedTruth, REASON_LABEL, unitTruth, wrongPatient, type UnitTruth } from './shadow';
 import type { IntakeItem } from './store';
 
 /**
@@ -13,8 +13,10 @@ import type { IntakeItem } from './store';
  * described with a fixed vocabulary of label words. findLeaks() checks the finished text against
  * every identifier in the store before anything is written.
  *
- * Unit = what would be filed on its own: a whole document, or one part of a split file. Truth for a
- * part comes from its own confirmation or from its parent's (shadow.ts unitTruth).
+ * Unit = what would be filed on its own: a whole document, or one part of a split file. Truth, in
+ * order (shadow.ts unitTruth): staff confirmed it on the Confirm panel; staff were seen to file it in
+ * Veradigm® EHR (observe.ts, high or medium confidence); the parent file's confirmation. A unit with
+ * none of these is unconfirmed and never counted as correct.
  */
 export interface ShadowReportOptions {
   now: Date;
@@ -64,6 +66,23 @@ export interface ShadowReport {
   auto_rate_on_confirmed_patient_docs: { auto: number; of: number; rate: number | null };
   category: { right: number; of: number; rate: number | null; auto_right: number; auto_of: number; none_predicted: number };
   disagreements: number;
+  /** Where the truth came from, per unit. */
+  truth_sources: { confirmed: number; observed: number; parent: number; none: number };
+  /** The staff filing observer, per unit. */
+  observation: { found: number; found_high: number; found_medium: number; low_only: number; pending: number; ambiguous: number; not_observed: number; errors: number; not_looked: number };
+  /** Units whose truth is staff's observed filing: does Drawbridge agree with what staff did? */
+  staff_agreement: {
+    observed: number;
+    same_patient: number;
+    patient_of: number;
+    same_category: number;
+    category_of: number;
+    auto_other_patient: number;
+    candidate_other_patient: number;
+    category_differs: number;
+  };
+  /** Would auto-file, but the document was not found in that chart (nor confirmed): look at these. */
+  auto_not_found: number;
   staff_reasons: { code: string; label: string; units: number; share: number | null; confirmed: number; candidate_right: number }[];
   splits: { parents: number; confirmed_several: number; groups_exact: number };
   by_sender: (Tally & { sender: string })[];
@@ -163,7 +182,7 @@ export function buildShadowReport(items: IntakeItem[], opts: ShadowReportOptions
   const minSender = opts.minSender ?? 5;
   const names = new Set((opts.personNames || []).map(letters).filter((n) => n.length >= 5));
   for (const i of items) {
-    for (const p of [i.match?.patient, i.truth?.patient, ...(i.truth?.parts || []).map((x) => x.patient)]) if (p?.name) names.add(letters(p.name));
+    for (const p of [i.match?.patient, i.truth?.patient, i.observed?.patient, ...(i.truth?.parts || []).map((x) => x.patient)]) if (p?.name) names.add(letters(p.name));
     if (i.extracted?.patient_name) names.add(letters(`${i.extracted.patient_name.value.first}${i.extracted.patient_name.value.last}`));
   }
 
@@ -263,6 +282,42 @@ export function buildShadowReport(items: IntakeItem[], opts: ShadowReportOptions
   cat.rate = rate(cat.right, cat.of);
   for (const p of parents) if (agreement(p, byId) === 'disagrees') disagreements++;
 
+  const sources = { confirmed: 0, observed: 0, parent: 0, none: 0 };
+  const obs = { found: 0, found_high: 0, found_medium: 0, low_only: 0, pending: 0, ambiguous: 0, not_observed: 0, errors: 0, not_looked: 0 };
+  const sa = { observed: 0, same_patient: 0, patient_of: 0, same_category: 0, category_of: 0, auto_other_patient: 0, candidate_other_patient: 0, category_differs: 0 };
+  let autoNotFound = 0;
+  const same = (a?: string, b?: string) => !!a && !!b && a.trim().toLowerCase() === b.trim().toLowerCase();
+  for (const u of units) {
+    const t = truths.get(u.id);
+    sources[t?.source || 'none']++;
+    const o = u.observed;
+    if (!o) obs.not_looked++;
+    else if (observedTruth(o)) {
+      obs.found++;
+      if (o.confidence === 'high') obs.found_high++;
+      else obs.found_medium++;
+    } else if (o.status === 'ambiguous') obs.ambiguous++;
+    else if (o.status === 'not_observed') obs.not_observed++;
+    else if (o.status === 'error') obs.errors++;
+    else if (o.confidence === 'low') obs.low_only++;
+    else obs.pending++;
+    if (u.shadow!.would === 'auto_file' && !t && o?.status === 'not_observed') autoNotFound++;
+    if (t?.source !== 'observed' || t.kind !== 'patient') continue;
+    const d = u.shadow!;
+    sa.observed++;
+    if (d.patient_key) {
+      sa.patient_of++;
+      if (same(d.patient_key, t.key)) sa.same_patient++;
+      else if (d.would === 'auto_file') sa.auto_other_patient++;
+      else sa.candidate_other_patient++;
+    }
+    if (d.category && t.category) {
+      sa.category_of++;
+      if (same(d.category, t.category)) sa.same_category++;
+      else sa.category_differs++;
+    }
+  }
+
   const failedBy: Record<string, number> = {};
   for (const f of failed) failedBy[f.error_code || 'UNKNOWN'] = (failedBy[f.error_code || 'UNKNOWN'] || 0) + 1;
 
@@ -345,6 +400,10 @@ export function buildShadowReport(items: IntakeItem[], opts: ShadowReportOptions
     auto_rate_on_confirmed_patient_docs: { auto: patientDocsAuto, of: patientDocs, rate: rate(patientDocsAuto, patientDocs) },
     category: cat,
     disagreements,
+    truth_sources: sources,
+    observation: obs,
+    staff_agreement: sa,
+    auto_not_found: autoNotFound,
     staff_reasons: [...reasons.entries()]
       .sort((a, b) => b[1].units - a[1].units || a[0].localeCompare(b[0]))
       .map(([code, r]) => ({ code, label: REASON_LABEL[code] || code, units: r.units, share: rate(r.units, all.staff), confirmed: r.confirmed, candidate_right: r.candidate_right })),
@@ -414,6 +473,33 @@ Shadow mode: every document was read and matched against the clinic's patient li
 | Waiting to be read | ${r.pending} |
 | Finished before shadow mode was on (no decision) | ${r.undecided} |
 
+## Agreement with staff filing (observed in Veradigm® EHR)
+
+Staff kept indexing documents in Veradigm® EHR as usual; Drawbridge read back (read-only) where each one was filed and compared it with its own decision.
+
+| | |
+|---|---:|
+| Units where staff filing was observed (truth) | ${r.staff_agreement.observed} |
+| Same patient as Drawbridge's patient or candidate | ${pct(r.staff_agreement.same_patient, r.staff_agreement.patient_of)} (${r.staff_agreement.same_patient} of ${r.staff_agreement.patient_of}) |
+| Same category | ${pct(r.staff_agreement.same_category, r.staff_agreement.category_of)} (${r.staff_agreement.same_category} of ${r.staff_agreement.category_of}) |
+| **To look at:** would auto-file, staff filed to another patient | **${r.staff_agreement.auto_other_patient}** |
+| To look at: candidate shown was not the patient staff chose | ${r.staff_agreement.candidate_other_patient} |
+| To look at: staff chose another category | ${r.staff_agreement.category_differs} |
+| **To look at:** would auto-file, not found in that chart (and not confirmed) | **${r.auto_not_found}** |
+
+| Observation | Units |
+|---|---:|
+| Found, high confidence | ${r.observation.found_high} |
+| Found, medium confidence | ${r.observation.found_medium} |
+| Only a weak match (not used) | ${r.observation.low_only} |
+| Not found yet (still looking) | ${r.observation.pending} |
+| Two equally good matches (ambiguous) | ${r.observation.ambiguous} |
+| Not observed (gave up) | ${r.observation.not_observed} |
+| Check failed | ${r.observation.errors} |
+| Not looked at yet | ${r.observation.not_looked} |
+
+Truth used, per unit: ${r.truth_sources.confirmed} confirmed on the Confirm panel, ${r.truth_sources.observed} observed staff filing, ${r.truth_sources.parent} from the whole file's confirmation, ${r.truth_sources.none} none (not counted as correct or wrong).
+
 ## Wrong-patient auto-files
 
 | Kind | Units |
@@ -463,6 +549,7 @@ ${failed.length ? ['| Code | Items |', '|---|---:|', ...failed.map(([c, n]) => `
 - **Would auto-file**: two identifiers matched one patient in the list, OCR confidence above the gate, the page check passed, a specific category, not a duplicate, the sender not set to staff review (the live auto-file rules).
 - **Wrong-patient auto-file**: a unit it would auto-file whose confirmed truth is another patient, not an IKI patient, or several patients (for a split part: any of its pages confirmed to someone else).
 - **Precision**: of the units it would auto-file that staff confirmed (unreadable left out), the share confirmed to the same patient.
+- **Truth**: a staff confirmation on the Confirm panel wins; else where staff were seen to file the document in Veradigm® EHR (high or medium confidence); else the whole file's confirmation. An unobserved, unconfirmed unit is never counted as correct.
 - **Disagree**: the patient it would file to or showed as the candidate is not the confirmed one, a document it would auto-file is not one IKI patient's, the categories differ, or a split's page groups differ.
 `;
 }
@@ -481,6 +568,7 @@ export function identifiersOf(items: IntakeItem[]): { names: string[]; tokens: s
   for (const i of items) {
     person(i.match?.patient);
     person(i.truth?.patient);
+    person(i.observed?.patient);
     for (const x of i.truth?.parts || []) person(x.patient);
     const x = i.extracted;
     if (x?.patient_name) names.add(`${x.patient_name.value.first} ${x.patient_name.value.last}`.toLowerCase());
@@ -515,7 +603,8 @@ export function documentCsv(items: IntakeItem[]): string {
   const header = [
     'item_id', 'parent_id', 'part', 'received_at', 'origin', 'file_name', 'sender', 'pages', 'quality', 'status',
     'would', 'reason', 'predicted_patient', 'predicted_dob', 'predicted_mrn', 'predicted_key', 'predicted_category',
-    'truth', 'truth_patient', 'truth_dob', 'truth_mrn', 'truth_key', 'truth_category', 'confirmed_by', 'agreement', 'wrong_patient',
+    'truth', 'truth_patient', 'truth_dob', 'truth_mrn', 'truth_key', 'truth_category', 'confirmed_by', 'truth_source',
+    'observed', 'observed_patient', 'observed_key', 'observed_category', 'observed_document_id', 'observed_confidence', 'agreement', 'wrong_patient',
   ];
   const rows = items
     .filter((i) => i.shadow)
@@ -531,7 +620,9 @@ export function documentCsv(items: IntakeItem[]): string {
         root.extracted?.sender?.value || '', i.page_count || i.ocr?.pages || '', qualityBand(root), i.status,
         d.would, REASON_LABEL[d.code] || d.code, i.match?.patient?.name || '', i.match?.patient?.dateOfBirth || '', i.match?.patient?.mrn || '',
         d.patient_key || '', d.category || '', t ? t.outcome : '', tp?.name || severalText, tp?.dateOfBirth || '', tp?.mrn || '', tp?.key || '',
-        t?.category || '', t?.by || '', agreement(i, byId), wrongPatient(i, byId),
+        t?.category || '', t?.by || '', unitTruth(i, byId)?.source || '',
+        i.observed?.status || '', i.observed?.patient?.name || '', i.observed?.patient?.key || '', i.observed?.category || '', i.observed?.document_id || '', i.observed?.confidence || '',
+        agreement(i, byId), wrongPatient(i, byId),
       ].map(csvCell).join(',');
     });
   return [PHI_CSV_WARNING, header.join(','), ...rows].join('\n') + '\n';

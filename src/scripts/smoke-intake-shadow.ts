@@ -542,6 +542,111 @@ async function main(): Promise<void> {
   }
   ok('shadow server: intake only, health says filing impossible, login required, no agent endpoints, Unity locked to reads, fax webhook closed until configured');
 
+  // 12b. Staff filing observer: the "(ready for indexing)" queue tracked by DocumentID (sandbox shapes, offline fakes)
+  const observe = await import('../platform/modules/intake/observe');
+  assert.strictEqual(observe.parseWhen('10/12/2026 10:04:00 AM').t, Date.parse('2026-10-12T16:04:00Z'), 'SortDate is Boise time (MDT)');
+  assert.strictEqual(observe.parseWhen('2026-10-12T16:04:00Z').t, Date.parse('2026-10-12T16:04:00Z'));
+  const T0 = Date.parse('2026-10-12T16:00:00Z'); // 10:00 in Boise
+  let clock = T0;
+  const oStore = new IntakeStore(path.join(TMP, 'observe'), () => new Date(clock));
+  const fileOf: Record<string, Buffer> = {};
+  const mk = (key: string, text: string, minutes: number, pages: number, would: 'auto_file' | 'staff', who?: any, category = 'Labs/Procedures') => {
+    clock = T0 + minutes * 60_000;
+    const data = Buffer.from(`%PDF-1.4 observe ${key}`);
+    fileOf[key] = data;
+    const id = oStore.addDocument({ source: 'moatit_fax' as any, source_ref: `fax:${key}`, name: `${key}.pdf`, mime: 'application/pdf', data, text }).item.id;
+    oStore.update(id, {
+      status: would === 'auto_file' ? 'matched' : 'needs_review',
+      extracted: extractFields(text, NOW),
+      page_count: pages,
+      ...(who ? { match: { decision: would === 'auto_file' ? 'auto' : 'review', reason: '', candidates: 1, patient: { patientId: '', chartPatientId: who.chartPatientId, name: `${who.firstName} ${who.lastName}`, dateOfBirth: who.dateOfBirth, mrn: who.mrn }, checked_at: new Date(clock).toISOString() } } : {}),
+      shadow: { at: new Date(clock).toISOString(), would, code: would === 'auto_file' ? 'auto' : 'no_second_id', reason: '', ...(who ? { patient_key: who.chartPatientId } : {}), category },
+    });
+    return id;
+  };
+  const oA = mk('A', LAB, 0, 2, 'auto_file', PEOPLE.testpatient);
+  const oB = mk('B', CONSULT, 30, 1, 'staff', PEOPLE.lightfoot, 'Consultant Letter');
+  const oC = mk('C', 'LABORATORY REPORT\nno identifiers\n', 61, 3, 'auto_file', PEOPLE.testpatient);
+  const oD = mk('D', 'LABORATORY REPORT\nother text\n', 62, 3, 'staff');
+  const oE = mk('E', LAB.replace('TESTPATIENT, MARIGOLD J', 'ZEPHYR, QUILLON').replace('03/14/1961', '07/02/1958').replace('00482913', '771234').replace('QUEST DIAGNOSTICS', 'SNAKE RIVER LAB'), 0, 1, 'staff', PEOPLE.zephyr);
+  const oF = mk('F', NOBODY, 5, 1, 'staff');
+  // The EHR, as GetDocumentsByDocumentType / GetDocuments / GetDocumentImage answer it.
+  const q = (id: string, sort: string, pages: number, display = 'Fax', extra: Record<string, string> = {}) => ({
+    DocumentID: id, Status: 'Active', SortDate: sort, DisplayName: display, DocumentType: '(ready for indexing)', DocumentSubType: '-1000999', PageCnt: String(pages), PhysicalManifestation: 'Scan', AuthorName: 'Fax Server', ...extra,
+  });
+  const ehr: Record<string, any> = {
+    Q1: q('Q1', '10/12/2026 10:04:00 AM', 2, 'Fax from QUEST DIAGNOSTICS'),
+    Q2: q('Q2', '10/12/2026 10:31:00 AM', 1),
+    Q3: q('Q3', '10/12/2026 11:01:00 AM', 3),
+    Q4: q('Q4', '10/12/2026 11:03:00 AM', 3),
+    Q9: q('Q9', '10/12/2026 10:05:00 AM', 7),
+    C9: { DocumentID: 'C9', Status: 'Active', SortDate: '10/12/2026 02:10:00 PM', DisplayName: 'Outside lab', DocumentType: 'Labs/Procedures', DocumentSubType: 'LAB', PageCnt: '1', PatientID: '7002', ClinicalDate: '10/08/2026' },
+  };
+  const images: Record<string, Buffer> = { Q3: fileOf.C, Q4: fileOf.D };
+  const oCalls: { action: string; params: any; pid: string }[] = [];
+  const ehrUnity = {
+    async executeAction(action: string, params: any = {}, pid = '') {
+      oCalls.push({ action, params, pid });
+      const rows = Object.values(ehr);
+      if (action === 'GetDocumentsByDocumentType') {
+        const want = params.Parameter1 === '-1000999' ? rows.filter((r) => r.DocumentSubType === '-1000999') : rows.filter((r) => r.DocumentType === params.Parameter1 && r.PatientID);
+        return { success: true, data: [{ getdocumentsbydocumenttypeinfo: want }] };
+      }
+      if (action === 'GetDocuments') return { success: true, data: [{ getdocumentsinfo: rows.filter((r) => r.PatientID === pid).map(({ PatientID, ...r }) => r) }] };
+      if (action === 'GetDocumentImage') return images[params.Parameter1] ? { success: true, data: [{ getdocumentimageinfo: [{ base64image: images[params.Parameter1].toString('base64') }] }] } : { success: false, error: 'not found' };
+      return { success: true, data: [] }; // a write would "succeed" here: the guard must stop it first
+    },
+  };
+  const obs = new observe.StaffFilingObserver({ store: () => oStore, unity: ehrUnity, runTool: liveSearch, now: () => new Date(clock) });
+  // Run 1, two hours later: the queue is read and the same faxes linked.
+  clock = T0 + 2 * 3_600_000;
+  const run1 = await obs.run();
+  assert.deepStrictEqual([run1.queue, run1.linked, run1.found], [5, 4, 0]);
+  const qCall = oCalls.find((c) => c.action === 'GetDocumentsByDocumentType')!;
+  assert.deepStrictEqual([qCall.params, qCall.pid], [{ Parameter1: '-1000999', Parameter2: '', Parameter3: '09/28/2026', Parameter4: '10/12/2026' }, ''], 'queue listing: type, no LOINC, MM/DD/YYYY window, PatientID blank');
+  const imgCall = oCalls.find((c) => c.action === 'GetDocumentImage')!;
+  assert.deepStrictEqual([imgCall.params.Parameter2, imgCall.params.Parameter3, imgCall.params.Parameter4], ['Scan', 'PDF', 'N'], 'image fetched as PDF to break the tie');
+  const ledgerDocs = JSON.parse(fs.readFileSync(path.join(oStore.dir, 'observer.json'), 'utf8')).docs;
+  assert.deepStrictEqual([ledgerDocs.Q1.item, ledgerDocs.Q2.item, ledgerDocs.Q3.item, ledgerDocs.Q4.item, ledgerDocs.Q9.item], [oA, oB, oC, oD, undefined], 'linked by time, pages, sender; the 3-page tie by the file itself; a 7-page fax never');
+  assert.deepStrictEqual([oStore.get(oA)!.observed?.status, oStore.get(oA)!.observed?.in_queue], ['pending', true]);
+  // Staff index Q1 to the predicted patient and Q2 to another patient than the candidate.
+  Object.assign(ehr.Q1, { PatientID: '7001', DocumentType: 'Labs/Procedures', DocumentSubType: 'LAB' });
+  Object.assign(ehr.Q2, { PatientID: '7002', DocumentType: 'Consultant Letter', DocumentSubType: 'CONS' });
+  clock = T0 + 26 * 3_600_000;
+  const run2 = await obs.run();
+  assert.deepStrictEqual([run2.queue, run2.indexed], [3, 2]);
+  const oa = oStore.get(oA)!.observed!;
+  assert.deepStrictEqual([oa.status, oa.via, oa.patient?.key, oa.category, oa.document_id, oa.confidence], ['found', 'queue', '7001', 'Labs/Procedures', 'Q1', 'high'], 'indexed from the queue: patient and category');
+  const ob = oStore.get(oB)!.observed!;
+  assert.deepStrictEqual([ob.status, ob.patient?.key, ob.category], ['found', '7002', 'Consultant Letter'], 'found through the category listing (not in the candidate\'s chart)');
+  const oe = oStore.get(oE)!.observed!;
+  assert.deepStrictEqual([oe.status, oe.via, oe.patient?.key, oe.document_id, oe.confidence], ['found', 'chart', '7002', 'C9', 'medium'], 'no queue trail: found in the candidate\'s chart by date and pages (medium at most)');
+  assert.deepStrictEqual([oStore.get(oC)!.observed?.status, oStore.get(oF)!.observed?.status], ['pending', 'pending']);
+  const oById = (id: string) => oStore.get(id);
+  assert.deepStrictEqual([shadow.agreement(oStore.get(oA)!, oById), shadow.agreement(oStore.get(oB)!, oById), shadow.unitTruth(oStore.get(oA)!, oById)?.source], ['agrees', 'disagrees', 'observed']);
+  // Run 3, eight days on: still in the queue or never found = not observed, and never counted as correct.
+  clock = T0 + 8 * 86_400_000;
+  await obs.run();
+  assert.deepStrictEqual([oC, oD, oF].map((id) => oStore.get(id)!.observed?.status), ['not_observed', 'not_observed', 'not_observed']);
+  assert.deepStrictEqual([shadow.unitTruth(oStore.get(oC)!, oById), shadow.agreement(oStore.get(oC)!, oById)], [null, 'unconfirmed']);
+  const oRep = report.buildShadowReport(oStore.list(), { now: new Date(clock) });
+  assert.deepStrictEqual(
+    [oRep.staff_agreement.observed, oRep.staff_agreement.same_patient, oRep.staff_agreement.patient_of, oRep.staff_agreement.candidate_other_patient, oRep.staff_agreement.same_category, oRep.auto_not_found, oRep.precision.right, oRep.precision.of, oRep.wrong_patient.total, oRep.truth_sources.observed, oRep.truth_sources.none],
+    [3, 2, 3, 1, 3, 1, 1, 1, 0, 3, 3],
+    'agreement with staff; the unobserved auto-file is listed to look at, not counted'
+  );
+  assert.ok(/Agreement with staff filing/.test(report.shadowReportMarkdown(oRep)));
+  assert.ok(oCalls.every((c) => ['GetDocumentsByDocumentType', 'GetDocuments', 'GetDocumentImage'].includes(c.action)), 'reads only');
+  const panel = ui.shadowPanel(oStore.get(oA)!, { byId: oById, categories: [] });
+  assert.ok(/Filed by staff to Marigold Testpatient/.test(panel) && /From staff filing/.test(panel));
+  // The guard holds even if the observer were asked to write.
+  const guardCalls: string[] = [];
+  const guarded = new observe.StaffFilingObserver({ store: () => oStore, unity: { async executeAction(a: string) { guardCalls.push(a); return { success: true, data: [] }; } }, runTool: liveSearch });
+  await (guarded as any).unity.executeAction('SaveScanDocument', {}, '7001');
+  await (guarded as any).unity.executeAction('SaveTask', {}, '7001');
+  assert.deepStrictEqual(guardCalls, []);
+  ok('staff filing observer: queue listed by DocumentID (verified shapes), faxes linked by time/pages/sender and the file itself on ties, indexing seen in the chart or the category listing, chart fallback, not observed after the deadline; report agreement; reads only');
+
   await intake.intakePipeline.idle();
   ocrSrv.srv.close();
 

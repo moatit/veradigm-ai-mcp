@@ -31,6 +31,8 @@ export function prepareShadowEnv(env: NodeJS.ProcessEnv = process.env): ShadowSt
     env.UNITY_UBIQUITY_ENDPOINT = 'https://veradigm-not-configured.invalid/UnityService.svc';
     delete env.UNITY_PM_USERNAME;
     delete env.UNITY_PM_PASSWORD;
+    // The staff filing observer reads Veradigm EHR: nothing to observe without it.
+    env.INTAKE_OBSERVE = 'off';
   }
   return { veradigm, roster: !!String(env.INTAKE_ROSTER_CSV || '').trim() };
 }

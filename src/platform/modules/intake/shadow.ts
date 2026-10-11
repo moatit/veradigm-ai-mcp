@@ -32,8 +32,18 @@ export const shadowMode = (): boolean => intakeMode() === 'shadow';
 
 // ── Read-only Veradigm® access ───────────────────────────────────────────────
 
-/** The only Veradigm® actions shadow mode may call: the patient search (PM + EHR) and the category list. */
-export const SHADOW_READ_ACTIONS: ReadonlySet<string> = new Set([UnityActions.Patient.SEARCH_PATIENTS, UnityActions.Document.GET_DOCUMENT_TYPES]);
+/**
+ * The only Veradigm® actions shadow mode may call, all reads: the patient search (PM + EHR), the
+ * category list, and for the staff filing observer (observe.ts) the indexing queue and document
+ * listings and a document's image. Never SaveScanDocument, SaveTask or any other Save/Set/Delete.
+ */
+export const SHADOW_READ_ACTIONS: ReadonlySet<string> = new Set([
+  UnityActions.Patient.SEARCH_PATIENTS,
+  UnityActions.Document.GET_DOCUMENT_TYPES,
+  UnityActions.Document.GET_DOCUMENTS,
+  UnityActions.Document.GET_DOCUMENTS_BY_DOCUMENT_TYPE,
+  UnityActions.Document.GET_DOCUMENT_IMAGE,
+]);
 /** The only agent tool shadow mode may run. */
 export const SHADOW_TOOLS: ReadonlySet<string> = new Set(['unity_search_patients']);
 
@@ -222,8 +232,39 @@ export function parsePageList(s: string, max?: number): number[] | null {
   return [...out].sort((x, y) => x - y);
 }
 
-/** Truth for one filing unit (a whole document or a part), from its own truth or its parent's. */
-export type UnitTruth = { kind: 'patient'; key: string; category?: string } | { kind: 'not_iki' } | { kind: 'unreadable' } | { kind: 'several' };
+/**
+ * Where staff actually filed the document in Veradigm® EHR, read back by the staff filing observer
+ * (observe.ts). Only `found` with high or medium confidence counts as ground truth; anything else
+ * leaves the item for the Confirm panel and is never counted as correct.
+ */
+export interface StaffObservation {
+  /** Last look. */
+  at: string;
+  attempts: number;
+  /** pending: looked, not found yet (will look again); not_observed: gave up; ambiguous: two documents fit equally. */
+  status: 'pending' | 'found' | 'ambiguous' | 'not_observed' | 'error';
+  /** Charts looked in. */
+  looked_in: number;
+  patient?: TruthPatient;
+  category?: string;
+  document_id?: string;
+  confidence?: 'high' | 'medium' | 'low';
+  score?: number;
+  /** What matched or not ("pages 3 = 3", "arrived 4 min apart", "same file", ...). */
+  signals?: string[];
+  error_code?: string;
+  /** queue: the same fax tracked by DocumentID through "(ready for indexing)"; chart: found in a candidate's chart by date and pages. */
+  via?: 'queue' | 'chart';
+  /** Linked to a document still waiting in the indexing queue. */
+  in_queue?: boolean;
+}
+
+export const observedTruth = (o?: StaffObservation): boolean => !!o && o.status === 'found' && !!o.patient && (o.confidence === 'high' || o.confidence === 'medium');
+
+/** Truth for one filing unit (a whole document or a part): staff confirmation, else observed filing, else the parent's. */
+export type UnitTruth = ({ kind: 'patient'; key: string; category?: string } | { kind: 'not_iki' } | { kind: 'unreadable' } | { kind: 'several' }) & {
+  source?: 'confirmed' | 'observed' | 'parent';
+};
 
 const sameKey = (a?: string, b?: string) => !!a && !!b && a.trim().toUpperCase() === b.trim().toUpperCase();
 
@@ -235,12 +276,20 @@ function fromTruth(t: GroundTruth): UnitTruth {
 }
 
 /**
- * A unit's truth. Its own when staff confirmed it; else derived from the parent's: one patient →
- * that patient for every part; several with pages → the patient(s) on this part's pages (two
- * different ones = several; a page staff did not assign = unconfirmed).
+ * A unit's truth. Its own when staff confirmed it; else where staff were seen to file it (high or
+ * medium confidence); else derived from the parent's confirmation: one patient → that patient for
+ * every part; several with pages → the patient(s) on this part's pages (two different ones =
+ * several; a page staff did not assign = unconfirmed).
  */
 export function unitTruth(item: IntakeItem, byId: (id: string) => IntakeItem | undefined): UnitTruth | null {
-  if (item.truth) return fromTruth(item.truth);
+  if (item.truth) return { ...fromTruth(item.truth), source: 'confirmed' };
+  const o = item.observed;
+  if (observedTruth(o)) return { kind: 'patient', key: o!.patient!.key, ...(o!.category ? { category: o!.category } : {}), source: 'observed' };
+  const fromParent = parentTruth(item, byId);
+  return fromParent ? { ...fromParent, source: 'parent' } : null;
+}
+
+function parentTruth(item: IntakeItem, byId: (id: string) => IntakeItem | undefined): UnitTruth | null {
   const parent = item.parent_id ? byId(item.parent_id) : undefined;
   const t = parent?.truth;
   if (!t || !item.part) return null;

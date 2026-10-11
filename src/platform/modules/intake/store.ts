@@ -4,7 +4,7 @@ import * as path from 'path';
 import type { ExtractedFields } from './extract';
 import type { MatchResult } from './match';
 import type { DocTypeSuggestion } from './doctypes';
-import type { GroundTruth, ShadowDecision } from './shadow';
+import type { GroundTruth, ShadowDecision, StaffObservation } from './shadow';
 
 /**
  * Intake working store: one JSON file of items plus the original files.
@@ -87,6 +87,8 @@ export interface IntakeItem {
   shadow?: ShadowDecision;
   /** Shadow mode: what staff confirmed (patient and category, or not an IKI patient / unreadable / several). */
   truth?: GroundTruth;
+  /** Shadow mode: where staff were seen to file it in Veradigm® EHR (observe.ts, read-only). */
+  observed?: StaffObservation;
   history: IntakeHistory[];
 }
 

@@ -6,6 +6,8 @@ import type { Confidence, DocumentKind, Extracted } from './extract';
 import { fileToChart, filingStatus, IntakeFilingError, sendToIndexing, setFilingDeps, type FilingResult } from './file';
 import { startFolderWatcher, startWatchFolders } from './folder';
 import { MoatitFaxClient, setFaxRecordedHandler } from './moatit-fax';
+import { observeEnabled, StaffFilingObserver } from './observe';
+import { OcrClient } from './ocr';
 import { IntakePipeline } from './pipeline';
 import { rosterPath } from './roster';
 import { readOnlyRunTool, readOnlyUnity, shadowMode } from './shadow';
@@ -307,6 +309,7 @@ ${i.status === 'failed' ? actionButton(i.id, 'retry', 'Try again', true, '', tru
 
 let stopWatcher: (() => void) | null = null;
 let stopWatchDirs: (() => void) | null = null;
+let stopObserver: (() => void) | null = null;
 let docTypeCache: DocTypeSource | null = null;
 /** Shadow mode: the read-only patient search for the Confirm panel. */
 let shadowRunTool: ((name: string, args: any) => Promise<any>) | null = null;
@@ -493,7 +496,10 @@ export const intakeModule: PlatformModule = {
       shadowRunTool = readOnlyRunTool(deps.runTool);
       intakePipeline.setDeps({ runTool: shadowRunTool }, docTypeCache);
       setFilingDeps(null);
-      console.log(`[Intake] shadow mode: nothing is filed; patients from ${rosterPath() ? 'the local patient list' : 'the Veradigm search (read-only)'}`);
+      // Ground truth from staff's own filing in Veradigm EHR, read back later (observe.ts).
+      stopObserver?.();
+      stopObserver = observeEnabled() ? new StaffFilingObserver({ store: intakeStore, unity: deps.unity, runTool: deps.runTool, ocr: () => OcrClient.fromEnv() }).start() : null;
+      console.log(`[Intake] shadow mode: nothing is filed; patients from ${rosterPath() ? 'the local patient list' : 'the Veradigm search (read-only)'}; staff filing observer ${stopObserver ? 'on' : 'off'}`);
     } else {
       docTypeCache = new DocTypeCache(deps.unity);
       intakePipeline.setDeps(deps, docTypeCache);

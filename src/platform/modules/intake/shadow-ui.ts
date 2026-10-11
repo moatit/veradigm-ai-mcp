@@ -3,7 +3,7 @@ import { APP_BASE, esc, fmtTime } from '../../shell';
 import type { DocTypeSource } from './doctypes';
 import { normDob, toCandidates } from './match';
 import { loadRoster, normKey, rosterPath, RosterError, rosterDob, type RosterPatient } from './roster';
-import { agreement, parsePageList, REASON_LABEL, shadowMode, unitTruth, type Agreement, type GroundTruth, type TruthPatient } from './shadow';
+import { agreement, observedTruth, parsePageList, REASON_LABEL, shadowMode, unitTruth, type Agreement, type GroundTruth, type StaffObservation, type TruthPatient } from './shadow';
 import { IntakeItem, IntakeStore } from './store';
 
 /**
@@ -106,6 +106,20 @@ function truthText(t: GroundTruth): string {
   return `Several patients${who}${parts ? `<ul>${parts}</ul>` : ''}`;
 }
 
+/** What the staff filing observer saw (observe.ts). */
+function observedText(o?: StaffObservation): string {
+  if (!o) return '<span class="muted">Not looked for yet (Drawbridge looks in the charts about a day after a document arrives).</span>';
+  const when = `<span class="muted" style="font-size:13px"> · checked ${esc(fmtTime(o.at))}, ${esc(o.looked_in)} chart(s)</span>`;
+  if (o.status === 'found') {
+    const used = observedTruth(o) ? '' : ' <span class="muted">(low confidence: not used)</span>';
+    return `Filed by staff to ${patientText(o.patient)}${o.category ? ` under <strong>${esc(o.category)}</strong>` : ''} · document ${esc(o.document_id)} ${pill(o.confidence === 'high' ? 'ok' : 'warn', `${o.confidence} confidence`)}${used}${o.signals?.length ? `<div class="muted" style="font-size:13px">${esc(o.signals.join(' · '))}</div>` : ''}${when}`;
+  }
+  if (o.status === 'ambiguous') return `Two documents in different charts fit equally well: confirm by hand.${when}`;
+  if (o.status === 'not_observed') return `Not found in the charts looked at${o.error_code ? ` (${esc(o.error_code)})` : ''}: confirm by hand.${when}`;
+  if (o.status === 'error') return `The check failed (${esc(o.error_code || 'error')}); it will be tried again.${when}`;
+  return `Not found yet; Drawbridge will look again.${when}`;
+}
+
 const pageText = (ps: number[]) => (ps.length === 1 ? `page ${ps[0]}` : ps[ps.length - 1] - ps[0] === ps.length - 1 ? `pages ${ps[0]}-${ps[ps.length - 1]}` : `pages ${ps.join(', ')}`);
 
 export interface ShadowPanelContext {
@@ -135,11 +149,19 @@ export function shadowPanel(i: IntakeItem, ctx: ShadowPanelContext): string {
   else if (d) would = `${pill('', 'Send to staff')} ${esc(REASON_LABEL[d.code] || d.code)}: ${esc(d.reason)}${predicted ? `<div class="muted" style="font-size:13px">Candidate shown to staff: ${patientText(predicted)}</div>` : ''}${d.category ? `<div class="muted" style="font-size:13px">Suggested category: ${esc(d.category)}</div>` : ''}`;
   const t = i.truth;
   const derived = !t ? unitTruth(i, ctx.byId) : null;
+  const fromParent = derived?.source === 'parent';
   const agree = agreement(i, ctx.byId);
-  const state = t ? truthText(t) : derived ? `<span class="muted">From the confirmation of the whole file (${esc(derived.kind === 'patient' ? 'patient confirmed' : derived.kind.replace('_', ' '))}).</span>` : '<span class="muted">Not confirmed yet.</span>';
+  const state = t
+    ? truthText(t)
+    : derived?.source === 'observed'
+      ? '<span class="muted">From staff filing in Veradigm® EHR (above).</span>'
+      : fromParent && derived
+        ? `<span class="muted">From the confirmation of the whole file (${esc(derived.kind === 'patient' ? 'patient confirmed' : derived.kind.replace('_', ' '))}).</span>`
+        : '<span class="muted">Not confirmed yet.</span>';
 
-  const summary = `<div class="card"><dl><dt>Drawbridge would</dt><dd>${would}</dd><dt>Confirmed</dt><dd>${state} ${agree === 'agrees' || agree === 'disagrees' ? AGREE_PILL[agree] : ''}</dd></dl>
-<p class="muted" style="font-size:13px;margin-bottom:0">Shadow mode: nothing is filed. Check the original, then confirm the right answer below. It is saved as ground truth for the accuracy report.</p></div>`;
+  const staffFiling = d && d.would !== 'split' ? `<dt>Staff filed it</dt><dd>${observedText(i.observed)}</dd>` : '';
+  const summary = `<div class="card"><dl><dt>Drawbridge would</dt><dd>${would}</dd>${staffFiling}<dt>Confirmed</dt><dd>${state} ${agree === 'agrees' || agree === 'disagrees' ? AGREE_PILL[agree] : ''}</dd></dl>
+<p class="muted" style="font-size:13px;margin-bottom:0">Shadow mode: nothing is filed. Where staff filed the document in Veradigm® EHR is read back and used as the answer. When it isn't found, check the original and confirm the right answer below.</p></div>`;
 
   if (!d) return `<h2>Shadow mode</h2>${summary}`;
 
