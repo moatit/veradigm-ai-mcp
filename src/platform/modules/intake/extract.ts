@@ -228,22 +228,25 @@ function allDobs(lines: string[], now: Date): { value: string; line: number }[] 
 const MRN_VALUE = /^#?\s*([A-Z0-9][A-Z0-9-]{2,19})\b/i;
 /** Anything that looks like an MRN label, even badly read ("Med Ree #", "M RN"). See mrn_unreadable. */
 const MRN_LABEL_LOOSE = /\b(?:M\s?R\s?N|Med\w{0,5}\.?\s*Re[a-z]{1,4}\b|Chart\s*(?:#|No|Num)|Patient\s*[I1l]D)/i;
-function extractMrn(lines: string[]): Extracted | undefined {
+/** Every labelled MRN on the document, high-confidence labels first. */
+function allMrns(lines: string[]): Extracted[] {
   const tries: [RegExp, Confidence][] = [
     [/\b(?:MRN|Med(?:ical)?\.?\s*Re[ce](?:ord)?\.?\s*(?:Number|No\.?|#)?|Chart\s*(?:Number|No\.?|#))/i, 'high'],
     [/\bPatient\s*[I1l]D\b/i, 'medium'],
   ];
+  const out: Extracted[] = [];
   for (const [label, confidence] of tries) {
     for (const v of labeledAll(lines, label)) {
-      const m = v.value.match(MRN_VALUE);
+      // OCR splits digits with a single space ("005696 14"); values are already cut at double spaces.
+      const m = v.value.replace(/(?<=\d) (?=\d)/g, '').match(MRN_VALUE);
       if (!m || !/\d/.test(m[1])) continue;
       // Mostly digits: undo O/0 and l/1 swaps ("4O2449O" → "4024490"). Letter MRNs stay as read.
       const raw = m[1].toUpperCase();
       const val = (raw.match(/\d/g) || []).length >= raw.length - 2 ? raw.replace(/[OD]/g, '0').replace(/[IL|]/g, '1') : raw;
-      return { value: val, confidence };
+      out.push({ value: val, confidence });
     }
   }
-  return undefined;
+  return out;
 }
 
 /**
@@ -350,20 +353,26 @@ function within(a: string, b: string, k: number): boolean {
 
 /**
  * Distinct people named on the document: labelled names count as one when they differ by OCR noise
- * only (edit distance ≤ 2 on last + first), dates of birth when they differ in one character.
- * Returns the larger of the two counts.
+ * only (edit distance ≤ 2 on last + first), dates of birth when they differ in one character, MRNs
+ * when they differ by one edit. Returns the largest of the three counts, so a second patient is
+ * caught even when OCR loses that patient's name or DOB label (seen on the bench: "PT:" read as
+ * "Pri", "DOB" as "NOB", while both MRNs were still readable). Two different MRN values for one
+ * patient also count as two: that document needs a person anyway.
  */
-function countPatients(names: PatientName[], dobs: string[]): number {
-  const keys: string[] = [];
-  for (const n of names) {
-    const k = `${n.last}${n.first}`.toLowerCase().replace(/[^a-z]/g, '');
-    if (!keys.some((x) => within(x, k, 2))) keys.push(k);
-  }
-  const ds: string[] = [];
-  for (const d of dobs) {
-    if (!ds.some((x) => [...x].filter((ch, i) => ch !== d[i]).length <= 1)) ds.push(d);
-  }
-  return Math.max(keys.length, ds.length);
+function countPatients(names: PatientName[], dobs: string[], mrns: string[]): number {
+  const distinct = (xs: string[], same: (a: string, b: string) => boolean) =>
+    xs.reduce<string[]>((acc, x) => (acc.some((y) => same(x, y)) ? acc : [...acc, x]), []).length;
+  return Math.max(
+    distinct(
+      names.map((n) => `${n.last}${n.first}`.toLowerCase().replace(/[^a-z]/g, '')),
+      (a, b) => within(a, b, 2)
+    ),
+    distinct(dobs, (a, b) => [...a].filter((ch, i) => ch !== b[i]).length <= 1),
+    distinct(
+      mrns.map((m) => m.replace(/[^A-Z0-9]/g, '').replace(/^0+(?=.)/, '')),
+      (a, b) => within(a, b, 1)
+    )
+  );
 }
 
 // ── Document kind ────────────────────────────────────────────────────────────
@@ -463,11 +472,13 @@ export function extractFields(
   if (names.length) out.patient_name = { value: names[0].name, confidence: names[0].confidence };
   const dobs = allDobs(lines, now);
   if (dobs.length) out.dob = { value: dobs[0].value, confidence: 'high' };
+  const mrns = allMrns(lines);
   out.patient_count = countPatients(
     names.map((n) => n.name),
-    dobs.map((d) => d.value)
+    dobs.map((d) => d.value),
+    mrns.map((m) => m.value)
   );
-  const mrn = extractMrn(lines);
+  const mrn = mrns[0];
   if (mrn) out.mrn = mrn;
   else if (MRN_LABEL_LOOSE.test(clean)) out.mrn_unreadable = true;
   const phone = extractPhone(lines, [...names.map((n) => n.line), ...dobs.map((d) => d.line)]);

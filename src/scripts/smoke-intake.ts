@@ -266,7 +266,9 @@ MRN: 771234                   COLL: 10/08/2026 07:10
   const batch = extractFields(BATCH, NOW);
   assert.deepStrictEqual([batch.patient_count, batch.patient_name?.value.last, batch.kind.value], [2, 'Testpatient', 'lab_result']);
   assert.strictEqual(extractFields(BATCH.split('PT! ZEPHYR')[0] + 'PT: TESTPATIENT,MARIGOLD  DOB: 1961-03-14\n', NOW).patient_count, 1, 'a repeated header is one patient');
-  assert.strictEqual(extractFields(BATCH.replace('1958-07-02', '1961-03-14').replace('ZEPHYR,QUILLON', 'TESTPATIENT,MARIGOLO'), NOW).patient_count, 1, 'OCR noise is not a second patient');
+  assert.strictEqual(extractFields(BATCH.replace('1958-07-02', '1961-03-14').replace('ZEPHYR,QUILLON', 'TESTPATIENT,MARIGOLO').replace('771234', '482918'), NOW).patient_count, 1, 'OCR noise is not a second patient');
+  const lostLabels = BATCH.replace('PT: TESTPATIENT,MARIGOLD      DOB:', 'Pri TESTPATIENT,MARIGOLD      NOB:').replace('MRN: 482913', 'PATIENT ID! 482913');
+  assert.deepStrictEqual([extractFields(lostLabels, NOW).patient_count, extractFields(lostLabels, NOW).patient_name?.value.last], [2, 'Zephyr'], 'two MRNs = two patients even when one name/DOB label is lost');
   const unread = extractFields('Patient: Marigold Testpatient\nDOB: 03/14/1961\nMed Ree #: ?????\nPatient Phone: (208) 555-0142', NOW);
   assert.deepStrictEqual([unread.mrn, unread.mrn_unreadable], [undefined, true]);
   ok('extraction under fax OCR noise: ";" "!" "," for ":", D,O.B., Patient 1D, Collactad, letterhead sender, *H / (C) flags, patient-block phone, particles, multi-patient count');

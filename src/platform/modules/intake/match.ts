@@ -96,7 +96,7 @@ function toMatched(c: Candidate): MatchedPatient {
 function multiplePatients(n: number): Omit<MatchResult, 'checked_at'> {
   return {
     decision: 'ambiguous',
-    reason: `The document names ${n} different patients. Split it and file each part by hand.`,
+    reason: `The document shows ${n} different patients (names, dates of birth or MRNs). Split it and file each part by hand.`,
     candidates: 0,
   };
 }
