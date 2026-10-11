@@ -76,7 +76,7 @@ async function main(): Promise<void> {
   const { DocTypeCache, mapKindToType, parseDocumentTypes } = await import('../platform/modules/intake/doctypes');
   const filing = await import('../platform/modules/intake/file');
   const { scanDropFolder } = await import('../platform/modules/intake/folder');
-  const { IntakePipeline, OCR_MAX_WAITS } = await import('../platform/modules/intake/pipeline');
+  const { IntakePipeline, OCR_MAX_WAITS, autoFileBlocker } = await import('../platform/modules/intake/pipeline');
   const intake = await import('../platform/modules/intake');
   const { UnityActions } = await import('../unity/config/unity-endpoints');
   const express = (await import('express')).default;
@@ -613,6 +613,21 @@ MRN: 771234                   COLL: 10/08/2026 07:10
   assert.deepStrictEqual(fcalls.map((c) => [c.action, c.params.Parameter1]), [['SaveScanDocument', '(ready for indexing)']]);
   assert.ok(/<docstatus>1<\/docstatus>/.test(fcalls[0].params.Parameter3));
   assert.strictEqual(pStore.get(idx.id)!.status, 'sent_to_indexing');
+
+  // Auto-filing gate (pipeline step 5)
+  const autoItem = { ...ready, status: 'matched' as const, filed: undefined, document_type: { id: '16', name: 'Lab Results', reason: 'keyword' as const } };
+  assert.strictEqual(autoFileBlocker(autoItem), 'filing mode is not auto', 'review mode never auto-files');
+  process.env.INTAKE_FILING = 'auto';
+  assert.strictEqual(autoFileBlocker(autoItem), '');
+  assert.strictEqual(autoFileBlocker({ ...autoItem, match: { ...autoItem.match!, decision: 'review' } }), 'not auto-matched');
+  assert.strictEqual(autoFileBlocker({ ...autoItem, document_type: { id: '-1000999', name: '(ready for indexing)', reason: 'fallback' } }), 'no specific document type');
+  process.env.INTAKE_NO_AUTO_SENDERS = 'express lab, Daily Batch';
+  const sender = (v: string) => ({ ...autoItem, extracted: { ...autoItem.extracted!, sender: { value: v, confidence: 'medium' as const } } });
+  assert.strictEqual(autoFileBlocker(sender('EXPRESS LAB INC')), 'sender is set to staff review');
+  assert.strictEqual(autoFileBlocker(sender('Summit Reference Laboratory')), '');
+  process.env.INTAKE_SAVE_DOCUMENT_FORMAT_CONFIRMED = 'false';
+  assert.strictEqual(autoFileBlocker(autoItem), 'filing disabled');
+  delete process.env.INTAKE_NO_AUTO_SENDERS;
 
   process.env.INTAKE_FILING = 'everything';
   assert.strictEqual(filing.filingMode(), 'off', 'unknown mode = off');

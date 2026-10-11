@@ -77,6 +77,9 @@ export interface PatientUpdateData {
 export interface ParsedPatient {
   id: string;
   mrn?: string;
+  /** Veradigm® PM MRN and Veradigm® EHR chart MRN (= the PM patient number). Outside documents may carry either. */
+  pmMrn?: string;
+  chartMrn?: string;
   firstName: string;
   lastName: string;
   middleName?: string;
@@ -433,12 +436,14 @@ export class UnityPatientTools {
     const key = (p: ParsedPatient) =>
       `${(p.lastName || "").trim().toLowerCase()}|${(p.firstName || "").trim().toLowerCase()}|${normalizeDob(p.dateOfBirth)}`;
     const merged = new Map<string, ParsedPatient>();
-    for (const p of pm) merged.set(key(p), { ...p, patientId: p.id });
+    for (const p of pm) merged.set(key(p), { ...p, patientId: p.id, pmMrn: p.mrn });
     for (const p of ehr) {
       const k = key(p);
       const existing = merged.get(k);
-      if (existing) existing.chartPatientId = p.id;
-      else merged.set(k, { ...p, chartPatientId: p.id });
+      if (existing) {
+        existing.chartPatientId = p.id;
+        existing.chartMrn = p.mrn;
+      } else merged.set(k, { ...p, chartPatientId: p.id, chartMrn: p.mrn });
     }
     return { patients: [...merged.values()], pmOk: Boolean(pmRes.success) };
   }

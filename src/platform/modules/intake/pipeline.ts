@@ -1,6 +1,7 @@
 import * as fs from 'fs';
 import type { PlatformDeps } from '../../registry';
 import { DocTypeCache } from './doctypes';
+import { fileToChart, filingMode, filingStatus, IntakeFilingError } from './file';
 import { extractFields } from './extract';
 import { matchPatient } from './match';
 import { FaxApiError, isOcrPending, MoatitFaxClient } from './moatit-fax';
@@ -18,7 +19,9 @@ import { IntakeItem, IntakeStore } from './store';
  *    Then extract fields from the text (extract.ts).
  * 3. Match the patient through unity_search_patients (match.ts).
  * 4. Suggest a Veradigm® EHR document type (doctypes.ts).
- * Filing is a separate, staff-triggered step (file.ts) and is disabled on this branch.
+ * 5. Auto-file (file.ts) only when INTAKE_FILING=auto, filing is enabled, the match is 'auto', the
+ *    document type was found by keyword and the sender is not in INTAKE_NO_AUTO_SENDERS (batch
+ *    reports such as a lab's daily file). Everything else waits for staff.
  *
  * One item at a time (a serial queue), so a burst of faxes never floods Veradigm or MOATiT Fax.
  * Without platform deps (before the module starts) items stop at 'read' and are resumed at start.
@@ -139,7 +142,19 @@ export class IntakePipeline {
       `${auto ? 'matched' : `needs review: ${ocrGate ? 'low OCR confidence' : match.decision}`}${typeNote}`,
       AUTO
     );
-    // Auto-filing (INTAKE_FILING=auto) is deliberately not wired here: see file.ts.
+
+    // 5. Auto-file
+    const why = auto ? autoFileBlocker(store.get(id)!) : 'not auto-matched';
+    if (why) return;
+    try {
+      const r = await fileToChart(store.get(id)!, AUTO);
+      console.log(`[Intake] auto-filed ${id}${r.task_error ? ` (review task: ${r.task_error})` : ''}`);
+    } catch (e: any) {
+      const code = e instanceof IntakeFilingError ? e.error_code : 'FILING_UNCERTAIN';
+      // Rejected/uncertain are already in the item history (file.ts); the rest is recorded here.
+      if (!['FILING_REJECTED', 'FILING_UNCERTAIN'].includes(code)) store.update(id, {}, `auto-filing skipped (${code})`, AUTO);
+      console.error(`[Intake] auto-filing ${id} not done: ${code}`);
+    }
   }
 
   /** Local OCR of the original. Returns false when it failed (the item is then 'failed' with a code). */
@@ -208,4 +223,19 @@ export class IntakePipeline {
     if (this.opts.later) this.opts.later(fn, ms);
     else setTimeout(fn, ms).unref?.();
   }
+}
+
+/** Why an auto-matched item must still wait for staff ('' = it may be auto-filed). */
+export function autoFileBlocker(item: IntakeItem): string {
+  if (filingMode() !== 'auto') return 'filing mode is not auto';
+  if (!filingStatus().enabled) return 'filing disabled';
+  if (item.match?.decision !== 'auto') return 'not auto-matched';
+  if (item.document_type?.reason !== 'keyword') return 'no specific document type';
+  const sender = (item.extracted?.sender?.value || '').toLowerCase();
+  const blocked = String(process.env.INTAKE_NO_AUTO_SENDERS || '')
+    .split(',')
+    .map((x) => x.trim().toLowerCase())
+    .filter(Boolean);
+  if (sender && blocked.some((b) => sender.includes(b))) return 'sender is set to staff review';
+  return '';
 }
