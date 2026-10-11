@@ -89,3 +89,7 @@ deploy/local/secrets/
 # Fax/document intake drop folder (PHI, never committed). Anchored: src/platform/modules/intake/ is code.
 /intake/
 deploy/local/intake/
+
+# Python caches (tools/intake-synth, deploy/ocr)
+__pycache__/
+*.pyc
