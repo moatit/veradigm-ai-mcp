@@ -7,8 +7,17 @@
  *
  * Confidence:
  *   high    the value sits next to an explicit label ("DOB:", "MRN:", "Patient Name:")
- *   medium  a weaker label ("Name:", "RE:", "Patient ID:") or a well-known name (lab company)
+ *   medium  a weaker label ("Name:", "RE:", "Patient ID:"), a plain "Phone:" inside the patient
+ *           block, or the sender's letterhead
  *   low     a guess; never used for patient matching
+ *
+ * Fax OCR (deploy/ocr) is noisy: a colon often comes back as ";" "," or "."; O/0 and l/1 swap inside
+ * numbers; "DOB" reads as "D0B" or "D,O.B.". Labels and values here tolerate that, measured on the
+ * synthetic bench (src/scripts/eval-intake.ts, docs/drawbridge/INTAKE_ACCURACY.md).
+ *
+ * patient_count: distinct patients named on the document (labelled names and dates of birth, OCR
+ * noise allowed for). More than one (a daily batch report, a fax with two patients' results) means
+ * staff must split the document; match.ts never files it to one chart.
  */
 export type Confidence = 'high' | 'medium' | 'low';
 export type DocumentKind = 'lab_result' | 'imaging' | 'consult' | 'referral' | 'other';
@@ -48,6 +57,13 @@ export interface ExtractedFields {
   collection_date?: Extracted;
   kind: Extracted<DocumentKind>;
   abnormal: AbnormalFlags;
+  /** Distinct patients named on the document (0 when none could be read). */
+  patient_count?: number;
+  /**
+   * Something like an MRN label is printed but no MRN could be read. The MRN might disagree, so
+   * match.ts does not fall back to the phone as the second identifier.
+   */
+  mrn_unreadable?: boolean;
 }
 
 // ── Dates ────────────────────────────────────────────────────────────────────
@@ -97,31 +113,59 @@ export function normalizeDate(s: string, opts: { pastOnly?: boolean; now?: Date 
 
 // ── Labels ───────────────────────────────────────────────────────────────────
 
-/** Labels that end a value when several fields share one line ("Name: X   DOB: Y"). */
-const NEXT_LABEL =
-  /\s{2,}|\t|\s+(?=(?:DOB|D\.O\.B\.?|Date of Birth|Birth ?Date|MRN|Med(?:ical)? Rec(?:ord)?|Sex|Gender|Age|Phone|Tel|Acct|Account|Patient ID|Chart|Collected|Ordered|Received|Reported|Fax|Provider|Physician|Location|Room|SSN)\b)/i;
+/** "DOB" as printed and as OCR reads it: DOB, D.O.B., D,O.B., D0B, DOR. */
+const DOB_LABEL = String.raw`D[.,]?\s?[O0][.,]?\s?[BR8]\b\.?|Date\s+of\s+Birth|Birth\s*Date|Birthdate`;
 
-/** Text after `label` on the same line, cut at the next label. '' when the label is absent. */
-function labeled(lines: string[], label: RegExp): string {
-  for (const line of lines) {
+/** Labels that end a value when several fields share one line ("Name: X   DOB: Y"). */
+const NEXT_LABEL = new RegExp(
+  String.raw`\s{2,}|\t|\s+(?=(?:${DOB_LABEL}|MRN|Med(?:ical)? Rec(?:ord)?|Sex|Gender|Age|Phone|Tel|PT PHONE|Acct|Account|ACC#|Accession|Patient [I1l]D|Chart|Coll\w*|Ordered|Ordering|Received|Reported|Resulted|Specimen|Fax|Provider|Physician|Referring|Location|Room|SSN|Client|Exam)\b)`,
+  'i'
+);
+
+/** Separators OCR leaves between a label and its value (":" read as ";" "," "." and stray marks). */
+const LEAD_JUNK = /^[\s:;!,#.\-_'"|‘’“”~]+/;
+
+/** Every value after `label` (one per matching line), cut at the next label. */
+function labeledAll(lines: string[], label: RegExp): { value: string; line: number }[] {
+  const out: { value: string; line: number }[] = [];
+  lines.forEach((line, i) => {
     const m = line.match(label);
-    if (!m || m.index === undefined) continue;
-    const rest = line.slice(m.index + m[0].length).replace(/^[\s:#.-]+/, '');
+    if (!m || m.index === undefined) return;
+    const rest = line.slice(m.index + m[0].length).replace(LEAD_JUNK, '');
     const cut = rest.split(NEXT_LABEL)[0].trim();
-    if (cut) return cut;
-  }
-  return '';
+    if (cut) out.push({ value: cut, line: i });
+  });
+  return out;
+}
+
+/** Inside a number, OCR reads 0 as O/o/D and 1 as l/I/|: "1O/O4/l971" → "10/04/1971". */
+export function fixDigits(s: string): string {
+  return s
+    .replace(/(?<=[\d/.-])[OoD](?=[\d/.-])|(?<=\d)[OoD]\b|\b[OoD](?=\d)/g, '0')
+    .replace(/(?<=[\d/.-])[lI|](?=[\d/.-])|(?<=\d)[lI|]\b|\b[lI|](?=\d)/g, '1');
 }
 
 // ── Patient name ─────────────────────────────────────────────────────────────
 
 const NAME_TOKEN = /^[A-Za-z][A-Za-z'’-]*\.?$/;
 const titleCase = (s: string) => s.toLowerCase().replace(/(^|[\s'’-])([a-z])/g, (_, p, c) => p + c.toUpperCase());
+/** Words that show a "RE:" or "Name:" line is not a person ("RE: Lab results", "RE: Report attached"). */
+const NOT_A_NAME = new Set(
+  'report reports result results lab labs laboratory records record attached requested request patient patients your for the of and fax cover page pages information info notes consult consultation letter referral imaging study test tests document documents copy'.split(' ')
+);
+/** Surname particles: "Maxine Van Wyk", "Rosa De La Cruz", "Ann St. Clair". */
+const PARTICLES = new Set(['van', 'von', 'de', 'del', 'della', 'la', 'le', 'da', 'di', 'du', 'st', 'st.', 'ten', 'ter', 'den', 'der', 'des']);
 
 /** "LAST, FIRST M" or "First M. Last" → name parts; null when it doesn't look like a name. */
 export function parseName(raw: string): PatientName | null {
-  const s = raw.replace(/\s+/g, ' ').replace(/[;|]+.*$/, '').trim();
+  const s = raw
+    .replace(/\s+/g, ' ')
+    .replace(/[;|]+.*$/, '')
+    .replace(/^[^A-Za-z]+|[^A-Za-z.]+$/g, '')
+    .replace(/\s*,\s*/, ', ')
+    .trim();
   if (!s || s.length > 60 || /\d/.test(s)) return null;
+  if (s.toLowerCase().split(/[\s,]+/).some((t) => NOT_A_NAME.has(t.replace(/\.$/, '')))) return null;
   let first = '';
   let last = '';
   let middle: string[] = [];
@@ -135,10 +179,13 @@ export function parseName(raw: string): PatientName | null {
     middle = rest.slice(1);
   } else {
     const parts = s.split(' ').filter((t) => !/^(mr|mrs|ms|miss|dr)\.?$/i.test(t));
-    if (parts.length < 2 || parts.length > 4 || !parts.every((t) => NAME_TOKEN.test(t))) return null;
+    if (parts.length < 2 || parts.length > 5 || !parts.every((t) => NAME_TOKEN.test(t))) return null;
+    let k = parts.length - 1; // first token of the last name
+    while (k > 1 && PARTICLES.has(parts[k - 1].toLowerCase())) k--;
     first = parts[0];
-    last = parts[parts.length - 1];
-    middle = parts.slice(1, -1);
+    last = parts.slice(k).join(' ');
+    middle = parts.slice(1, k);
+    if (middle.length > 2) return null;
   }
   first = titleCase(first.replace(/\.$/, ''));
   last = titleCase(last.replace(/\.$/, ''));
@@ -146,85 +193,177 @@ export function parseName(raw: string): PatientName | null {
   return { first, last, full: [first, ...middle.map(titleCase), last].join(' ') };
 }
 
-function extractName(lines: string[]): Extracted<PatientName> | undefined {
-  const tries: [RegExp, Confidence][] = [
-    [/\bPatient(?:'s)?\s*Name\b/i, 'high'],
-    [/\bPatient\s*:/i, 'high'],
-    [/\bPt\.?\s*Name\b/i, 'high'],
-    [/\b(?:RE|Regarding)\s*:/i, 'medium'],
-    [/^\s*Name\s*:/i, 'medium'],
-  ];
-  for (const [label, confidence] of tries) {
-    const v = labeled(lines, label);
-    const name = v ? parseName(v) : null;
-    if (name) return { value: name, confidence };
+const NAME_LABELS: [RegExp, Confidence][] = [
+  [/\bPatient(?:'s)?\s*Name\b/i, 'high'],
+  [/\bPatient\s*[:;]/i, 'high'],
+  [/\bPt\.?\s*Name\b/i, 'high'],
+  [/(?:^|\s)PT\s*[:;!]/i, 'high'],
+  [/\b(?:RE|Regarding)\s*[:;]/i, 'medium'],
+  [/^\W{0,3}Name\s*[:;]/i, 'medium'],
+];
+
+/** Every labelled name on the document, best label first. */
+function allNames(lines: string[]): { name: PatientName; confidence: Confidence; line: number }[] {
+  const out: { name: PatientName; confidence: Confidence; line: number }[] = [];
+  for (const [label, confidence] of NAME_LABELS) {
+    for (const v of labeledAll(lines, label)) {
+      const name = parseName(v.value);
+      if (name) out.push({ name, confidence, line: v.line });
+    }
   }
-  return undefined;
+  return out;
 }
 
 // ── Other fields ─────────────────────────────────────────────────────────────
 
-function extractDob(lines: string[], now: Date): Extracted | undefined {
-  const v = labeled(lines, /\b(?:DOB|D\.O\.B\.?|Date\s+of\s+Birth|Birth\s*Date|Birthdate)\b/i);
-  const d = v ? normalizeDate(v, { pastOnly: true, now }) : '';
-  return d ? { value: d, confidence: 'high' } : undefined;
+const DOB_RE = new RegExp(String.raw`\b(?:${DOB_LABEL})`, 'i');
+
+/** Every labelled date of birth (MM/DD/YYYY), in document order. */
+function allDobs(lines: string[], now: Date): { value: string; line: number }[] {
+  return labeledAll(lines, DOB_RE)
+    .map((v) => ({ value: normalizeDate(fixDigits(v.value), { pastOnly: true, now }), line: v.line }))
+    .filter((v) => v.value);
 }
 
 const MRN_VALUE = /^#?\s*([A-Z0-9][A-Z0-9-]{2,19})\b/i;
+/** Anything that looks like an MRN label, even badly read ("Med Ree #", "M RN"). See mrn_unreadable. */
+const MRN_LABEL_LOOSE = /\b(?:M\s?R\s?N|Med\w{0,5}\.?\s*Re[a-z]{1,4}\b|Chart\s*(?:#|No|Num)|Patient\s*[I1l]D)/i;
 function extractMrn(lines: string[]): Extracted | undefined {
   const tries: [RegExp, Confidence][] = [
-    [/\b(?:MRN|Med(?:ical)?\.?\s*Rec(?:ord)?\.?\s*(?:Number|No\.?|#)?|Chart\s*(?:Number|No\.?|#))/i, 'high'],
-    [/\bPatient\s*ID\b/i, 'medium'],
+    [/\b(?:MRN|Med(?:ical)?\.?\s*Re[ce](?:ord)?\.?\s*(?:Number|No\.?|#)?|Chart\s*(?:Number|No\.?|#))/i, 'high'],
+    [/\bPatient\s*[I1l]D\b/i, 'medium'],
   ];
   for (const [label, confidence] of tries) {
-    const m = labeled(lines, label).match(MRN_VALUE);
-    if (m && /\d/.test(m[1])) return { value: m[1].toUpperCase(), confidence };
+    for (const v of labeledAll(lines, label)) {
+      const m = v.value.match(MRN_VALUE);
+      if (!m || !/\d/.test(m[1])) continue;
+      // Mostly digits: undo O/0 and l/1 swaps ("4O2449O" → "4024490"). Letter MRNs stay as read.
+      const raw = m[1].toUpperCase();
+      const val = (raw.match(/\d/g) || []).length >= raw.length - 2 ? raw.replace(/[OD]/g, '0').replace(/[IL|]/g, '1') : raw;
+      return { value: val, confidence };
+    }
   }
   return undefined;
 }
 
-/** Patient phone only: plain "Phone:" lines are often the sender's, so they are low confidence. */
-function extractPhone(lines: string[]): Extracted | undefined {
-  const tries: [RegExp, Confidence][] = [
-    [/\b(?:Patient|Pt\.?|Home|Cell|Mobile)\s*(?:Phone|Tel(?:ephone)?|#)/i, 'high'],
-    [/^\s*(?:Phone|Tel(?:ephone)?)\b(?!.*\bfax\b)/i, 'low'],
-  ];
-  for (const [label, confidence] of tries) {
-    const v = labeled(lines, label);
-    const digits = v.replace(/[^\d]/g, '').replace(/^1(?=\d{10}$)/, '');
-    if (/^\d{10}$/.test(digits)) return { value: digits, confidence };
+/**
+ * Patient phone. "Patient/Home/Cell Phone" is high. A plain "Phone:" is the sender's in a letterhead
+ * but the patient's inside the patient block, so it counts (medium) only within a few lines after
+ * the patient's name or date of birth; elsewhere it is low and never used for matching.
+ */
+function extractPhone(lines: string[], blockLines: number[]): Extracted | undefined {
+  const digitsOf = (v: string) => fixDigits(v).replace(/[^\d]/g, '').replace(/^1(?=\d{10}$)/, '');
+  for (const v of labeledAll(lines, /\b(?:Patient|Pt\.?|Home|Cell|Mobile)\s*(?:Phone|Tel(?:ephone)?|#)/i)) {
+    const d = digitsOf(v.value);
+    if (/^\d{10}$/.test(d)) return { value: d, confidence: 'high' };
   }
-  return undefined;
+  let low: Extracted | undefined;
+  for (const v of labeledAll(lines, /^\W{0,3}(?:Phone|Tel(?:ephone)?|Ph)\s*[:;#.]?(?=\s|\d|\()(?!.*\bfax\b)/i)) {
+    const d = digitsOf(v.value);
+    if (!/^\d{10}$/.test(d)) continue;
+    if (blockLines.some((b) => v.line > b && v.line - b <= 4)) return { value: d, confidence: 'medium' };
+    low = low || { value: d, confidence: 'low' };
+  }
+  return low;
 }
 
 /** Lab companies that commonly fax results; a name match is medium confidence. */
 const KNOWN_SENDERS = ['Quest Diagnostics', 'LabCorp', 'Labcorp', 'ARUP Laboratories', 'Mayo Clinic Laboratories', 'Sonic Healthcare', 'BioReference', 'St. Luke’s', "St. Luke's", 'Saint Alphonsus'];
 
-function extractSender(lines: string[], text: string): Extracted | undefined {
+/** Words that make a letterhead line an organization: "Larkspur Reference Laboratories". */
+const ORG_WORD =
+  /\b(?:Lab|Labs|Laborator(?:y|ies)|Diagnostics?|Clinic|Hospital|Medical\s+Center|Health|Imaging|Radiology|Associates|Group|Center|Centre|Surgery|Cardiology|Urology|Nephrology|Endocrin\w*|Pathology|Physicians|Practice)\b/i;
+/** A fax machine's header line: "10/09/2026 15:01 FROM: 2085550163 ... P.001/002", "... p1". */
+const FAX_HEADER_LINE = /\b(?:P\.?\s?\d{1,3}\s?\/\s?\d{1,3}|p\d{1,2}|Page\s+\d+\s*\/\s*\d+)\s*$|\bTO:\s*\d{7,}|\d{10}.*\b\d{1,2}:\d{2}|\b\d{1,2}:\d{2}.*\d{10}/i;
+
+/**
+ * The sending organization, in order: a "Performing/Reporting Lab" line, a cover sheet "From:"
+ * (not the fax machine's header line), "Lab:/Clinic:" labels, the letterhead (the first lines that
+ * name an organization; two-column lines are split), a well-known lab name. `ownName` (the
+ * receiving practice) is never the sender. Display only: never used for matching.
+ */
+function extractSender(lines: string[], text: string, ownName: string): Extracted | undefined {
+  const clean = (v: string) =>
+    v
+      .replace(/\s*\(?\b(?:fax|ph|phone|tel|telephone)\b.*$/i, '')
+      .replace(/,?\s+[A-Z][A-Za-z]+(?:\s[A-Z][A-Za-z]+)?,?\s+[A-Z1l]{2}\s+[\d$]{5}.*$/, '') // ", Nampa, ID 83651 ..."
+      .replace(/^[^A-Za-z]+|[^A-Za-z)]+$/g, '')
+      .trim();
+  const own = ownName.toLowerCase();
+  const ok = (v: string) =>
+    v.length >= 4 && v.length <= 80 && /[A-Za-z]{3}/.test(v) && !/\d{5,}/.test(v) && (!own || !v.toLowerCase().includes(own));
+  const body = lines.filter((l) => !FAX_HEADER_LINE.test(l));
   const tries: [RegExp, Confidence][] = [
-    [/^\s*(?:From|Sender|Sent by)\s*:/i, 'high'],
     [/\b(?:Performing|Reporting)\s+(?:Lab(?:oratory)?|Facility|Site)\b/i, 'high'],
-    [/^\s*(?:Laboratory|Lab|Facility|Practice|Clinic)\s*:/i, 'medium'],
+    [/^\W{0,3}(?:From|Sender|Sent by)\s*[:;]?(?=\s)/i, 'high'],
+    [/^\W{0,3}(?:Laboratory|Lab|Facility|Practice|Clinic)\s*[:;]/i, 'medium'],
   ];
   for (const [label, confidence] of tries) {
-    const v = labeled(lines, label).replace(/\s*\(?\b(?:fax|ph|phone|tel)\b.*$/i, '').trim();
-    if (v && v.length <= 80 && /[A-Za-z]{2}/.test(v)) return { value: v, confidence };
+    for (const v of labeledAll(body, label)) {
+      const c = clean(v.value);
+      if (ok(c)) return { value: c, confidence };
+    }
   }
   for (const s of KNOWN_SENDERS) if (text.toLowerCase().includes(s.toLowerCase())) return { value: s, confidence: 'medium' };
+  let seen = 0;
+  for (const line of body) {
+    if (!line.trim()) continue;
+    if (++seen > 8) break;
+    for (const part of line.split(/\s{2,}|\t|\s[|-]\s/)) {
+      const c = clean(part);
+      if (ORG_WORD.test(c) && ok(c) && !/^(?:to|attn|client|re)\b/i.test(c) && !/\b(?:report|results?)\s*$/i.test(c)) {
+        return { value: c, confidence: 'medium' };
+      }
+    }
+  }
   return undefined;
 }
 
 function extractCollectionDate(lines: string[], now: Date): Extracted | undefined {
   const tries: [RegExp, Confidence][] = [
-    [/\b(?:Date\s+)?Collected(?:\s+(?:Date|On))?\b|\bCollection\s+(?:Date|Time)\b|\bSpecimen\s+Collected\b/i, 'high'],
+    [/\b(?:Date\s+)?Coll\w*(?:\s+(?:Date\/Time|Date|On|Time))?\b|\bSpecimen\s+Coll\w*/i, 'high'],
     [/\b(?:Exam|Study|Procedure|Service)\s+Date\b|\bDate\s+of\s+(?:Exam|Service|Study|Visit|Consultation)\b|\bDOS\b/i, 'medium'],
   ];
   for (const [label, confidence] of tries) {
-    const v = labeled(lines, label);
-    const d = v ? normalizeDate(v, { now }) : '';
-    if (d) return { value: d, confidence };
+    for (const v of labeledAll(lines, label)) {
+      const d = normalizeDate(fixDigits(v.value), { now });
+      if (d) return { value: d, confidence };
+    }
   }
   return undefined;
+}
+
+// ── Patients on the document ─────────────────────────────────────────────────
+
+/** True when the edit distance between a and b is at most k. */
+function within(a: string, b: string, k: number): boolean {
+  if (Math.abs(a.length - b.length) > k) return false;
+  let prev = Array.from({ length: b.length + 1 }, (_, j) => j);
+  for (let i = 1; i <= a.length; i++) {
+    const cur = [i];
+    for (let j = 1; j <= b.length; j++) cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+    if (Math.min(...cur) > k) return false;
+    prev = cur;
+  }
+  return prev[b.length] <= k;
+}
+
+/**
+ * Distinct people named on the document: labelled names count as one when they differ by OCR noise
+ * only (edit distance ≤ 2 on last + first), dates of birth when they differ in one character.
+ * Returns the larger of the two counts.
+ */
+function countPatients(names: PatientName[], dobs: string[]): number {
+  const keys: string[] = [];
+  for (const n of names) {
+    const k = `${n.last}${n.first}`.toLowerCase().replace(/[^a-z]/g, '');
+    if (!keys.some((x) => within(x, k, 2))) keys.push(k);
+  }
+  const ds: string[] = [];
+  for (const d of dobs) {
+    if (!ds.some((x) => [...x].filter((ch, i) => ch !== d[i]).length <= 1)) ds.push(d);
+  }
+  return Math.max(keys.length, ds.length);
 }
 
 // ── Document kind ────────────────────────────────────────────────────────────
@@ -232,6 +371,8 @@ function extractCollectionDate(lines: string[], now: Date): Extracted | undefine
 const KIND_TERMS: Record<Exclude<DocumentKind, 'other'>, [RegExp, number][]> = {
   lab_result: [
     [/\blab(?:oratory)?\s+(?:report|results?)\b/i, 3],
+    [/\b(?:batch|test|in-office|point\s+of\s+care)\s+results\b/i, 3],
+    [/\d\s*(?:mmol\/L|mg\/dL|g\/dL|U\/L|pg\/mL|ng\/mL|mg\/g)\b/i, 2],
     [/\breference\s+(?:range|interval)\b/i, 2],
     [/\bspecimen\b/i, 2],
     [/\bcollected\b/i, 1],
@@ -277,18 +418,23 @@ const FLAG_RE = /\d(?:\s+|\s*\*|(?=[HL]\b))\(?(HH|LL|H|L)\)?(?=\s|$)/;
 const ABNORMAL_RE = /\babnormal\b/i;
 const NOT_ABNORMAL_RE = /\b(?:no|not|non-?)\s*abnormal|abnormal\s*(?:flag|range|indicator)s?\b|\bnormal\/abnormal\b/i;
 const CRITICAL_RE = /\b(?:critical|panic)\b/i;
-const NOT_CRITICAL_RE = /\bcritical\s+access\b|\bno\s+critical\b|\bcritical\s+(?:range|values?\s+policy)\b/i;
+const NOT_CRITICAL_RE =
+  /\bcritical\s+access\b|\bno\s+critical\b|\bcritical\s+(?:range|values?\s+policy)\b|\bcritical\s+(?:values?|results?)\s+(?:are|is|will\s+be)\b/i;
+/** Other flag styles: "7.9 %  *H", "6.8 (C)" (critical), "Moderate (A)" or a lone "A" flag column. */
+const STAR_FLAG_RE = /(?:^|\s)\*(HH|LL|H|L)(?=\s|$)/;
+const PAREN_FLAG_RE = /\S\s*\((C|A)\)(?=\s|$)/;
+const A_COLUMN_RE = /\S\s{2,}(A)(?=\s{2,}|\s*$)/;
 
 export function abnormalFlags(text: string): AbnormalFlags {
   const markers = new Set<string>();
   let flaggedLines = 0;
   let critical = false;
   for (const line of text.split(/\r?\n/)) {
-    const f = line.match(FLAG_RE);
+    const f = line.match(FLAG_RE) || line.match(STAR_FLAG_RE) || line.match(PAREN_FLAG_RE) || line.match(A_COLUMN_RE);
     if (f) {
       flaggedLines++;
       markers.add(f[1]);
-      if (f[1].length === 2) critical = true; // HH / LL are critical-high / critical-low
+      if (f[1].length === 2 || f[1] === 'C') critical = true; // HH / LL / (C): critical values
     }
     if (ABNORMAL_RE.test(line) && !NOT_ABNORMAL_RE.test(line)) markers.add('ABNORMAL');
     if (CRITICAL_RE.test(line) && !NOT_CRITICAL_RE.test(line)) {
@@ -301,20 +447,32 @@ export function abnormalFlags(text: string): AbnormalFlags {
 
 // ── Entry point ──────────────────────────────────────────────────────────────
 
-/** Every field we can read from one document's text. Missing fields are left out. */
-export function extractFields(text: string, now: Date = new Date()): ExtractedFields {
-  const clean = String(text || '').replace(/\r/g, '').slice(0, 200_000);
+/**
+ * Every field we can read from one document's text. Missing fields are left out.
+ * `ownName` is the receiving practice (INTAKE_PRACTICE_NAME): never taken as the sender.
+ */
+export function extractFields(
+  text: string,
+  now: Date = new Date(),
+  ownName: string = process.env.INTAKE_PRACTICE_NAME || 'Idaho Kidney Institute'
+): ExtractedFields {
+  const clean = String(text || '').replace(/\r/g, '').replace(/\f/g, '\n').slice(0, 200_000);
   const lines = clean.split('\n');
   const out: ExtractedFields = { kind: classifyKind(clean), abnormal: abnormalFlags(clean) };
-  const name = extractName(lines);
-  if (name) out.patient_name = name;
-  const dob = extractDob(lines, now);
-  if (dob) out.dob = dob;
+  const names = allNames(lines);
+  if (names.length) out.patient_name = { value: names[0].name, confidence: names[0].confidence };
+  const dobs = allDobs(lines, now);
+  if (dobs.length) out.dob = { value: dobs[0].value, confidence: 'high' };
+  out.patient_count = countPatients(
+    names.map((n) => n.name),
+    dobs.map((d) => d.value)
+  );
   const mrn = extractMrn(lines);
   if (mrn) out.mrn = mrn;
-  const phone = extractPhone(lines);
+  else if (MRN_LABEL_LOOSE.test(clean)) out.mrn_unreadable = true;
+  const phone = extractPhone(lines, [...names.map((n) => n.line), ...dobs.map((d) => d.line)]);
   if (phone) out.phone = phone;
-  const sender = extractSender(lines, clean);
+  const sender = extractSender(lines, clean, ownName);
   if (sender) out.sender = sender;
   const collected = extractCollectionDate(lines, now);
   if (collected) out.collection_date = collected;

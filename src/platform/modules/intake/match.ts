@@ -8,10 +8,16 @@ import type { Confidence, ExtractedFields } from './extract';
  * Safety rule (FAX_INTAKE_ADDON.md): never file on one identifier, never guess between two patients.
  *   auto       exactly one patient matches name + DOB AND a second identifier agrees:
  *              the MRN, or (exact full name + DOB + the patient's phone, when the document has one)
- *   review     exactly one name + DOB match, but no second identifier (or a weak/conflicting one)
+ *   review     exactly one name + DOB match, but no second identifier (or a weak/conflicting one,
+ *              or an MRN label whose value OCR could not read: the phone never stands in for it)
  *   none       nobody matches, or the document lacks a readable name or DOB
- *   ambiguous  more than one patient matches name + DOB
+ *   ambiguous  more than one patient matches name + DOB, or the document itself names more than
+ *              one patient (a daily batch, two patients' results in one fax): staff split it
  *   error      the patient search failed; never treated as "no match" (CLAUDE.md rule 5)
+ *
+ * MRN: Veradigm keeps two per patient, the PM MRN and the EHR chart MRN (= PM "PatientNumber").
+ * Outside documents carry either, so the document's MRN agrees when it equals any of the patient's
+ * MRNs, and conflicts only when it equals none of them.
  *
  * decideMatch() is the pure decision table (smoke-tested); matchPatient() runs the search.
  */
@@ -23,7 +29,10 @@ export interface Candidate {
   firstName: string;
   lastName: string;
   dateOfBirth: string;
+  /** Display MRN (the first one Veradigm returned). */
   mrn: string;
+  /** Every MRN the patient has (PM MRN, EHR chart MRN / PatientNumber). Defaults to [mrn]. */
+  mrns?: string[];
   phones: string[];
 }
 
@@ -84,10 +93,19 @@ function toMatched(c: Candidate): MatchedPatient {
   };
 }
 
+function multiplePatients(n: number): Omit<MatchResult, 'checked_at'> {
+  return {
+    decision: 'ambiguous',
+    reason: `The document names ${n} different patients. Split it and file each part by hand.`,
+    candidates: 0,
+  };
+}
+
 /** The decision table. Pure: same inputs, same answer. */
 export function decideMatch(extracted: ExtractedFields, candidates: Candidate[]): Omit<MatchResult, 'checked_at'> {
   const name = extracted.patient_name;
   const dob = extracted.dob;
+  if ((extracted.patient_count ?? 1) > 1) return multiplePatients(extracted.patient_count!);
   if (!name || !dob || !usable(name.confidence) || !usable(dob.confidence)) {
     return { decision: 'none', reason: 'The document has no readable patient name and date of birth.', candidates: 0 };
   }
@@ -111,11 +129,17 @@ export function decideMatch(extracted: ExtractedFields, candidates: Candidate[])
 
   // Second identifier 1: MRN. A different MRN on the document is a conflict, never a match.
   const docMrn = extracted.mrn && usable(extracted.mrn.confidence) ? normMrn(extracted.mrn.value) : '';
-  if (docMrn && c.mrn) {
-    if (normMrn(c.mrn) === docMrn) {
+  const known = (c.mrns && c.mrns.length ? c.mrns : [c.mrn]).map(normMrn).filter(Boolean);
+  if (docMrn && known.length) {
+    if (known.includes(docMrn)) {
       return { decision: 'auto', reason: 'Name, date of birth and MRN match one patient.', candidates: 1, patient, second_identifier: 'mrn' };
     }
     return review('Name and date of birth match one patient, but the MRN on the document is different.');
+  }
+
+  // An MRN is printed but unreadable: it may disagree, so the phone cannot stand in for it.
+  if (!docMrn && extracted.mrn_unreadable) {
+    return review('Name and date of birth match one patient, but the MRN on the document could not be read.');
   }
 
   // Second identifier 2: exact full name + DOB + phone (only when the document has a patient phone).
@@ -135,17 +159,24 @@ export function decideMatch(extracted: ExtractedFields, candidates: Candidate[])
 /** Rows from unity_search_patients → candidates. */
 export function toCandidates(result: any): Candidate[] {
   const rows: any[] = Array.isArray(result?.patients) ? result.patients : [];
-  return rows.map((p) => ({
-    patientId: String(p?.patientId ?? p?.id ?? ''),
-    chartPatientId: String(p?.chartPatientId ?? ''),
-    firstName: String(p?.firstName ?? ''),
-    lastName: String(p?.lastName ?? ''),
-    dateOfBirth: String(p?.dateOfBirth ?? ''),
-    mrn: String(p?.mrn ?? ''),
-    phones: [p?.phone?.home, p?.phone?.cell, p?.phone?.work, typeof p?.phone === 'string' ? p.phone : '']
-      .filter((x) => typeof x === 'string' && x.trim())
-      .map(String),
-  }));
+  return rows.map((p) => {
+    // PM MRN and EHR chart MRN (PM PatientNumber): whichever fields the search returns.
+    const mrns = [p?.mrn, p?.patientNumber, p?.chartMrn, p?.ehrMrn, p?.pmMrn]
+      .filter((x) => (typeof x === 'string' || typeof x === 'number') && String(x).trim())
+      .map(String);
+    return {
+      patientId: String(p?.patientId ?? p?.id ?? ''),
+      chartPatientId: String(p?.chartPatientId ?? ''),
+      firstName: String(p?.firstName ?? ''),
+      lastName: String(p?.lastName ?? ''),
+      dateOfBirth: String(p?.dateOfBirth ?? ''),
+      mrn: mrns[0] || '',
+      mrns: [...new Set(mrns)],
+      phones: [p?.phone?.home, p?.phone?.cell, p?.phone?.work, typeof p?.phone === 'string' ? p.phone : '']
+        .filter((x) => typeof x === 'string' && x.trim())
+        .map(String),
+    };
+  });
 }
 
 /**
@@ -160,7 +191,7 @@ export async function matchPatient(
   const stamp = () => now().toISOString();
   const name = extracted.patient_name;
   const dob = extracted.dob;
-  if (!name || !dob || !usable(name.confidence) || !usable(dob.confidence)) {
+  if (!name || !dob || !usable(name.confidence) || !usable(dob.confidence) || (extracted.patient_count ?? 1) > 1) {
     return { ...decideMatch(extracted, []), checked_at: stamp() };
   }
   const tool = 'unity_search_patients';
