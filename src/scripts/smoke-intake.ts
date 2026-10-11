@@ -271,6 +271,7 @@ MRN: 771234                   COLL: 10/08/2026 07:10
   assert.deepStrictEqual([extractFields(lostLabels, NOW).patient_count, extractFields(lostLabels, NOW).patient_name?.value.last], [2, 'Zephyr'], 'two MRNs = two patients even when one name/DOB label is lost');
   const unread = extractFields('Patient: Marigold Testpatient\nDOB: 03/14/1961\nMed Ree #: ?????\nPatient Phone: (208) 555-0142', NOW);
   assert.deepStrictEqual([unread.mrn, unread.mrn_unreadable], [undefined, true]);
+  assert.strictEqual(extractFields(IMAGING + 'IMPRESSION: Findings consistent with medical renal disease.\n', NOW).mrn_unreadable, undefined, 'prose is not an MRN label');
   ok('extraction under fax OCR noise: ";" "!" "," for ":", D,O.B., Patient 1D, Collactad, letterhead sender, *H / (C) flags, patient-block phone, particles, multi-patient count');
 
   // 6. Match decision table

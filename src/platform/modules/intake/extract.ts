@@ -226,8 +226,11 @@ function allDobs(lines: string[], now: Date): { value: string; line: number }[] 
 }
 
 const MRN_VALUE = /^#?\s*([A-Z0-9][A-Z0-9-]{2,19})\b/i;
-/** Anything that looks like an MRN label, even badly read ("Med Ree #", "M RN"). See mrn_unreadable. */
-const MRN_LABEL_LOOSE = /\b(?:M\s?R\s?N|Med\w{0,5}\.?\s*Re[a-z]{1,4}\b|Chart\s*(?:#|No|Num)|Patient\s*[I1l]D)/i;
+/**
+ * Anything that looks like an MRN label, even badly read ("Med Ree #", "M RN"). See mrn_unreadable.
+ * "Med Rec" needs a #, No, Num or colon after it, so prose ("medical renal disease") doesn't count.
+ */
+const MRN_LABEL_LOOSE = /\b(?:M\s?R\s?N\b|Med\w{0,5}\.?\s*Re[a-z]{1,4}\.?\s*(?:#|No\b|Num|[:;])|Chart\s*(?:#|No\b|Num)|Patient\s*[I1l]D\b)/i;
 /** Every labelled MRN on the document, high-confidence labels first. */
 function allMrns(lines: string[]): Extracted[] {
   const tries: [RegExp, Confidence][] = [

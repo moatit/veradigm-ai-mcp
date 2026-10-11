@@ -27,7 +27,7 @@ Optional later: an S3 bucket with SSE-KMS under MOATiT's AWS BAA (account alread
 ## Flow
 
 1. **Receive.** A webhook (fax) or the folder watcher creates an intake item. Dedupe by `X-Webhook-Id` / file hash.
-2. **Read.** Text from MOATiT Fax OCR (or Drawbridge's own OCR for dropped files). Extract: patient name, DOB, MRN, sender (lab/office, fax number), document kind, collection/test date, abnormal flags. OCR is treated as untrusted until matched.
+2. **Read.** Text from MOATiT Fax OCR, or Drawbridge's own OCR container (`deploy/ocr`, Tesseract 5 on the internal Docker network) for dropped and uploaded files. Extract: patient name, DOB, MRN, sender (lab/office, fax number), document kind, collection/test date, abnormal flags. OCR is treated as untrusted until matched.
 3. **Match.** `unity_search_patients` (PM + EHR, name + DOB). **Auto-file only when exactly one patient matches AND a second identifier agrees** (MRN, or phone, or the ordering provider + recent order). Anything else → `needs_review`.
 4. **Choose the document type.** Map the kind to a `GetDocumentType` entry (e.g. lab → "Labs/Procedures", consult → "Consultant Letter"); unknown → "(ready for indexing)".
 5. **File.** `SaveDocumentImage` to the matched patient's chart (EHR patient ID), with the date and a description ("Outside lab – Quest – CBC – 10/08/2026").
@@ -36,7 +36,7 @@ Optional later: an S3 bucket with SSE-KMS under MOATiT's AWS BAA (account alread
 
 ## Safety rules
 
-- Never file to a chart on one identifier. Never guess between two patients.
+- Never file to a chart on one identifier. Never guess between two patients. A document that shows more than one patient (a daily batch) is never filed to one chart.
 - Never alter or summarize clinical content inside the document; the original file is what's filed.
 - Every filing is audited (who/what/when, intake item, patient ID, document ID) and visible on `/app/intake`.
 - Writes are idempotent per intake item (same item never filed twice).
@@ -59,5 +59,5 @@ Optional later: an S3 bucket with SSE-KMS under MOATiT's AWS BAA (account alread
 
 1. Scaffold (this branch): intake store, MOATiT Fax webhook receiver (HMAC, dedupe), folder watcher, field extraction, patient matcher, document-type mapping, review screen, smoke tests. Filing disabled.
 2. Confirm `SaveDocumentImage` and `SaveTask` formats; with Ali's approval, file one test PDF to a sandbox test patient and read it back with `GetDocuments`.
-3. Pilot in `review` mode on IKI faxes (staff click to file), measure match accuracy.
+3. Pilot in `review` mode on IKI faxes (staff click to file), measure match accuracy. Synthetic bench and current numbers: `INTAKE_ACCURACY.md` (0 wrong-patient auto-files in 4,000 synthetic documents; next is de-identified real IKI samples).
 4. Turn on `auto` for document kinds and senders that reached the agreed accuracy.
