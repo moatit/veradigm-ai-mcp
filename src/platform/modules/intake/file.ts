@@ -2,6 +2,7 @@ import fs from 'fs';
 import type { UnityService } from '../../../unity/services/unity.service';
 import { UnityActions } from '../../../unity/config/unity-endpoints';
 import { pick, unityRows } from '../../../unity/utils/unity-rows';
+import { shadowMode } from './shadow';
 import type { IntakeItem, IntakeStore } from './store';
 
 /**
@@ -21,6 +22,7 @@ import type { IntakeItem, IntakeStore } from './store';
  *                     the document (shows as task type "Scanned Document"). One task per document.
  *
  * Switches (all must allow it):
+ *   INTAKE_MODE                             shadow: filing is impossible, whatever the switches below say
  *   INTAKE_FILING                           off (default) | review (staff click) | auto (high-confidence)
  *   INTAKE_SAVE_DOCUMENT_FORMAT_CONFIRMED   true once the format above is verified for this environment
  *   INTAKE_DOC_STATUS                       submitted (default: staff approve in Veradigm EHR) | approved
@@ -33,6 +35,7 @@ import type { IntakeItem, IntakeStore } from './store';
 export type FilingMode = 'off' | 'review' | 'auto';
 
 export function filingMode(): FilingMode {
+  if (shadowMode()) return 'off';
   const v = String(process.env.INTAKE_FILING || '').trim().toLowerCase();
   return v === 'review' || v === 'auto' ? v : 'off';
 }
@@ -63,6 +66,9 @@ export interface FilingStatus {
 export function filingStatus(): FilingStatus {
   const mode = filingMode();
   const confirmed = saveFormatConfirmed();
+  if (shadowMode()) {
+    return { enabled: false, mode, format_confirmed: confirmed, reason: 'Shadow mode: documents are read and matched, and what Drawbridge would have done is recorded. Nothing is filed to Veradigm® EHR.' };
+  }
   if (mode === 'off') {
     return { enabled: false, mode, format_confirmed: confirmed, reason: 'Filing to the Veradigm® EHR chart is turned off. Documents are read, matched and queued for staff only.' };
   }
@@ -256,6 +262,7 @@ export interface FilingResult {
 }
 
 async function file(item: IntakeItem, target: 'chart' | 'indexing', by: string, deps: FilingDeps | null): Promise<FilingResult> {
+  if (shadowMode()) throw new IntakeFilingError('FILING_DISABLED', filingStatus().reason);
   assertFilingEnabled();
   if (!deps) throw new IntakeFilingError('FILING_DISABLED', 'Filing is not configured on this server.');
   const store = deps.store();

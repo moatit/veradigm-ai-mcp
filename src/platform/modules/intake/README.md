@@ -54,6 +54,25 @@ After the 204, the item is processed in the background: `GET /api/v1/enterprise/
 
 `file.ts`: `SaveScanDocument` (+ a linked `SaveTask` review task when `INTAKE_REVIEW_USER` is set), verified on the sandbox Oct 11. Refusals are structured (`{ success:false, error_code, retryable }`): `FILING_DISABLED` unless `INTAKE_FILING` is `review` or `auto` **and** `INTAKE_SAVE_DOCUMENT_FORMAT_CONFIRMED=true`; `NOT_READY` (including a `split` parent: file its parts) / `ALREADY_FILED`; `FILING_REJECTED` / `FILING_UNCERTAIN` from Veradigm® EHR. Auto-filing (`autoFileBlocker` in `pipeline.ts`) also needs a specific chart category, a passed page check for batch senders, no `duplicate_of`, and a sender outside `INTAKE_NO_AUTO_SENDERS`. Every refused attempt is written to the item's history.
 
+## Shadow mode (measure on real documents, file nothing)
+
+`INTAKE_MODE=shadow` runs the whole pipeline on real documents (OCR, pages and split, extract, match, category) and records on each item what it **would** have done (`shadow`: auto-file to which patient under which category, or why staff, as a stable reason code). Filing is impossible whatever `INTAKE_FILING` says: `file.ts` refuses, the pipeline stops before the filing step, and every Veradigm® call goes through an allowlist of reads (`shadow.ts`: `SearchPatients`, `GetDocumentType`, `GetDocuments`, `GetDocumentsByDocumentType`, `GetDocumentImage`). The data-center deployment runs it as its own server (`src/platform/shadow-server.ts`, `deploy/datacenter/README.md`).
+
+| Piece | Where |
+|---|---|
+| Mode, read-only guards, decision, ground truth, agreement | `shadow.ts` |
+| Optional local patient list instead of the live search (`INTAKE_ROSTER_CSV`; same result shape, same `decideMatch`, a missing list is an error) | `roster.ts` |
+| Category list as fallback to `GetDocumentType` (`INTAKE_CATEGORIES_CSV`) | `doctypes.ts` `CsvDocTypes`, `FallbackDocTypes` |
+| Staff filing observer: the "(ready for indexing)" queue tracked by DocumentID; where staff indexed each fax = ground truth | `observe.ts` |
+| Confirm panel (fallback ground truth) and queue filters | `shadow-ui.ts` |
+| Report (counts only) and the per-document staff file | `shadow-report.ts`, `npm run eval:shadow` |
+| Read-in-place folders (Express Lab) | `folder.ts` `INTAKE_WATCH_DIRS` |
+| Bulk import of old faxes | `npm run intake:import` |
+
+**Ground truth**, per unit (a whole document or a split part), in order: a staff confirmation on the Confirm panel; where staff were seen to file it in Veradigm® EHR (observer, high or medium confidence); the whole file's confirmation. A unit with none is unconfirmed and never counted as correct. The observer links a queue document to an intake item by arrival time (SortDate in the clinic's zone), equal page count and sender, and on a tie by the file itself (same bytes, or the same OCR text); a page-count difference is never the same fax. Faxes with no queue trail are searched in the candidates' charts by date and pages (medium confidence at most). A file Drawbridge split by patient is observed but the observation is not given to its parts (staff index a batch fax as one document): confirm those on the panel.
+
+The exact `GetDocumentsByDocumentType` and `GetDocumentImage` parameters and fields were verified read-only on the sandbox; `GetDocuments` row fields are read through aliases (only the list call itself was verified).
+
 ## Environment
 
 | Variable | Default | Purpose |
@@ -73,6 +92,12 @@ After the 204, the item is processed in the background: `GET /api/v1/enterprise/
 | `INTAKE_SPLIT` | `on` | `off`: multi-patient files go to staff instead of being split |
 | `INTAKE_NO_AUTO_SENDERS` | unset | Optional: senders whose documents always wait for staff (same matching as above) |
 | `CALL_RECORDS_DIR` | `/app/data` | Base of `intake/` |
+| `INTAKE_MODE` | `live` | `shadow`: nothing filed, read-only Veradigm®, decisions and ground truth recorded |
+| `INTAKE_ROSTER_CSV` | unset | Local patient list instead of `unity_search_patients` (columns: `deploy/datacenter/README.md`) |
+| `INTAKE_CATEGORIES_CSV` | unset | Category names, one per line, when `GetDocumentType` isn't available |
+| `INTAKE_WATCH_DIRS` | unset | Folders read in place (never changed), subfolders too; `INTAKE_WATCH_SINCE`, `INTAKE_WATCH_MAX` |
+| `INTAKE_OBSERVE*` | on in shadow mode | Staff filing observer (`observe.ts` header) |
+| `DRAWBRIDGE_USERS_FILE` | unset | Named staff logins (scrypt lines, `npm run staff:user`); replaces the shared login |
 
 Secrets go in `.env` only. Logs carry item IDs, job IDs, counts and error codes. They never carry keys, file names, document text or patient identifiers.
 
@@ -87,5 +112,7 @@ Secrets go in `.env` only. Logs carry item IDs, job IDs, counts and error codes.
 ## Tests
 
 `npm run smoke:intake` runs offline with made-up patients. It covers HMAC good/bad/missing, the event allowlist, durable dedupe, the webhook and staff routes on 127.0.0.1, extraction on three synthetic documents and under fax-OCR noise (multi-patient batch, unreadable MRN), the match decision table, document-type mapping and cache, the pipeline with fake Veradigm and MOATiT Fax, the OCR client and pipeline against a fake OCR server (success, low confidence, empty, 5xx, 4xx, bad JSON, timeout, unreachable), the drop folder, the filing guard, screen wording, and logs without content. Pages and batches: form feeds and MOATiT Fax page markers, sender lists, every page rule and review trigger, and a batch fax end to end against a fake OCR server (`/ocr` per page, `/pages` cuts): split, parts matched and auto-filed to their own charts, the blind spot to review, idempotent re-processing, split failure and retry, page-count mismatch, OCR off, screens and retention.
+
+`npm run smoke:intake` also runs `smoke-intake-shadow.ts` (offline, made-up patients and a fake roster): roster parsing and matching, categories, the read-only guards, the shadow pipeline with live search and with the roster (filing impossible with `INTAKE_FILING=auto`), the batch split, the Confirm panel and filters, the report and its leak check, the importer, watched folders, named logins, the shadow server, and the staff filing observer against fakes with the sandbox's verified shapes.
 
 `npm run eval:intake -- --set <dir>` measures accuracy on a large synthetic set (generator `tools/intake-synth`, OCR `deploy/ocr`): per-field accuracy, decisions against the expected ones, auto-file rate, and page by page the filing outcome before / after batch splitting, with **wrong-patient pages filed** (must be 0). Method and numbers: `docs/drawbridge/INTAKE_ACCURACY.md`.

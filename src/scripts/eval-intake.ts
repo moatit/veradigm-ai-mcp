@@ -383,6 +383,9 @@ async function main(): Promise<void> {
   process.env.INTAKE_BATCH_SENDERS = batchSender;
   delete process.env.INTAKE_NO_AUTO_SENDERS;
   delete process.env.INTAKE_SPLIT;
+  // The fake search below answers, never a local roster (shadow mode has its own report: eval:shadow).
+  delete process.env.INTAKE_ROSTER_CSV;
+  delete process.env.INTAKE_MODE;
   const roster: RosterPatient[] = JSON.parse(fs.readFileSync(path.join(set, 'roster.json'), 'utf8'));
   const byKey = new Map(roster.map((p) => [p.key, p]));
   const search = fakePatientSearch(roster);

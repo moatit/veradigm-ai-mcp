@@ -148,9 +148,15 @@ export const UnityActions = {
   // GetDocumentType and GetDocuments verified on the sandbox Oct 9 (read). SaveScanDocument is the
   // owner-approved filing write (CLAUDE.md rule 4 exception), verified Oct 11 on synthetic patients;
   // see src/platform/modules/intake/file.ts. SaveDocumentImage (chart attachment) is not used.
+  // Read by the shadow-mode staff filing observer (src/platform/modules/intake/observe.ts), verified
+  // read-only on the sandbox: GetDocumentsByDocumentType (PatientID blank; Parameter1 type ID or name,
+  // Parameter2 LOINC '', Parameter3/4 start/end MM/DD/YYYY; all patients) and GetDocumentImage
+  // (Parameter1 DocumentID, 'Scan', 'PDF', 'N' → base64image).
   Document: {
     GET_DOCUMENT_TYPES: action('GET_DOCUMENT_TYPES', 'GetDocumentType'),
     GET_DOCUMENTS: action('GET_DOCUMENTS', 'GetDocuments'),
+    GET_DOCUMENTS_BY_DOCUMENT_TYPE: action('GET_DOCUMENTS_BY_DOCUMENT_TYPE', 'GetDocumentsByDocumentType'),
+    GET_DOCUMENT_IMAGE: action('GET_DOCUMENT_IMAGE', 'GetDocumentImage'),
     SAVE_DOCUMENT_IMAGE: action('SAVE_DOCUMENT_IMAGE', 'SaveDocumentImage'),
     SAVE_SCAN_DOCUMENT: action('SAVE_SCAN_DOCUMENT', 'SaveScanDocument')
   },

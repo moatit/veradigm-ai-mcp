@@ -27,8 +27,13 @@
     "smoke:outreach": "ts-node src/scripts/smoke-outreach.ts",
     "smoke:huddle": "ts-node src/scripts/smoke-huddle.ts",
     "smoke:activity": "ts-node src/scripts/smoke-activity.ts",
-    "smoke:intake": "ts-node src/scripts/smoke-intake.ts",
-    "eval:intake": "ts-node src/scripts/eval-intake.ts"
+    "smoke:intake": "ts-node src/scripts/smoke-intake.ts && ts-node src/scripts/smoke-intake-shadow.ts",
+    "smoke:intake-shadow": "ts-node src/scripts/smoke-intake-shadow.ts",
+    "eval:intake": "ts-node src/scripts/eval-intake.ts",
+    "eval:shadow": "ts-node src/scripts/eval-shadow.ts",
+    "intake:import": "ts-node src/scripts/intake-import.ts",
+    "staff:user": "ts-node src/scripts/staff-user.ts",
+    "server:shadow": "ts-node src/platform/shadow-server.ts"
   },
   "keywords": [
     "mcp",

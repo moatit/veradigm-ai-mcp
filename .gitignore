@@ -86,6 +86,13 @@ deploy/local/.env
 deploy/local/data/
 deploy/local/secrets/
 
+# Data-center shadow intake: secrets, staff logins, certificates and patient lists (PHI)
+deploy/datacenter/.env
+deploy/datacenter/lists/
+deploy/datacenter/users/
+deploy/datacenter/tls/
+deploy/datacenter/data/
+
 # Fax/document intake drop folder (PHI, never committed). Anchored: src/platform/modules/intake/ is code.
 /intake/
 deploy/local/intake/
