@@ -389,6 +389,136 @@ MRN: 771234                   COLL: 10/08/2026 07:10
   assert.strictEqual(calls.length, before, 'no search without name + DOB');
   ok(`match decision table (${table.length} cases) + search failures are errors`);
 
+  // 6b. Field robustness: consensus across pages, "First M, Last" commas, unread identifiers
+  const hdr = (name: string, dob: string) => `SNAKE RIVER LAB\nPT: ${name.padEnd(24)} DOB: ${dob}   SEX: F\n  CREAT     2.41H (0.60-1.30) mg/dL\n`;
+  const voted = extractFields([hdr('HORNBY,PAULA', '1992-08-18'), hdr('HOMBY,PAULA', '1992-08-19'), hdr('HORNBY,PAULA', '1992-08-18')].join('\f'), NOW);
+  assert.deepStrictEqual([voted.patient_count, voted.patient_name?.value.last, voted.dob?.value, voted.reads_agree], [1, 'Hornby', '08/18/1992', false], 'the value read on most pages wins; the disagreement is recorded');
+  const firstMisread = extractFields([hdr('HOMBY,PAULA', '1992-08-19'), hdr('HORNBY,PAULA', '1992-08-18'), hdr('HORNBY,PAULA', '1992-08-18')].join('\f'), NOW);
+  assert.deepStrictEqual([firstMisread.patient_name?.value.last, firstMisread.dob?.value], ['Hornby', '08/18/1992'], 'a misread on the first page is outvoted');
+  const tie = extractFields([hdr('HOMBY,PAULA', '1992-08-18'), hdr('HORNBY,PAULA', '1992-08-18')].join('\f'), NOW);
+  assert.deepStrictEqual([tie.patient_name?.value.last, tie.reads_agree], ['Homby', false], 'a tie keeps the first read (as before) and is not unanimous');
+  assert.strictEqual(extractFields(hdr('HORNBY,PAULA', '1992-08-18'), NOW).reads_agree, true, 'one read agrees with itself');
+  assert.deepStrictEqual(parseName('Bernard P, Colfax'), { first: 'Bernard', last: 'Colfax', full: 'Bernard P Colfax' }, 'an initial before a comma is First M. Last');
+  assert.deepStrictEqual([parseName('COLFAX, BERNARD P')?.last, parseName('Van Wyk, Maxine')?.last], ['Colfax', 'Van Wyk']);
+  const unreadMrn = extractFields("Patient: Ira Slocum\nDOB: 10/22/1957\nPATLEN'T ID! 00592751    ACC#: 20261009   COLL: 10/07/2026 08:47\n", NOW);
+  assert.deepStrictEqual([unreadMrn.mrn, unreadMrn.unread_identifier, unreadMrn.mrn_unreadable], [undefined, true, true], 'an MRN-like number next to the patient that was not read as an MRN');
+  const unreadPhone = extractFields('Patient: Ira Slocum\nDOB: 10/22/1957\nPatiant Phnoe (307) 555-0194\n', NOW);
+  assert.deepStrictEqual([unreadPhone.phone, unreadPhone.unread_identifier, unreadPhone.mrn_unreadable], [undefined, true, undefined], 'a phone-like number that was not read as the patient phone');
+  const explained = extractFields('Patient: Ira Slocum   MRN: 4824913\nDOB: 10/22/1957   Collected: 10/07/2026 08:47\nAccession #: 2026100912   Specimen ID: 77881234\nBoise, ID 83704\nPatient Phone: (208) 555-0142\n', NOW);
+  assert.deepStrictEqual([explained.unread_identifier, explained.mrn?.value, explained.phone?.value], [undefined, '4824913', '2085550142'], 'the MRN, phone, dates, accession/specimen numbers and zip codes are explained');
+  ok('field robustness: consensus across pages (majority, ties keep the first read, reads_agree), "First M, Last", unread MRN- or phone-like numbers near the patient');
+
+  // 6c. Sender templates (templates.ts): OCR-tolerant labels, name order, date formats, MRN pattern
+  const tplMod = await import('../platform/modules/intake/templates');
+  const pat = tplMod.labelPattern('PT:');
+  assert.ok(['PT: X', 'PTt SCHMITT, ALMA', 'P7! X', '  PT; X', 'xx  PT: X', 'PT:SCHMITT,ALMA'].every((l) => pat.test(l)), 'misread labels at a line start or after a space, with or without a space after the colon');
+  assert.ok(!pat.test('PTtSCHMITT'), 'a colon read as a letter needs a space after it');
+  assert.ok(!['PTH-I   43', 'PT PHONE: (208) 555-0142', 'APT: 4', 'PT X'].some((l) => pat.test(l)), 'never inside a word, never PT PHONE, the colon (or a lookalike) must be there');
+  assert.ok(tplMod.labelPattern('PATIENT ID:').test('PATLENT 1D! 00592751'));
+  assert.ok(tplMod.fitsDateFormat('1967-10-06', ['YYYY-MM-DD']) && !tplMod.fitsDateFormat('Oct 6, 1967', ['YYYY-MM-DD']) && tplMod.fitsDateFormat('Oct 6, 1967'));
+  const tplDir = path.join(TMP, 'templates');
+  fs.mkdirSync(tplDir, { recursive: true });
+  fs.writeFileSync(path.join(tplDir, 'snake-river-lab.json'), JSON.stringify({
+    id: 'snake-river-lab', synthetic: true, match: { text: ['SNAKE RIVER LAB'], fax: ['2085550177'] },
+    fields: { name: { labels: ['PT:'], order: 'last_first' }, dob: { labels: ['DOB:'], formats: ['YYYY-MM-DD'] }, mrn: { labels: ['MRN:'], pattern: '^\\d{6}$' }, phone: { labels: ['PT PHONE:'] } },
+  }));
+  fs.writeFileSync(path.join(tplDir, 'broken.json'), '{ not json');
+  const TPL_DOC = 'SNAKE R1VER LAB - DAILY RESULTS\nPTt SCHMITT ALMA            DOB; 1967-10-06  SEX: F\nMRN: 912003    ACC#: SR1001\nPT PHONE: (208) 555-0142\n  CREAT     2.41H (0.60-1.30) mg/dL\n';
+  const generic = extractFields(TPL_DOC, NOW);
+  assert.deepStrictEqual([generic.template, generic.patient_name, generic.dob?.value], [undefined, undefined, '10/06/1967'], 'without templates the misread name label is lost');
+  process.env.INTAKE_SENDER_TEMPLATES_DIR = tplDir;
+  tplMod.resetTemplates();
+  assert.deepStrictEqual(tplMod.loadTemplates().map((t) => t.id), ['snake-river-lab'], 'an invalid file is skipped');
+  assert.strictEqual(tplMod.findTemplate('nothing here', '+1 (208) 555-0177')?.id, 'snake-river-lab', 'matched by fax number');
+  assert.strictEqual(tplMod.findTemplate('BITTERBRUSH DIAGNOSTIC LABS'), null);
+  const withTpl = extractFields(TPL_DOC, NOW);
+  assert.deepStrictEqual(
+    [withTpl.template, withTpl.patient_name?.value.first, withTpl.patient_name?.value.last, withTpl.patient_name?.confidence, withTpl.dob?.value, withTpl.mrn?.value, withTpl.phone?.value],
+    ['snake-river-lab', 'Alma', 'Schmitt', 'high', '10/06/1967', '912003', '2085550142'],
+    'template: misread label, last-first name without its comma, MRN, patient phone'
+  );
+  const shortMrn = extractFields(TPL_DOC.replace('MRN: 912003', 'MRN: 91203'), NOW);
+  assert.deepStrictEqual([shortMrn.mrn, shortMrn.mrn_unreadable], [undefined, true], 'an MRN that does not fit the pattern is unreadable, never matched');
+  assert.strictEqual(extractFields(TPL_DOC.replace('DOB; 1967-10-06', 'DOB: 10/06/1967'), NOW).dob, undefined, 'a date in another format is not taken on the template DOB line');
+  delete process.env.INTAKE_SENDER_TEMPLATES_DIR;
+  tplMod.resetTemplates();
+  assert.strictEqual(extractFields(TPL_DOC, NOW).template, undefined, 'templates are off without INTAKE_SENDER_TEMPLATES_DIR');
+  ok('sender templates: OCR-tolerant labels (never PTH-I or PT PHONE), match by name or fax, name order, date formats, MRN pattern, invalid files skipped, off by default');
+
+  // 6d. Optional rule INTAKE_MATCH_RULE=name_dob (off by default)
+  const { similarNames, soundex, matchRule } = await import('../platform/modules/intake/match');
+  assert.deepStrictEqual([soundex('Beasley'), soundex('Beesly'), soundex('Ashcraft'), soundex('')], ['B240', 'B240', 'A261', '']);
+  assert.ok(similarNames('Marigold', 'Beasley', 'Marigold', 'Beesly'), 'sound-alike surnames');
+  assert.ok(similarNames('Mark', 'Quill', 'Mary', 'Quill'), 'twins: same last name');
+  assert.ok(similarNames('Katherine', 'Smyth', 'Catherine', 'Smith'), 'one edit in each name');
+  assert.ok(similarNames('Ann', 'Lee', 'Lee', 'Ann'), 'first and last swapped');
+  assert.ok(similarNames('Jon', 'Testpatient', 'Jonathan', 'Testpatiant'), 'a first name that starts the other');
+  assert.ok(!similarNames('Mark', 'Jones', 'Lisa', 'Brown'));
+  delete process.env.INTAKE_MATCH_RULE;
+  assert.strictEqual(matchRule(), 'two_identifiers', 'default');
+  process.env.INTAKE_MATCH_RULE = 'name_dob';
+  assert.strictEqual(matchRule(), 'name_dob');
+  process.env.INTAKE_MATCH_RULE = 'anything else';
+  assert.strictEqual(matchRule(), 'two_identifiers', 'unknown values keep the default');
+  delete process.env.INTAKE_MATCH_RULE;
+  const nd = { ...noMrnNoPhone, reads_agree: true };
+  const twin = cand({ patientId: '9002', chartPatientId: '7002', firstName: 'Mark', mrn: '1' });
+  const ndTable: [string, any, any[], string][] = [
+    ['exact name + DOB, nobody similar', nd, [cand()], 'auto'],
+    ['the name under a weak label (RE:)', { ...nd, patient_name: { ...nd.patient_name, confidence: 'medium' } }, [cand()], 'review'],
+    ['reads of the name disagree', { ...nd, reads_agree: false }, [cand()], 'review'],
+    ['a first name that only starts the chart name', nd, [cand({ firstName: 'Marigoldine' })], 'review'],
+    ['a twin with the same last name and DOB', nd, [cand(), twin], 'review'],
+    ['a sound-alike surname with the same DOB', nd, [cand(), cand({ patientId: '9003', chartPatientId: '7003', lastName: 'Testpatiant', mrn: '2' })], 'review'],
+    ['a similar name with a DOB far off is no obstacle', nd, [cand(), cand({ patientId: '9003', chartPatientId: '7003', lastName: 'Testpatiant', dateOfBirth: '07/30/1985', mrn: '2' })], 'auto'],
+    ['the same name with a DOB one digit off', nd, [cand(), cand({ patientId: '9003', chartPatientId: '7003', dateOfBirth: '03/14/1967', mrn: '2' })], 'review'],
+    ['the same name with day and month swapped', { ...nd, dob: { value: '03/04/1961', confidence: 'high' } }, [cand({ dateOfBirth: '03/04/1961' }), cand({ patientId: '9003', chartPatientId: '7003', dateOfBirth: '04/03/1961', mrn: '2' })], 'review'],
+    ['MRN on the document disagrees', { ...nd, mrn: { value: '555', confidence: 'high' } }, [cand()], 'review'],
+    ['MRN label unreadable', { ...nd, mrn_unreadable: true }, [cand()], 'review'],
+    ['phone on the document disagrees', { ...nd, phone: { value: '2085550000', confidence: 'medium' } }, [cand()], 'review'],
+    ['an unread MRN- or phone-like number near the patient', { ...nd, unread_identifier: true }, [cand()], 'review'],
+    ['two patients with this exact name + DOB', nd, [cand(), cand({ patientId: '9002', chartPatientId: '7002', mrn: '1' })], 'ambiguous'],
+    ['no EHR chart', nd, [cand({ chartPatientId: '' })], 'review'],
+    ['two patients named on the document', { ...nd, patient_count: 2 }, [cand()], 'ambiguous'],
+    ['no match', nd, [], 'none'],
+  ];
+  for (const [label, ex, cands, want] of ndTable) {
+    const r = decideMatch(ex, cands, { rule: 'name_dob' });
+    assert.strictEqual(r.decision, want, `name_dob, ${label}: got ${r.decision} (${r.reason})`);
+    if (want === 'auto') assert.deepStrictEqual([r.rule, r.second_identifier, r.patient?.chartPatientId], ['name_dob', undefined, '7001'], label);
+    const d = decideMatch(ex, cands);
+    assert.notStrictEqual(d.decision, 'auto', `default rule never files "${label}" (no second identifier)`);
+  }
+  for (const [label, ex, cands] of table) {
+    const d = decideMatch(ex, cands).decision;
+    if (d !== 'review') assert.strictEqual(decideMatch(ex, cands, { rule: 'name_dob' }).decision, d, `name_dob changes nothing the default files, rejects or calls ambiguous: ${label}`);
+  }
+  const ndCalls: any[] = [];
+  const ndRun = (neighbours: any[] | Error, byName: any[] = []) => async (name: string, args: any) => {
+    ndCalls.push(args);
+    if (!args.firstName && args.dateOfBirth) {
+      if (neighbours instanceof Error) throw neighbours;
+      return { patients: neighbours, total: neighbours.length };
+    }
+    if (!args.firstName) return { patients: byName, total: byName.length };
+    return { patients: [cand()], total: 1 };
+  };
+  assert.strictEqual((await matchPatient(nd, ndRun([]), () => NOW)).decision, 'review', 'default rule: review');
+  assert.strictEqual(ndCalls.length, 1, 'default rule: one search');
+  process.env.INTAKE_MATCH_RULE = 'name_dob';
+  ndCalls.length = 0;
+  const ndAuto = await matchPatient(nd, ndRun([cand()]), () => NOW);
+  assert.deepStrictEqual([ndAuto.decision, ndAuto.rule, ndCalls[1], ndCalls[2]], ['auto', 'name_dob', { lastName: 'Te', dateOfBirth: '03/14/1961' }, { lastName: 'Testpatient' }], 'name_dob: wider searches (same DOB; this last name at any DOB) before filing');
+  assert.strictEqual((await matchPatient(nd, ndRun([cand()], [cand({ patientId: '9004', chartPatientId: '7004', dateOfBirth: '03/14/1981', mrn: '3' })]), () => NOW)).decision, 'review', 'name_dob: the same name with a DOB one digit off, found by the name search');
+  assert.strictEqual((await matchPatient(nd, ndRun([cand(), { ...twin, phone: { home: '2085550142' } }]), () => NOW)).decision, 'review', 'name_dob: the wider search finds a twin the first search could not');
+  const ndFail = await matchPatient(nd, ndRun(new Error('down')), () => NOW);
+  assert.strictEqual(ndFail.decision, 'error', 'name_dob: a failed wider search is an error, never "nobody similar"');
+  ndCalls.length = 0;
+  assert.strictEqual((await matchPatient(lab, ndRun([]), () => NOW)).second_identifier, 'mrn');
+  assert.strictEqual(ndCalls.length, 1, 'name_dob: no extra search when the MRN decides');
+  delete process.env.INTAKE_MATCH_RULE;
+  ok(`optional name_dob rule (${ndTable.length} cases; off by default; never changes a default decision; wider searches for similar names at the same or a near DOB, failures are errors)`);
+
   // 7. Document types
   const typeRows = [
     {
@@ -581,10 +711,39 @@ MRN: 771234                   COLL: 10/08/2026 07:10
     const offId = addScan('off');
     await offPipe.process(offId);
     assert.deepStrictEqual([oStore.get(offId)!.status, ocrHits.includes('off')], ['needs_review', false], 'OCR off: review by hand, nothing sent');
+
+    // INTAKE_OCR_FAX=local: a MOATiT Fax fax is read by the local OCR too and its text is used;
+    // when that read fails, MOATiT Fax's text is kept (never 'failed' for it).
+    const faxWith = (mark: string) =>
+      new fax.MoatitFaxClient({
+        baseUrl: 'https://fax.example.test/',
+        apiKey: 'smoke-fax-key',
+        sleep: async () => undefined,
+        fetchImpl: (async (u: string) => {
+          if (u.endsWith(`/fax/job_${mark}`)) return new Response(JSON.stringify({ data: { status: 'received', ocr: { status: 'completed', text: 'blurry fax text, no patient' }, page_count: 1 } }), { status: 200 });
+          if (u.endsWith(`/fax/job_${mark}/download`)) return new Response(`%PDF-1.4 OCRCASE:${mark}`, { status: 200, headers: { 'content-type': 'application/pdf' } });
+          return new Response('', { status: 500 });
+        }) as any,
+      });
+    const runFax = async (mark: string) => {
+      const fp = new IntakePipeline({ store: () => oStore, fax: () => faxWith(mark), now: () => NOW, ocr: () => client, deps: { runTool: fakeRun } });
+      const it = oStore.recordFax(`fax:job_${mark}:fax.received`, `job_${mark}`).item;
+      await fp.process(it.id);
+      return oStore.get(it.id)!;
+    };
+    delete process.env.INTAKE_OCR_FAX;
+    const hitsBefore = ocrHits.length;
+    assert.deepStrictEqual([(await runFax('slow')).status, ocrHits.length], ['needs_review', hitsBefore], 'default: MOATiT Fax text, no local OCR');
+    process.env.INTAKE_OCR_FAX = 'local';
+    const localFax = await runFax('lab');
+    assert.deepStrictEqual([localFax.status, localFax.match?.decision, localFax.ocr?.mean_confidence], ['matched', 'auto', 88.5], 'local OCR text replaces MOATiT Fax text');
+    const keptFax = await runFax('boom');
+    assert.deepStrictEqual([keptFax.status, oStore.readText(keptFax.id), keptFax.history.some((x) => /local OCR failed \(OCR_HTTP_500\); MOATiT Fax text kept/.test(x.action))], ['needs_review', 'blurry fax text, no patient', true]);
+    delete process.env.INTAKE_OCR_FAX;
   } finally {
     ocrSrv.close();
   }
-  ok('local OCR: client codes (500 retried, 4xx, bad JSON, timeout, unreachable), pipeline reads, gates low confidence, fails loudly, skips documents with text');
+  ok('local OCR: client codes (500 retried, 4xx, bad JSON, timeout, unreachable), pipeline reads, gates low confidence, fails loudly, skips documents with text; INTAKE_OCR_FAX=local re-reads faxes and keeps MOATiT Fax text on failure');
 
   // 9. Drop folder
   const inbox = process.env.INTAKE_DROP_DIR!;

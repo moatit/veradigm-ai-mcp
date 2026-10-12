@@ -18,7 +18,9 @@ export { partOcr, segmentItem, splitEnabled } from './pages';
  *    still running the item waits (re-checked every OCR_WAIT_MS, at most OCR_MAX_WAITS times).
  * 2. Read: the text layer / MOATiT Fax OCR; when there is none, Drawbridge's own OCR container
  *    (ocr.ts, INTAKE_OCR_URL). An OCR failure leaves the item 'failed' with an OCR_* code (staff
- *    can retry); OCR text below INTAKE_OCR_MIN_CONFIDENCE is never auto-matched.
+ *    can retry); OCR text below INTAKE_OCR_MIN_CONFIDENCE is never auto-matched. With
+ *    INTAKE_OCR_FAX=local, faxes that came with MOATiT Fax text are read by the container too and its
+ *    text is used (MOATiT Fax's text is kept when that read fails).
  *    Then extract fields from the text (extract.ts).
  * 3. Pages (pages.ts): for a batch sender (INTAKE_BATCH_SENDERS) or a document naming more than one
  *    patient, every page is read on its own. Several patients, cleanly separated: the file is split
@@ -106,6 +108,16 @@ export class IntakePipeline {
 
     // 2. Read (local OCR when the document came without text)
     let text = store.readText(id);
+    if (text.trim() && item.file && item.source === 'moatit_fax' && !item.ocr && !item.parent_id && localOcrForFaxes()) {
+      // INTAKE_OCR_FAX=local: read the fax image with Drawbridge's OCR container too; its text
+      // replaces MOATiT Fax's when the read succeeds, else MOATiT Fax's text is kept.
+      const ocr = this.opts.ocr ? this.opts.ocr() : OcrClient.fromEnv();
+      if (ocr) {
+        await this.runOcr(store, item, ocr, true);
+        item = store.get(id)!;
+        text = store.readText(id);
+      }
+    }
     if (!text.trim() && item.file) {
       const ocr = this.opts.ocr ? this.opts.ocr() : OcrClient.fromEnv();
       if (ocr) {
@@ -192,8 +204,11 @@ export class IntakePipeline {
     }
   }
 
-  /** Local OCR of the original. Returns false when it failed (the item is then 'failed' with a code). */
-  private async runOcr(store: IntakeStore, item: IntakeItem, ocr: OcrClient): Promise<boolean> {
+  /**
+   * Local OCR of the original. Returns false when it failed (the item is then 'failed' with a code).
+   * `soft`: the item already has text (MOATiT Fax); a failure is noted and that text is kept.
+   */
+  private async runOcr(store: IntakeStore, item: IntakeItem, ocr: OcrClient, soft = false): Promise<boolean> {
     const file = store.filePath(item);
     if (!file) {
       store.update(item.id, { status: 'failed', error_code: 'FILE_MISSING' }, 'original file missing; cannot run OCR');
@@ -219,6 +234,10 @@ export class IntakePipeline {
       return true;
     } catch (e: any) {
       const code = e instanceof OcrError ? e.code : 'OCR_FAILED';
+      if (soft) {
+        store.update(item.id, {}, `local OCR failed (${code}); MOATiT Fax text kept`);
+        return true;
+      }
       store.update(item.id, { status: 'failed', error_code: code }, `OCR failed (${code})`);
       return false;
     }
@@ -363,6 +382,14 @@ export class IntakePipeline {
     if (this.opts.later) this.opts.later(fn, ms);
     else setTimeout(fn, ms).unref?.();
   }
+}
+
+/**
+ * INTAKE_OCR_FAX=local: faxes from MOATiT Fax are also read by Drawbridge's OCR container (header
+ * second pass, sender templates), and that text is used. Default: MOATiT Fax's own OCR text.
+ */
+export function localOcrForFaxes(): boolean {
+  return String(process.env.INTAKE_OCR_FAX || '').trim().toLowerCase() === 'local';
 }
 
 /** Why an auto-matched item must still wait for staff ('' = it may be auto-filed). */

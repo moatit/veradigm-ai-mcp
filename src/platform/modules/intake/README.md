@@ -9,9 +9,10 @@ Staff-side add-on: documents faxed or dropped in by outside offices are read, ma
 | Working store (`items.json` + `files/`, atomic writes, dedupe by source ref and SHA-256) | `store.ts`, `<CALL_RECORDS_DIR or /app/data>/intake/` |
 | MOATiT Fax webhook `POST /webhooks/moatit-fax` + enterprise API client | `moatit-fax.ts`, `mountFaxWebhook(app)` in `src/unity/unity-test-server.ts` (before `express.json()`) |
 | Drop folder watcher (every 30 s, PDF/TIFF/PNG/JPEG untouched for 10 s) | `folder.ts`, `INTAKE_DROP_DIR` |
-| Field extraction (name, DOB, MRN, phone, sender, collection date, kind, abnormal flags) | `extract.ts` (pure, with confidences) |
+| Field extraction (name, DOB, MRN, phone, sender, collection date, kind, abnormal flags; the value read most often across pages wins) | `extract.ts` (pure, with confidences) |
+| Sender templates (a frequent sender's labels, name order, date formats, MRN pattern) | `templates.ts`, JSON in `deploy/ocr/templates/` (`INTAKE_SENDER_TEMPLATES_DIR`) |
 | Per-page check and split plan (which patient each page belongs to; batch senders) | `pages.ts` (pure) |
-| Patient match (two-identifier rule) | `match.ts` (`decideMatch` is the pure decision table) |
+| Patient match (two-identifier rule; optional name + DOB rule, off by default) | `match.ts` (`decideMatch` is the pure decision table) |
 | Document type suggestion (`GetDocumentType`, cached 1 h) | `doctypes.ts` |
 | Local OCR for files without text (Tesseract 5 container, no outside service) | `ocr.ts` → `deploy/ocr` (`ocr` service, `INTAKE_OCR_URL`) |
 | Processing queue (fetch → read/OCR → pages/split → match → type → auto-file) | `pipeline.ts` |
@@ -47,6 +48,7 @@ After the 204, the item is processed in the background: `GET /api/v1/enterprise/
 
 - **auto** (`matched`): exactly one patient matches name + DOB **and** a second identifier agrees: the MRN (the PM MRN **or** the EHR chart MRN / PatientNumber), or the exact full name + DOB + the patient phone on the document.
 - **review**: one match without a second identifier, an MRN that equals neither of the patient's MRNs, a different phone, an MRN label whose value OCR couldn't read (the phone never stands in for it), no EHR chart, or OCR text below `INTAKE_OCR_MIN_CONFIDENCE` (the candidate is shown, never auto-matched).
+- **Optional clinic rule** `INTAKE_MATCH_RULE=name_dob` (off by default; the clinic decides): a document with **no MRN or patient phone at all** may also be **auto** when the exact full name (under an explicit patient label) and DOB match exactly one patient, every read of them on the document agrees, no other patient has a similar name (one edit, Soundex, first-name prefix, swapped, or the same last name) with the same DOB or one a digit off, no MRN label or MRN- or phone-like number near the patient went unread, and the OCR gate passes. Two wider searches back this check (same DOB by the last name's first two letters; the last name at any DOB); a failed one is an error. The match records `rule: 'name_dob'`. Nothing the default rule files, rejects or calls ambiguous changes.
 - **none / ambiguous**: no match; more than one patient matches; or the document itself names more than one patient (a daily batch report, two patients' results in one fax). Such a document is split into one part per patient when its pages allow it (above); otherwise staff split it.
 - **error** (`failed`): the search failed. A failed search is never treated as "no match".
 
@@ -68,6 +70,9 @@ After the 204, the item is processed in the background: `GET /api/v1/enterprise/
 | `INTAKE_RETENTION_DAYS` | `30` | Originals of filed items are deleted after this (the item and its history stay) |
 | `INTAKE_OCR_URL` | `http://ocr:8090` | Local OCR container; `off` sends text-less files straight to review |
 | `INTAKE_OCR_MIN_CONFIDENCE` | `60` | Mean OCR confidence below which a document is never auto-matched |
+| `INTAKE_OCR_FAX` | unset | `local`: faxes from MOATiT Fax are read by the local OCR container too (header second pass, sender templates) and its text is used; if that read fails, MOATiT Fax's text is kept |
+| `INTAKE_MATCH_RULE` | `two_identifiers` | `name_dob` turns on the optional clinic rule above. Not for production until the clinic (IKI) decides |
+| `INTAKE_SENDER_TEMPLATES_DIR` | unset | Folder of sender templates (JSON, as in `deploy/ocr/templates/`); unset = no templates |
 | `INTAKE_PRACTICE_NAME` | `Idaho Kidney Institute` | The receiving practice: never taken as the document's sender |
 | `INTAKE_BATCH_SENDERS` | unset | Batch-report senders (comma-separated, case-insensitive part of the name, or a 10-digit fax number): every page must identify its patient; multi-patient files are split. Replaces listing the batch lab in `INTAKE_NO_AUTO_SENDERS` |
 | `INTAKE_SPLIT` | `on` | `off`: multi-patient files go to staff instead of being split |
@@ -86,6 +91,6 @@ Secrets go in `.env` only. Logs carry item IDs, job IDs, counts and error codes.
 
 ## Tests
 
-`npm run smoke:intake` runs offline with made-up patients. It covers HMAC good/bad/missing, the event allowlist, durable dedupe, the webhook and staff routes on 127.0.0.1, extraction on three synthetic documents and under fax-OCR noise (multi-patient batch, unreadable MRN), the match decision table, document-type mapping and cache, the pipeline with fake Veradigm and MOATiT Fax, the OCR client and pipeline against a fake OCR server (success, low confidence, empty, 5xx, 4xx, bad JSON, timeout, unreachable), the drop folder, the filing guard, screen wording, and logs without content. Pages and batches: form feeds and MOATiT Fax page markers, sender lists, every page rule and review trigger, and a batch fax end to end against a fake OCR server (`/ocr` per page, `/pages` cuts): split, parts matched and auto-filed to their own charts, the blind spot to review, idempotent re-processing, split failure and retry, page-count mismatch, OCR off, screens and retention.
+`npm run smoke:intake` runs offline with made-up patients. It covers HMAC good/bad/missing, the event allowlist, durable dedupe, the webhook and staff routes on 127.0.0.1, extraction on three synthetic documents and under fax-OCR noise (multi-patient batch, unreadable MRN), the match decision table, document-type mapping and cache, the pipeline with fake Veradigm and MOATiT Fax, the OCR client and pipeline against a fake OCR server (success, low confidence, empty, 5xx, 4xx, bad JSON, timeout, unreachable), the drop folder, the filing guard, screen wording, and logs without content. Accuracy work: consensus across pages and `reads_agree`, "First M, Last" commas, unread MRN- or phone-like numbers near the patient, sender templates (OCR-tolerant labels that never match `PTH-I` or `PT PHONE`, name order, date formats, MRN pattern, invalid files skipped, off by default), the optional `name_dob` rule (its own decision table, never changing a default decision, the wider searches and their failures), and `INTAKE_OCR_FAX=local`. Pages and batches: form feeds and MOATiT Fax page markers, sender lists, every page rule and review trigger, and a batch fax end to end against a fake OCR server (`/ocr` per page, `/pages` cuts): split, parts matched and auto-filed to their own charts, the blind spot to review, idempotent re-processing, split failure and retry, page-count mismatch, OCR off, screens and retention.
 
 `npm run eval:intake -- --set <dir>` measures accuracy on a large synthetic set (generator `tools/intake-synth`, OCR `deploy/ocr`): per-field accuracy, decisions against the expected ones, auto-file rate, and page by page the filing outcome before / after batch splitting, with **wrong-patient pages filed** (must be 0). Method and numbers: `docs/drawbridge/INTAKE_ACCURACY.md`.

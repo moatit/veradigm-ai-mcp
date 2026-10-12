@@ -140,6 +140,84 @@ def expected_decision(p: Printed, roster: list[Patient]) -> tuple[str, str | Non
     return "review", c.key
 
 
+# Labels the extractor reads as an explicit patient-name label ('high'); "RE:" and "Name:" are weaker.
+STRONG_NAME_LABELS = {"Patient Name:", "Patient:", "PT:"}
+
+
+def soundex(s: str) -> str:
+    w = norm(s)
+    if not w:
+        return ""
+    code = {**dict.fromkeys("bfpv", "1"), **dict.fromkeys("cgjkqsxz", "2"), **dict.fromkeys("dt", "3"), "l": "4",
+            **dict.fromkeys("mn", "5"), "r": "6"}
+    out, prev = w[0].upper(), code.get(w[0], "")
+    for ch in w[1:]:
+        c = code.get(ch, "")
+        if c and c != prev:
+            out += c
+        if ch not in "hw":
+            prev = c
+    return (out + "000")[:4]
+
+
+def one_edit(a: str, b: str) -> bool:
+    if a == b:
+        return True
+    if abs(len(a) - len(b)) > 1:
+        return False
+    i = 0
+    while i < len(a) and i < len(b) and a[i] == b[i]:
+        i += 1
+    return a[i + 1:] == b[i + 1:] or a[i:] == b[i + 1:] or a[i + 1:] == b[i:]
+
+
+def similar_names(af: str, al: str, bf: str, bl: str) -> bool:
+    """Mirror of similarNames() in src/platform/modules/intake/match.ts."""
+    af, al, bf, bl = norm(af), norm(al), norm(bf), norm(bl)
+    if not al or not bl:
+        return False
+    if al == bl:
+        return True
+    if one_edit(af + al, bf + bl) or (af == bl and al == bf):
+        return True
+    last_sim = one_edit(al, bl) or soundex(al) == soundex(bl)
+    first_sim = af == bf or one_edit(af, bf) or soundex(af) == soundex(bf) or first_agrees(af, bf)
+    return last_sim and first_sim
+
+
+def near_dob(a: str, b: str) -> bool:
+    """Mirror of nearDob() in match.ts: MM/DD/YYYY one character apart, or day and month swapped."""
+    if a == b:
+        return False
+    if len(a) == len(b) and sum(x != y for x, y in zip(a, b)) == 1:
+        return True
+    am, ad, ay = a.split("/")
+    bm, bd, by = b.split("/")
+    return ay == by and am == bd and ad == bm
+
+
+def expected_decision_name_dob(p: Printed, roster: list[Patient], name_label: str) -> tuple[str, str | None]:
+    """
+    The optional INTAKE_MATCH_RULE=name_dob applied to what is printed: the default rule, plus 'auto'
+    for an exact full name + DOB under an explicit patient label when no MRN or phone is printed, one
+    patient has that exact name + DOB, and no other patient with a similar name has that DOB or one a
+    character off (or with day and month swapped).
+    """
+    d, hit = expected_decision(p, roster)
+    if d != "review" or hit is None or p.mrn or p.phone or name_label not in STRONG_NAME_LABELS:
+        return d, hit
+    c = next(r for r in roster if r.key == hit)
+    if norm(c.first) != norm(p.first) or norm(c.last) != norm(p.last):
+        return d, hit
+    dob = mmddyyyy(p.dob)
+    exact = [r for r in roster if norm(r.first) == norm(p.first) and norm(r.last) == norm(p.last) and r.dob == dob]
+    if len(exact) != 1:
+        return d, hit
+    if any(r.key != c.key and (r.dob == dob or near_dob(r.dob, dob)) and similar_names(p.first, p.last, r.first, r.last) for r in roster):
+        return d, hit
+    return "auto", hit
+
+
 # ── Planning one document ────────────────────────────────────────────────────
 
 def sender_numbers() -> None:
@@ -333,17 +411,23 @@ def build_one(args: tuple) -> dict:
     markers = sorted(spec.abnormal_markers)
     keys = [p.key for p in plan["patients"]]
     decisions = [expected_decision(p, roster)[0] for p in plan["printed"]]
+    labels = [spec.name_label] * len(keys) if not report else [spec.name_label] + [m.name_label for m in more]
+    decisions_nd = [expected_decision_name_dob(p, roster, labels[k])[0] for k, p in enumerate(plan["printed"])]
     if plan["case"] == "not_in_roster":
         decisions = ["none"]
+        decisions_nd = ["none"]
     exp_doc, exp_why, exp_pages = expected_pages(plan["layout"], page_meta, decisions, keys)
+    _, _, exp_pages_nd = expected_pages(plan["layout"], page_meta, decisions_nd, keys)
     name = lambda idx: [keys[x] for x in idx]  # noqa: E731
     page_truth = [
         {"page": n + 1, "role": m["role"], "owners": name(m["owners"]), "shown": name(m["shown"]),
-         "blotted": name(m["blotted"]), "names": name(m["names"]), "expected_filed_to": exp_pages[n]}
+         "blotted": name(m["blotted"]), "names": name(m["names"]), "expected_filed_to": exp_pages[n],
+         "expected_filed_to_name_dob": exp_pages_nd[n]}
         for n, m in enumerate(page_meta)
     ]
     patients_truth = [
         {"key": keys[k], "in_roster": plan["case"] != "not_in_roster", "expected_decision": decisions[k],
+         "expected_decision_name_dob": decisions_nd[k],
          "pages": [t["page"] for t in page_truth if keys[k] in t["owners"]]}
         for k in range(len(keys))
     ]
@@ -358,7 +442,10 @@ def build_one(args: tuple) -> dict:
         "cover_sheet": plan["cover"],
         "intended_patient": intended,
         "expected_decision": decision,
+        # The same with the optional INTAKE_MATCH_RULE=name_dob (exact name + DOB may be enough).
+        "expected_decision_name_dob": "ambiguous" if multi else ("none" if plan["case"] == "not_in_roster" else decisions_nd[0]),
         "expected_match_key": hit,
+        "name_label": spec.name_label,
         "kind": spec.kind,
         "sender": {"name": plan["sender"]["name"], "aliases": [plan["sender"]["name"], plan["sender"]["short"]]},
         "collection_date": mmddyyyy(plan["collected"].date()),

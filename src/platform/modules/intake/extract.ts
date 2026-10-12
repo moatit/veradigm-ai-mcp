@@ -18,7 +18,13 @@
  * patient_count: distinct patients named on the document (labelled names and dates of birth, OCR
  * noise allowed for). More than one (a daily batch report, a fax with two patients' results) means
  * staff must split the document; match.ts never files it to one chart.
+ *
+ * Sender templates (templates.ts, INTAKE_SENDER_TEMPLATES_DIR): when the document comes from a sender
+ * with a template, that sender's labels, name order, date formats and MRN pattern are read first
+ * (OCR-tolerant labels, 'high'); the generic reading of those lines is dropped. A template only changes
+ * how fields are read, never what the matcher accepts.
  */
+import { findTemplate, fitsDateFormat, templateValues, type SenderTemplate } from './templates';
 export type Confidence = 'high' | 'medium' | 'low';
 export type DocumentKind = 'lab_result' | 'imaging' | 'consult' | 'referral' | 'other';
 export type DocumentSubtype =
@@ -70,6 +76,19 @@ export interface ExtractedFields {
    * match.ts does not fall back to the phone as the second identifier.
    */
   mrn_unreadable?: boolean;
+  /**
+   * The patient's name and date of birth read the same everywhere they are labelled (pages, cover
+   * sheet, repeated headers). false when some read differs (OCR noise); absent when nothing was read.
+   */
+  reads_agree?: boolean;
+  /**
+   * A number that looks like an identifier (5-10 digits, or a phone number) is printed in the patient
+   * block (the name and DOB lines and the 3 lines after them) but was not read as the MRN or the
+   * patient's phone. It may be an MRN or phone that disagrees, so the name_dob rule never files on it.
+   */
+  unread_identifier?: boolean;
+  /** Sender template used to read the fields (templates.ts). */
+  template?: string;
 }
 
 // ── Dates ────────────────────────────────────────────────────────────────────
@@ -180,9 +199,17 @@ export function parseName(raw: string): PatientName | null {
     const lastParts = comma[1].trim().split(' ');
     const rest = comma[2].trim().split(' ');
     if (!lastParts.every((t) => NAME_TOKEN.test(t)) || !rest.every((t) => NAME_TOKEN.test(t))) return null;
-    last = lastParts.join(' ');
-    first = rest[0];
-    middle = rest.slice(1);
+    if (lastParts.length === 2 && /^[A-Za-z]\.?$/.test(lastParts[1]) && rest.length === 1) {
+      // "Bernard P, Colfax": OCR read the middle initial's period as a comma. No surname ends in an
+      // initial, so this is First M. Last.
+      first = lastParts[0];
+      middle = [lastParts[1]];
+      last = rest[0];
+    } else {
+      last = lastParts.join(' ');
+      first = rest[0];
+      middle = rest.slice(1);
+    }
   } else {
     const parts = s.split(' ').filter((t) => !/^(mr|mrs|ms|miss|dr)\.?$/i.test(t));
     if (parts.length < 2 || parts.length > 5 || !parts.every((t) => NAME_TOKEN.test(t))) return null;
@@ -238,24 +265,123 @@ const MRN_VALUE = /^#?\s*([A-Z0-9][A-Z0-9-]{2,19})\b/i;
  */
 const MRN_LABEL_LOOSE = /\b(?:M\s?R\s?N\b|Med\w{0,5}\.?\s*Re[a-z]{1,4}\.?\s*(?:#|No\b|Num|[:;])|Chart\s*(?:#|No\b|Num)|Patient\s*[I1l]D\b)/i;
 /** Every labelled MRN on the document, high-confidence labels first. */
-function allMrns(lines: string[]): Extracted[] {
+function allMrns(lines: string[]): (Extracted & { line: number })[] {
   const tries: [RegExp, Confidence][] = [
     [/\b(?:MRN|Med(?:ical)?\.?\s*Re[ce](?:ord)?\.?\s*(?:Number|No\.?|#)?|Chart\s*(?:Number|No\.?|#))/i, 'high'],
     [/\bPatient\s*[I1l]D\b/i, 'medium'],
   ];
-  const out: Extracted[] = [];
+  const out: (Extracted & { line: number })[] = [];
   for (const [label, confidence] of tries) {
     for (const v of labeledAll(lines, label)) {
-      // OCR splits digits with a single space ("005696 14"); values are already cut at double spaces.
-      const m = v.value.replace(/(?<=\d) (?=\d)/g, '').match(MRN_VALUE);
-      if (!m || !/\d/.test(m[1])) continue;
-      // Mostly digits: undo O/0 and l/1 swaps ("4O2449O" → "4024490"). Letter MRNs stay as read.
-      const raw = m[1].toUpperCase();
-      const val = (raw.match(/\d/g) || []).length >= raw.length - 2 ? raw.replace(/[OD]/g, '0').replace(/[IL|]/g, '1') : raw;
-      out.push({ value: val, confidence });
+      const val = mrnValue(v.value);
+      if (val) out.push({ value: val, confidence, line: v.line });
     }
   }
   return out;
+}
+
+/** The MRN at the start of a labelled value, OCR digit swaps undone; '' when there is none. */
+function mrnValue(value: string): string {
+  // OCR splits digits with a single space ("005696 14"); values are already cut at double spaces.
+  const m = value.replace(/(?<=\d) (?=\d)/g, '').match(MRN_VALUE);
+  if (!m || !/\d/.test(m[1])) return '';
+  // Mostly digits: undo O/0 and l/1 swaps ("4O2449O" → "4024490"). Letter MRNs stay as read.
+  const raw = m[1].toUpperCase();
+  return (raw.match(/\d/g) || []).length >= raw.length - 2 ? raw.replace(/[OD]/g, '0').replace(/[IL|]/g, '1') : raw;
+}
+
+// ── Sender templates ─────────────────────────────────────────────────────────
+
+interface TemplateReads {
+  names: { name: PatientName; confidence: Confidence; line: number }[];
+  dobs: { value: string; line: number }[];
+  mrns: (Extracted & { line: number })[];
+  phone?: Extracted;
+  /** An MRN label of the template whose value does not fit its pattern. */
+  mrnBad: boolean;
+  /** Lines the template read, per field: the generic reading of these lines is not used. */
+  claimed: { name: Set<number>; dob: Set<number>; mrn: Set<number> };
+}
+
+const cut = (v: string) => v.replace(LEAD_JUNK, '').split(NEXT_LABEL)[0].trim();
+
+function templateReads(lines: string[], t: SenderTemplate, now: Date): TemplateReads {
+  const r: TemplateReads = { names: [], dobs: [], mrns: [], mrnBad: false, claimed: { name: new Set(), dob: new Set(), mrn: new Set() } };
+  const f = t.fields;
+  if (f.name) {
+    for (const v of templateValues(lines, f.name.labels)) {
+      let raw = cut(v.value);
+      const parts = raw.split(/\s+/);
+      if (f.name.order === 'last_first' && !raw.includes(',') && parts.length === 2) raw = `${parts[0]}, ${parts[1]}`;
+      const name = parseName(raw);
+      if (!name) continue;
+      r.names.push({ name, confidence: 'high', line: v.line });
+      r.claimed.name.add(v.line);
+    }
+  }
+  if (f.dob) {
+    for (const v of templateValues(lines, f.dob.labels)) {
+      r.claimed.dob.add(v.line);
+      const raw = fixDigits(cut(v.value));
+      if (!fitsDateFormat(raw, f.dob.formats)) continue;
+      const d = normalizeDate(raw, { pastOnly: true, now });
+      if (d) r.dobs.push({ value: d, line: v.line });
+    }
+  }
+  if (f.mrn) {
+    const pattern = f.mrn.pattern ? new RegExp(f.mrn.pattern) : null;
+    for (const v of templateValues(lines, f.mrn.labels)) {
+      r.claimed.mrn.add(v.line);
+      const val = mrnValue(cut(v.value));
+      if (!val || (pattern && !pattern.test(val))) {
+        r.mrnBad = true;
+        continue;
+      }
+      r.mrns.push({ value: val, confidence: 'high', line: v.line });
+    }
+  }
+  if (f.phone) {
+    for (const v of templateValues(lines, f.phone.labels)) {
+      const d = fixDigits(cut(v.value)).replace(/[^\d]/g, '').replace(/^1(?=\d{10}$)/, '');
+      if (/^\d{10}$/.test(d)) {
+        r.phone = { value: d, confidence: 'high' };
+        break;
+      }
+    }
+  }
+  return r;
+}
+
+// ── Unread identifiers in the patient block ──────────────────────────────────
+
+const DATE_ANY = /\b\d{1,4}[/.-]\d{1,2}[/.-]\d{2,4}\b/g;
+const PHONE_ANY = /\(?\b\d{3}\)?[\s.-]*\d{3}[\s.-]*\d{4}\b/g;
+const STATE_ZIP = /\b[A-Z]{2}\s+\d{5}(?:-\d{4})?\b/g;
+const TIME_ANY = /\b\d{1,2}:\d{2}(?::\d{2})?\b/g;
+/** Numbers that say what they are: accession, specimen, order, account, batch numbers. */
+const NAMED_NUMBER = /\b(?:Acc\w*|Specimen(?:\s*ID)?|Order\w*|Req\w*|Acct|Account|Batch|Lab\s*ID|Ref(?:erence)?\s*(?:#|No))\s*[#:;.!]*\s*\S+/gi;
+
+/**
+ * True when the patient block (lines with the name or DOB and the 3 after them) shows a number that
+ * looks like an MRN (5-10 digits) or a phone that was not read as the document's MRN or patient phone.
+ * Dates, times, "ID 83704" style zip codes and numbers after an accession, specimen, order, account
+ * or batch label don't count.
+ */
+function unreadIdentifier(lines: string[], block: number[], mrns: string[], phone: string): 'mrn' | 'phone' | null {
+  const rows = new Set<number>();
+  for (const b of block) for (let i = b; i <= b + 3 && i < lines.length; i++) rows.add(i);
+  const known = new Set(mrns.map((m) => m.replace(/^0+(?=.)/, '')));
+  for (const i of rows) {
+    const l = fixDigits(lines[i]).replace(NAMED_NUMBER, ' ').replace(DATE_ANY, ' ').replace(TIME_ANY, ' ').replace(STATE_ZIP, ' ');
+    for (const m of l.match(PHONE_ANY) || []) {
+      const d = m.replace(/\D/g, '');
+      if (d.length === 10 && d !== phone) return 'phone';
+    }
+    for (const m of l.replace(PHONE_ANY, ' ').replace(/(?<=\d) (?=\d)/g, '').match(/(?<![A-Za-z0-9])\d{5,10}(?![A-Za-z0-9])/g) || []) {
+      if (!known.has(m.replace(/^0+(?=.)/, ''))) return 'mrn';
+    }
+  }
+  return null;
 }
 
 /**
@@ -345,6 +471,8 @@ function extractCollectionDate(lines: string[], now: Date): Extracted | undefine
   return undefined;
 }
 
+const usableConf = (c?: Confidence) => c === 'high' || c === 'medium';
+
 // ── Patients on the document ─────────────────────────────────────────────────
 
 /** True when the edit distance between a and b is at most k. */
@@ -382,6 +510,22 @@ function countPatients(names: PatientName[], dobs: string[], mrns: string[]): nu
       (a, b) => within(a, b, 1)
     )
   );
+}
+
+/**
+ * The value read most often among the reads that are the first read's patient up to OCR noise
+ * (`near`). Ties go to the earliest read. unanimous: every read in that group is the same value.
+ * null when there are no reads.
+ */
+function vote<T>(reads: T[], key: (r: T) => string, near: (a: string, b: string) => boolean): { key: string; unanimous: boolean } | null {
+  if (!reads.length) return null;
+  const seed = key(reads[0]);
+  const group = reads.map(key).filter((k) => k === seed || near(k, seed));
+  const counts = new Map<string, number>();
+  for (const k of group) counts.set(k, (counts.get(k) || 0) + 1);
+  let best = seed;
+  for (const k of group) if ((counts.get(k) || 0) > (counts.get(best) || 0)) best = k;
+  return { key: best, unanimous: counts.size === 1 };
 }
 
 // ── Document kind ────────────────────────────────────────────────────────────
@@ -525,21 +669,45 @@ export function extractFields(
   const out: ExtractedFields = { kind: classifyKind(clean), abnormal: abnormalFlags(clean) };
   const subtype = classifySubtype(clean, out.kind.value);
   if (subtype) out.subtype = subtype;
-  const names = allNames(lines);
-  if (names.length) out.patient_name = { value: names[0].name, confidence: names[0].confidence };
-  const dobs = allDobs(lines, now);
-  if (dobs.length) out.dob = { value: dobs[0].value, confidence: 'high' };
-  const mrns = allMrns(lines);
+  const tpl = findTemplate(clean);
+  const tr = tpl ? templateReads(lines, tpl, now) : null;
+  if (tpl) out.template = tpl.id;
+  // A template's reads come first; the generic reading of the lines it read is dropped.
+  const names = [...(tr?.names || []), ...allNames(lines).filter((n) => !tr?.claimed.name.has(n.line))];
+  const dobs = [...(tr?.dobs || []), ...allDobs(lines, now).filter((d) => !tr?.claimed.dob.has(d.line))];
+  const mrns = [...(tr?.mrns || []), ...allMrns(lines).filter((m) => !tr?.claimed.mrn.has(m.line))];
   out.patient_count = countPatients(
     names.map((n) => n.name),
     dobs.map((d) => d.value),
     mrns.map((m) => m.value)
   );
-  const mrn = mrns[0];
-  if (mrn) out.mrn = mrn;
-  else if (MRN_LABEL_LOOSE.test(clean)) out.mrn_unreadable = true;
-  const phone = extractPhone(lines, [...names.map((n) => n.line), ...dobs.map((d) => d.line)]);
+  // Consensus across the document: the patient's name, DOB and MRN are often printed on every page (or
+  // on the cover sheet and the report). Among the reads that are the same patient up to OCR noise (the
+  // clusters countPatients uses), the value read most often wins; ties keep the first (best label, then
+  // document order), which is what a single read gives. Matching still needs exact values.
+  const nameKey = (n: PatientName) => `${n.last}|${n.first}`.toLowerCase().replace(/[^a-z|]/g, '');
+  const nameVote = vote(names, (n) => nameKey(n.name), (a, b) => within(a.replace('|', ''), b.replace('|', ''), 2));
+  if (nameVote) {
+    const best = names.filter((n) => nameKey(n.name) === nameVote.key);
+    const conf = best.some((n) => n.confidence === 'high') ? 'high' : best[0].confidence;
+    out.patient_name = { value: best[0].name, confidence: conf };
+  }
+  const dobVote = vote(dobs, (d) => d.value, (a, b) => [...a].filter((ch, i) => ch !== b[i]).length <= 1);
+  if (dobVote) out.dob = { value: dobVote.key, confidence: 'high' };
+  if (nameVote || dobVote) out.reads_agree = (!nameVote || nameVote.unanimous) && (!dobVote || dobVote.unanimous);
+  const mrnKey = (m: Extracted) => m.value.replace(/[^A-Z0-9]/g, '').replace(/^0+(?=.)/, '');
+  const mrnVote = vote(mrns, mrnKey, (a, b) => within(a, b, 1));
+  const mrn = mrnVote ? mrns.find((m) => mrnKey(m) === mrnVote.key) : undefined;
+  if (mrn) out.mrn = { value: mrn.value, confidence: mrn.confidence };
+  else if (MRN_LABEL_LOOSE.test(clean) || tr?.mrnBad) out.mrn_unreadable = true;
+  const block = [...names.map((n) => n.line), ...dobs.map((d) => d.line)];
+  const phone = tr?.phone || extractPhone(lines, block);
   if (phone) out.phone = phone;
+  const unread = unreadIdentifier(lines, block, mrns.map((m) => mrnKey(m)), phone && usableConf(phone.confidence) ? phone.value : '');
+  if (unread) out.unread_identifier = true;
+  // An MRN-like number next to the patient that was not read as an MRN: like an unreadable MRN label,
+  // the phone must not stand in for it.
+  if (unread === 'mrn' && !out.mrn) out.mrn_unreadable = true;
   const sender = extractSender(lines, clean, ownName);
   if (sender) out.sender = sender;
   const collected = extractCollectionDate(lines, now);

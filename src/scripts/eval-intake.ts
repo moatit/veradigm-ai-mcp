@@ -22,6 +22,21 @@
  * Batch sender: --batch-sender (default INTAKE_BATCH_SENDERS or "Sawtooth Rapid Lab", the synthetic
  * stand-in for Express Lab).
  *
+ * Matching rule: --rule two_identifiers (default) or --rule name_dob (the optional clinic rule,
+ * INTAKE_MATCH_RULE=name_dob). Run both on the same set with different --label values to compare.
+ * Sender templates: --templates deploy/ocr/templates (INTAKE_SENDER_TEMPLATES_DIR); off by default.
+ *
+ * Documents, end to end (sets with per-page truth): every document is put in a class from its truth,
+ * independent of OCR and of the rule being run:
+ *   fileable          every result page should be filed under the default rule (two identifiers)
+ *   one_identifier    not fileable by default, but every result page should be filed under name_dob
+ *   never             no result page should be filed under either rule (not in the roster, a wrong or
+ *                     foreign MRN, a true duplicate, a DOB typo, an outdated phone, unreadable or blotted
+ *                     identifiers, several patients that can't be split, ...)
+ *   mixed             a multi-patient file where some parts should be filed and others not
+ * Recall is counted on the documents the rule being run should file completely (fileable, plus
+ * one_identifier under name_dob): every result page filed, to its own patient.
+ *
  * Writes <set>/report[-label].md and <set>/summary[-label].json. The numbers that matter most are
  * wrong-patient pages filed and wrong-patient auto-files under "after". They must be 0. Exit code 1
  * when they are not. No network, no Veradigm call.
@@ -29,7 +44,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { extractFields, ExtractedFields } from '../platform/modules/intake/extract';
-import { matchPatient, MatchDecision, MatchResult, normDob } from '../platform/modules/intake/match';
+import { matchPatient, matchRule, MatchDecision, MatchResult, MatchRule, normDob } from '../platform/modules/intake/match';
 import { ocrMinConfidence, ocrReviewReason } from '../platform/modules/intake/ocr';
 import { partOcr, segmentItem, splitPages } from '../platform/modules/intake/pages';
 
@@ -65,6 +80,9 @@ interface Truth {
   cover_sheet: boolean;
   intended_patient: string;
   expected_decision: MatchDecision;
+  /** Under INTAKE_MATCH_RULE=name_dob (sets made since the name_dob rule). */
+  expected_decision_name_dob?: MatchDecision;
+  name_label?: string;
   kind: string;
   sender: { name: string; aliases: string[] };
   collection_date: string;
@@ -77,7 +95,16 @@ interface Truth {
   expected_pages_decision?: 'single' | 'split' | 'review';
   expected_pages_why?: string;
   patients_truth?: { key: string; in_roster: boolean; expected_decision: string; pages: number[] }[];
-  page_truth?: { page: number; role: 'cover' | 'result'; owners: string[]; shown: string[]; blotted: string[]; names: string[]; expected_filed_to: string | null }[];
+  page_truth?: {
+    page: number;
+    role: 'cover' | 'result';
+    owners: string[];
+    shown: string[];
+    blotted: string[];
+    names: string[];
+    expected_filed_to: string | null;
+    expected_filed_to_name_dob?: string | null;
+  }[];
 }
 
 interface OcrMeta {
@@ -118,7 +145,7 @@ interface Row {
   filing?: { before: Filing; open: Filing; after: Filing; info: AfterInfo };
 }
 
-function args(): { set: string; label: string; examples: number; ocr: string; batchSender: string } {
+function args(): { set: string; label: string; examples: number; ocr: string; batchSender: string; rule: MatchRule; templates: string } {
   const a = process.argv.slice(2);
   const get = (k: string) => {
     const i = a.indexOf(k);
@@ -135,6 +162,8 @@ function args(): { set: string; label: string; examples: number; ocr: string; ba
     examples: Number(get('--examples') || 12),
     ocr: get('--ocr') || 'ocr',
     batchSender: get('--batch-sender') || process.env.INTAKE_BATCH_SENDERS || 'Sawtooth Rapid Lab',
+    rule: get('--rule') === 'name_dob' ? 'name_dob' : 'two_identifiers',
+    templates: get('--templates') || '',
   };
 }
 
@@ -250,9 +279,12 @@ export function fakePatientSearch(roster: RosterPatient[]) {
     const dob = normDob(a?.dateOfBirth);
     const first = lower(a?.firstName);
     const last = lower(a?.lastName);
-    // Real filter: DOB exact, first two letters of first and last name (patient.tools.ts filterPatients).
-    const rows = roster.filter(
-      (p) => normDob(p.dob) === dob && lower(p.first).slice(0, 2) === first.slice(0, 2) && lower(p.last).slice(0, 2) === last.slice(0, 2)
+    // Real filter (patient.tools.ts filterPatients): with a DOB, DOB exact and the first two letters of
+    // the names given; without one, the first three letters of the names given.
+    const rows = roster.filter((p) =>
+      dob
+        ? normDob(p.dob) === dob && (!first || lower(p.first).slice(0, 2) === first.slice(0, 2)) && (!last || lower(p.last).slice(0, 2) === last.slice(0, 2))
+        : (!!first || !!last) && (!first || lower(p.first).slice(0, 3) === first.slice(0, 3)) && (!last || lower(p.last).slice(0, 3) === last.slice(0, 3))
     );
     return {
       patients: rows.map((p) => ({
@@ -378,7 +410,12 @@ function groupTable(title: string, groups: [string, Group][]): string {
 }
 
 async function main(): Promise<void> {
-  const { set, label, examples, ocr: ocrSub, batchSender } = args();
+  const { set, label, examples, ocr: ocrSub, batchSender, rule, templates } = args();
+  // Sender templates (templates.ts): off unless --templates names the directory (deploy/ocr/templates).
+  if (templates) process.env.INTAKE_SENDER_TEMPLATES_DIR = path.resolve(templates);
+  else delete process.env.INTAKE_SENDER_TEMPLATES_DIR;
+  process.env.INTAKE_MATCH_RULE = rule;
+  if (matchRule() !== rule) throw new Error('INTAKE_MATCH_RULE not applied');
   // "after" runs with the batch sender listed and splitting on; the old stopgap list is not used.
   process.env.INTAKE_BATCH_SENDERS = batchSender;
   delete process.env.INTAKE_NO_AUTO_SENDERS;
@@ -395,6 +432,14 @@ async function main(): Promise<void> {
   let missingOcr = 0;
   for (const id of ids) {
     const t: Truth = JSON.parse(fs.readFileSync(path.join(truthDir, `${id}.json`), 'utf8'));
+    if (rule === 'name_dob') {
+      if (!t.expected_decision_name_dob) throw new Error(`${id}: the set has no name_dob truth; regenerate it with the current generator`);
+      t.expected_decision = t.expected_decision_name_dob;
+      for (const p of t.page_truth || []) {
+        (p as any).__two = p.expected_filed_to;
+        p.expected_filed_to = p.expected_filed_to_name_dob ?? null;
+      }
+    }
     let meta: OcrMeta = {};
     let text = '';
     try {
@@ -587,6 +632,111 @@ ${wrongPagesAfter.length ? `### Wrong-patient pages (after)\n\n${ex(wrongPagesAf
 ${ex(wrongPagesOpen, (r) => `${perDoc.get(r)!.open.wrong} page(s) of ${r.t.page_truth!.length} filed to one chart; ${r.t.patients_truth!.length} patient(s), style ${r.t.batch_style}${r.t.obscured ? ', identifiers blotted' : ''}`)}
 `
     : '';
+  // ── Documents end to end: classes, recall on the fileable ones, by quality and layout ──
+  const resultPages = (t: Truth) => (t.page_truth || []).filter((p) => p.role === 'result');
+  const docClass = (t: Truth): string => {
+    const rp = resultPages(t);
+    const two = rp.map((p) => (rule === 'name_dob' ? (p as any).__two : p.expected_filed_to));
+    const nd = rp.map((p) => (rule === 'name_dob' ? p.expected_filed_to : p.expected_filed_to_name_dob ?? p.expected_filed_to));
+    if (rp.length && two.every(Boolean)) return 'fileable';
+    if (rp.length && nd.every(Boolean)) return 'one_identifier';
+    if (!two.some(Boolean) && !nd.some(Boolean)) return 'never';
+    return 'mixed';
+  };
+  const neverWhy = (t: Truth): string => {
+    if (['not_in_roster', 'wrong_mrn', 'duplicate', 'dob_typo', 'old_phone'].includes(t.case)) return t.case;
+    if ((t.patients_truth?.length || 0) > 1) return `several patients: ${t.expected_pages_why || 'some parts not fileable'}`;
+    if (t.printed.mrn_kind === 'foreign') return 'the sender\'s own MRN (conflict)';
+    if (t.obscured) return 'identifiers blotted';
+    if (t.expected_decision === 'ambiguous') return 'several roster patients match';
+    if (t.expected_decision === 'none') return 'name + DOB not in the roster as printed';
+    return 'one identifier only, not enough even for name_dob (weak label, similar name, twins, prefix name)';
+  };
+  interface DocOut {
+    cls: string;
+    should: boolean;
+    all_right: boolean;
+    any_filed: boolean;
+    all_filed: boolean;
+    wrong_pages: number;
+  }
+  const docOut = new Map<Row, DocOut>();
+  for (const r of paged) {
+    const f = r.filing!.after;
+    const rp = resultPages(r.t);
+    const filed = rp.map((p) => f.pages[p.page - 1] || '');
+    const own = rp.map((p) => (p.owners.length === 1 ? chartOf(p.owners[0]) : ''));
+    const cls = docClass(r.t);
+    docOut.set(r, {
+      cls,
+      should: rp.length > 0 && rp.every((p) => !!p.expected_filed_to),
+      all_right: rp.length > 0 && filed.every((c, i) => !!c && c === own[i]),
+      any_filed: filed.some(Boolean),
+      all_filed: rp.length > 0 && filed.every(Boolean),
+      wrong_pages: perDoc.get(r)!.after.wrong,
+    });
+  }
+  const docStats = (rs: Row[]) => {
+    const o = rs.map((r) => docOut.get(r)!).filter(Boolean);
+    const should = o.filter((x) => x.should);
+    return {
+      docs: o.length,
+      should_file: should.length,
+      filed_right: should.filter((x) => x.all_right).length,
+      recall: should.length ? +(should.filter((x) => x.all_right).length / should.length).toFixed(4) : null,
+      auto_docs: o.filter((x) => x.all_filed).length,
+      auto_rate: o.length ? +(o.filter((x) => x.all_filed).length / o.length).toFixed(4) : null,
+      partly_filed: o.filter((x) => x.any_filed && !x.all_filed).length,
+      wrong_docs: o.filter((x) => x.wrong_pages > 0).length,
+      wrong_pages: o.reduce((n, x) => n + x.wrong_pages, 0),
+    };
+  };
+  const groupDocs = (key: (r: Row) => string) => {
+    const m = new Map<string, Row[]>();
+    for (const r of paged) m.set(key(r), [...(m.get(key(r)) || []), r]);
+    return [...m.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([k, v]) => [k, docStats(v)] as const);
+  };
+  const docTable = (title: string, groups: (readonly [string, ReturnType<typeof docStats>])[]) =>
+    [
+      `| ${title} | Docs | Should be filed (rule) | ...all pages filed to the right patient | Recall | Auto-filed (whole doc) | Partly filed | **Wrong-patient pages** |`,
+      '|---|---:|---:|---:|---:|---:|---:|---:|',
+      ...groups.map(
+        ([k, g]) =>
+          `| ${k} | ${g.docs} | ${g.should_file} | ${g.filed_right} | ${g.recall === null ? 'n/a' : pct(g.filed_right, g.should_file)} | ${pct(g.auto_docs, g.docs)} | ${g.partly_filed} | **${g.wrong_pages}** |`
+      ),
+    ].join('\n');
+  const docAll = docStats(paged);
+  const neverRows = paged.filter((r) => docOut.get(r)!.cls === 'never');
+  const neverAuto = neverRows.filter((r) => docOut.get(r)!.any_filed);
+  const docsSection = paged.length
+    ? `## Documents end to end (rule: ${rule})
+
+Every document's pages go through the pipeline's page check, split, match and gates ("after" above). A document counts as
+filed when every result page went to a chart; "should be filed" uses the truth for the rule being run. Classes come from the
+truth only (see the harness header).
+
+${docTable('All', [['all documents', docAll]])}
+
+${docTable('Class', groupDocs((r) => docOut.get(r)!.cls))}
+
+${docTable('Quality', groupDocs((r) => r.t.quality))}
+
+${docTable('Layout', groupDocs((r) => r.t.layout))}
+
+### Documents that should never be auto-filed
+
+${neverRows.length} documents; any page auto-filed: ${neverAuto.length} (to the wrong patient: ${neverAuto.filter((r) => docOut.get(r)!.wrong_pages > 0).length}).
+
+| Why | Docs | Any page auto-filed |
+|---|---:|---:|
+${[...new Set(neverRows.map((r) => neverWhy(r.t)))].sort().map((k) => { const v = neverRows.filter((r) => neverWhy(r.t) === k); return `| ${k} | ${v.length} | ${v.filter((r) => docOut.get(r)!.any_filed).length} |`; }).join('\n')}
+
+### Should be filed, not filed (first ${examples})
+
+${ex(paged.filter((r) => docOut.get(r)!.should && !docOut.get(r)!.all_right), (r) => `${docOut.get(r)!.cls}; ${r.filing!.info.seg}: ${r.filing!.info.seg === 'review' ? r.filing!.info.reason : r.match?.reason || r.decision}`)}
+`
+    : '';
+
   const fieldMisses = FIELDS.map((f) => {
     const miss = rows.filter((r) => !r.fields[f]);
     return `### ${f}: ${miss.length} wrong\n\n${ex(miss, (r) => `want \`${r.want[f] || '(none)'}\`, got \`${r.got[f] || '(none)'}\``)}`;
@@ -594,6 +744,8 @@ ${ex(wrongPagesOpen, (r) => `${perDoc.get(r)!.open.wrong} page(s) of ${r.t.page_
 
   const summary = {
     label,
+    rule,
+    templates: templates || null,
     generated_at: new Date().toISOString(),
     set: path.basename(set),
     docs: rows.length,
@@ -626,6 +778,15 @@ ${ex(wrongPagesOpen, (r) => `${perDoc.get(r)!.open.wrong} page(s) of ${r.t.page_
           wrong_patient_units_after: totals.after.wrong_units,
         }
       : null,
+    documents: paged.length
+      ? {
+          all: docAll,
+          by_class: Object.fromEntries(groupDocs((r) => docOut.get(r)!.cls)),
+          by_quality: Object.fromEntries(groupDocs((r) => r.t.quality)),
+          by_layout: Object.fromEntries(groupDocs((r) => r.t.layout)),
+          never_auto_any_page: neverAuto.length,
+        }
+      : null,
   };
 
   const md = `# Intake accuracy report${label ? ` (${label})` : ''}
@@ -648,6 +809,7 @@ ${
 
 ${wrong.length ? `### Wrong-patient auto-files\n\n${ex(wrong, (r) => `intended ${r.t.intended_patient}, filed to chart ${r.match?.patient?.chartPatientId} (${r.match?.reason})`)}\n` : ''}
 ${unexpectedAuto.length ? `### Auto-filed to the right patient although "${'auto'}" was not expected\n\n${ex(unexpectedAuto, (r) => `expected ${r.t.expected_decision}; ${r.match?.reason} (document MRN \`${r.want.mrn || '-'}\` read as \`${r.got.mrn || '-'}\`, phone \`${r.want.phone || '-'}\` read as \`${r.got.phone || '-'}\`)`)}\n` : ''}
+${docsSection}
 ${pagesSection}
 ## Overall (whole-document match)
 
@@ -725,6 +887,11 @@ ${fieldMisses}
     console.log(`whole-document match only: wrong-patient auto decisions ${wrong.length}   OCR-gated: ${gated.length}`);
   } else {
     console.log(`WRONG-PATIENT AUTO-FILES: ${wrong.length}   unexpected auto (right patient): ${unexpectedAuto.length}   OCR-gated: ${gated.length}`);
+  }
+  if (paged.length) {
+    console.log(
+      `documents (rule ${rule}): should be filed ${docAll.should_file}, filed right ${docAll.filed_right} (recall ${pct(docAll.filed_right, docAll.should_file)}), auto-filed ${pct(docAll.auto_docs, docAll.docs)}, partly ${docAll.partly_filed}, WRONG-PATIENT PAGES ${docAll.wrong_pages}, never-auto docs with a page filed ${neverAuto.length}`
+    );
   }
   console.log(`report: ${path.join(set, `report${suffix}.md`)}`);
   if (paged.length ? totals.after.wrong || totals.after.wrong_units : wrong.length) process.exitCode = 1;

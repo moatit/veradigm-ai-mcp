@@ -14,9 +14,17 @@ RUN apt-get update \
 
 RUN pip install --no-cache-dir pillow==11.0.0 numpy==2.1.3 opencv-python-headless==4.10.0.84
 
+# tessdata_best English LSTM model (15 MB, tag 4.1.0), pinned by checksum and baked in: the container
+# never downloads anything at run time. OCR_MODEL=fast falls back to Debian's tessdata_fast model.
+ADD --checksum=sha256:8280aed0782fe27257a68ea10fe7ef324ca0f8d85bd2fd145d1c2b560bcb66ba \
+    https://github.com/tesseract-ocr/tessdata_best/raw/4.1.0/eng.traineddata /usr/share/tesseract-ocr/5/tessdata/eng_best.traineddata
+RUN chmod 644 /usr/share/tesseract-ocr/5/tessdata/eng_best.traineddata
+
 RUN useradd --system --uid 10001 --home-dir /app ocr && mkdir -p /app && chown ocr /app
 WORKDIR /app
 COPY ocr_service.py /app/ocr_service.py
+# Sender templates (where a sender's patient header sits); more can be mounted at OCR_TEMPLATES_DIR.
+COPY templates /app/templates
 
 USER ocr
 # One Tesseract thread per job; concurrency comes from OCR_CONCURRENCY / --workers.

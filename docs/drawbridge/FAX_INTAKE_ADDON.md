@@ -27,9 +27,10 @@ Optional later: an S3 bucket with SSE-KMS under MOATiT's AWS BAA (account alread
 ## Flow
 
 1. **Receive.** A webhook (fax) or the folder watcher creates an intake item. Dedupe by `X-Webhook-Id` / file hash.
-2. **Read.** Text from MOATiT Fax OCR, or Drawbridge's own OCR container (`deploy/ocr`, Tesseract 5 on the internal Docker network) for dropped and uploaded files, **page by page** (form feeds between pages; MOATiT Fax's `--- Page N ---` markers are converted). Extract: patient name, DOB, MRN, sender (lab/office, fax number), document kind, collection/test date, abnormal flags. OCR is treated as untrusted until matched.
+2. **Read.** Text from MOATiT Fax OCR, or Drawbridge's own OCR container (`deploy/ocr`, Tesseract 5 on the internal Docker network, with a second, larger reading of the patient lines) for dropped and uploaded files (and for faxes too with `INTAKE_OCR_FAX=local`), **page by page** (form feeds between pages; MOATiT Fax's `--- Page N ---` markers are converted). Extract: patient name, DOB, MRN, sender (lab/office, fax number), document kind, collection/test date, abnormal flags. OCR is treated as untrusted until matched.
    **Pages and batch files.** For a batch sender (`INTAKE_BATCH_SENDERS`, e.g. IKI's Express Lab daily file) or any document that names more than one patient, every page is read on its own and grouped by patient (see [Batch faxes](#batch-faxes-one-document-per-patient)). Several patients, cleanly separated: the file is **split into one document per patient** and each part goes through steps 3-6 on its own. Any doubt: the whole file goes to staff.
 3. **Match.** `unity_search_patients` (PM + EHR, name + DOB). **Auto-file only when exactly one patient matches AND a second identifier agrees** (MRN, or phone, or the ordering provider + recent order). Anything else → `needs_review`.
+   *Optional, off by default, pending the clinic's decision:* `INTAKE_MATCH_RULE=name_dob` also auto-files a document that carries **no MRN or patient phone at all** when the exact full name and DOB match exactly one patient and nobody with a similar name has that DOB or one a digit off (see [Optional rule: name + DOB](#optional-rule-name--dob)).
 4. **Choose the document type.** Map the kind to a `GetDocumentType` entry (e.g. lab → "Labs/Procedures", consult → "Consultant Letter"); unknown → "(ready for indexing)".
 5. **File.** `SaveScanDocument` to the matched patient's chart (EHR patient ID) with the clinical date and a short title ("Outside lab Oct 8 2026 - <sender>"; Veradigm shows ~50 characters and strips "/"). Auto-filing only in `INTAKE_FILING=auto`, for two-identifier matches with a specific document type; for batch senders only after every page passed the page check; never for a duplicate file or for senders in `INTAKE_NO_AUTO_SENDERS` (optional "always staff" list).
 6. **Notify.** `SaveTask` to the ordering provider / results pool: "New outside result for review", abnormal flags called out.
@@ -43,6 +44,24 @@ Optional later: an S3 bucket with SSE-KMS under MOATiT's AWS BAA (account alread
 - Writes are idempotent per intake item (same item never filed twice).
 - The phone agent never files documents; this is a staff-side add-on.
 - `INTAKE_FILING=off` by default. Modes: `off` (read + match + queue only), `review` (staff click to file), `auto` (high-confidence auto-file, everything else review).
+
+## Optional rule: name + DOB
+
+Many documents (consult letters, hospital labs that print their own MRN, small clinics) carry the patient's name and DOB but no MRN or phone of ours. Under the default rule they always go to staff. Whether an exact full name + DOB matching exactly one patient is enough is the clinic's call (question to IKI, Oct 2026). Until it decides, `INTAKE_MATCH_RULE` stays `two_identifiers`.
+
+With `INTAKE_MATCH_RULE=name_dob`, such a document is auto-matched only when **all** of these hold (`match.ts` `nameDobCheck`):
+
+- the exact normalized full name (first + last) and DOB, both next to an explicit patient label (`Patient:`, `Patient Name:`, `PT:`; not `RE:` or `Name:`), and every labelled read of them on the document identical;
+- exactly one patient has that exact name + DOB;
+- no other patient has a similar name (one edit apart, Soundex sound-alike, a first name that starts the other, first/last swapped, or the same last name: twins) **and** the same DOB, a DOB one character off, or day/month swapped. Two wider searches back this: same DOB with the last name's first two letters, and the last name at any DOB. A failed search is an error (retry), never "nobody similar";
+- no MRN or patient phone on the document (one that agrees already files under the default rule; one that disagrees sends it to staff), no MRN label left unread, and no MRN- or phone-like number near the patient line that wasn't read as one;
+- the OCR-confidence gate.
+
+Everything the default rule files, rejects or calls ambiguous is unchanged. Residual risk the bench can't measure: a document about someone who is **not** our patient but has exactly the name and DOB of one of our patients, with no MRN on it. A sender template can mark a sender's "RE:" line as its patient label.
+
+## Sender templates
+
+A frequent sender (Express Lab) gets a small JSON file describing its layout: where its patient header sits (the labels, or a band of the page), how it words them, name order, date formats and MRN pattern. The OCR container reads those lines again every time (optionally with a character whitelist), and the extractor reads the sender's labels even as OCR misreads them ("PTt", "D0B;") and rejects an MRN that doesn't fit the pattern. Files: `deploy/ocr/templates/*.json` (baked into the OCR image; more at `OCR_TEMPLATES_DIR`) and the same folder for the intake module (`INTAKE_SENDER_TEMPLATES_DIR`). The one shipped, `sawtooth-rapid-lab.json`, is for the **synthetic** daily batch; Express Lab's real one is written once de-identified samples arrive. A template never relaxes a matching rule.
 
 ## Batch faxes: one document per patient
 

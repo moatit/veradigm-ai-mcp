@@ -140,6 +140,8 @@ class DocSpec:
     # Filled in by the layout:
     abnormal_markers: set = field(default_factory=set)
     kind: str = ""
+    # The label printed before the patient's name in the report body ("Patient Name:", "RE:", ...).
+    name_label: str = ""
 
 
 class Doc:
@@ -316,6 +318,7 @@ def reference_lab(spec: DocSpec) -> tuple[Doc, Callable]:
     s = spec.sender
     p = spec.patients[0]
     name_label = rng.choice(["Patient Name:", "Patient:", "Patient Name:"])
+    spec.name_label = name_label
     dob_label = rng.choice(["DOB:", "Date of Birth:", "Birthdate:"])
     banner_name = name_fmt(p.first, p.middle, p.last, p.name_style)
     banner_dob = date_fmt(p.dob, p.dob_style)
@@ -412,6 +415,7 @@ def hospital_lab(spec: DocSpec) -> tuple[Doc, Callable]:
     dob = date_fmt(p.dob, p.dob_style)
     age = spec.collected.year - p.dob.year
     pname = name_fmt(p.first, p.middle, p.last, p.name_style)
+    spec.name_label = "Patient:"
 
     def page_top(d: Doc) -> None:
         d.put(W / 2, s["name"], "Times-Bold", 15, "center")
@@ -490,6 +494,7 @@ def small_clinic(spec: DocSpec) -> tuple[Doc, Callable]:
     d.put(54, rng.choice(["In-Office Laboratory Results", "Point of Care Test Results", "Lab Results"]), "Helvetica-Bold", 11)
     d.ln(20)
     name_label = rng.choice(["Name:", "RE:", "Patient:"])
+    spec.name_label = name_label
     d.put(54, f"{name_label} {name_fmt(p.first, p.middle, p.last, p.name_style)}", "Helvetica", 10)
     d.ln(14)
     d.put(54, f"{rng.choice(['Date of Birth:', 'DOB:', 'Birthdate:'])} {date_fmt(p.dob, p.dob_style)}", "Helvetica", 10)
@@ -544,6 +549,7 @@ def daily_batch(spec: DocSpec) -> tuple[Doc, Callable]:
     s = spec.sender
     batch = f"{spec.reported.strftime('%Y%m%d')}-{rng.randint(1, 9):02d}"
     style = spec.batch_style
+    spec.name_label = "PT:"
     acc = {k: f"SR{rng.randint(10000000, 99999999)}" for k in range(len(spec.patients))}
     coll = {k: spec.collected if k == 0 else spec.collected.replace(hour=rng.randint(6, 11), minute=rng.randint(0, 59))
             for k in range(len(spec.patients))}
@@ -634,6 +640,7 @@ def imaging(spec: DocSpec) -> tuple[Doc, Callable]:
     d.put(W / 2, rng.choice(["RADIOLOGY REPORT", "DIAGNOSTIC IMAGING REPORT", "ULTRASOUND REPORT"]), "Times-Bold", 13, "center")
     d.ln(24)
     lbl = rng.choice(["RE:", "Patient:", "Patient Name:"])
+    spec.name_label = lbl
     d.put(54, f"{lbl} {name_fmt(p.first, p.middle, p.last, p.name_style)}", "Times-Bold", 11)
     d.put(330, f"{rng.choice(['D.O.B.', 'DOB:', 'Date of Birth:'])} {date_fmt(p.dob, p.dob_style)}", "Times-Roman", 11)
     d.mark_shown()
@@ -690,6 +697,7 @@ def consult(spec: DocSpec) -> tuple[Doc, Callable]:
         d.ln(14)
     d.ln(12)
     d.put(72, f"RE: {name_fmt(p.first, p.middle, p.last, p.name_style)}", "Times-Bold", 11)
+    spec.name_label = "RE:"
     d.ln(14)
     d.put(72, f"{rng.choice(['DOB:', 'Date of Birth:', 'DOB'])} {date_fmt(p.dob, p.dob_style)}", "Times-Roman", 11)
     d.mark_shown()
