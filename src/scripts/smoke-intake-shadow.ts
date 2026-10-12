@@ -154,6 +154,33 @@ async function main(): Promise<void> {
   assert.strictEqual(roster.Roster.fromText(fs.readFileSync(path.join(exampleDir, 'roster.example.csv'), 'utf8'), NOW).stats.patients, 3, 'the shipped example list parses');
   ok('roster: header variants (BOM, ; tab, "Patient Name"), DOB formats, merge, skip, required columns, same search shape, staff search, example file');
 
+  // 1b. Optional third-identifier columns: SSN (last 4 kept only) and address. Made-up people; the full
+  // SSN uses a 9xx area number, which is never issued.
+  const r3 = roster.Roster.fromText(
+    [
+      'Last Name,First Name,DOB,MRN,Chart ID,SSN,Address,Address 2,City,State,Zip Code',
+      'Testpatient,Marigold,03/14/1961,482913,7001,912-34-5678,1234 W Juniper St,Apt 4,Boise,ID,83704-1234',
+      'Testpatient,Marigold,03/14/1961,482913,7001,912-34-5678,88 S Camas Rd,,Meridian,ID,83642',
+      'Zephyr,Quillon,1958-07-02,771234,7002,5678,,,,,',
+      'Twinly,Dana,01/02/1980,555001,7003,***-**-1111,,,,,',
+      'Twinly,Dana,01/02/1980,555001,7003,***-**-2222,,,,,',
+    ].join('\n'),
+    NOW
+  );
+  const t1 = r3.byPatientKey('7001')[0];
+  assert.deepStrictEqual([t1.ssnLast4, t1.addresses.map((a) => [a.line1, a.zip])], ['5678', [['1234 W Juniper St Apt 4', '83704'], ['88 S Camas Rd', '83642']]], 'SSN kept as its last 4; one row per address merged');
+  assert.deepStrictEqual([r3.byPatientKey('7002')[0].ssnLast4, r3.byPatientKey('7002')[0].addresses], ['5678', []], 'an "SSN" column holding the last 4 only');
+  assert.strictEqual(r3.byPatientKey('7003')[0].ssnLast4, '', 'two different SSNs for one patient: nothing to compare');
+  assert.ok(!JSON.stringify(r3.patients).includes('912'), 'no full SSN anywhere in the parsed list');
+  const s3 = r3.search({ lastName: 'Testpatient', firstName: 'Marigold', dateOfBirth: '03/14/1961' });
+  assert.ok(!JSON.stringify(s3).includes('912'), 'no full SSN in the search answer');
+  const c3 = toCandidates(s3)[0];
+  assert.deepStrictEqual([c3.ssnLast4, c3.addresses?.map((a) => a.zip)], ['5678', ['83704', '83642']], 'search rows carry SSN-4 and every address, same shape as unity_search_patients');
+  const one = roster.Roster.fromText('Last,First,DOB,MRN,Patient Address\nDoe,Jane,1/2/1980,42,"1234 W Juniper St, Apt 4, Boise, ID 83704"\n', NOW).patients[0];
+  assert.deepStrictEqual(one.addresses, [{ line1: '1234 W Juniper St, Apt 4', city: 'Boise', state: 'ID', zip: '83704' }], 'one Address column with the whole address is split');
+  assert.deepStrictEqual(roster.Roster.fromText(fs.readFileSync(path.join(exampleDir, 'roster.example.csv'), 'utf8'), NOW).byPatientKey('7001')[0].ssnLast4, '1234', 'example file: optional SSN Last 4 and address columns');
+  ok('roster third-identifier columns: SSN (only the last 4 kept, conflicts dropped), address (split columns, one column, several rows), carried to the search rows');
+
   // 2. matchPatient on the roster: same decision table, failures are errors
   const rosterFile = path.join(TMP, 'roster.csv');
   fs.writeFileSync(rosterFile, ROSTER);

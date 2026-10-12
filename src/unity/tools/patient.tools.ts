@@ -107,6 +107,11 @@ export interface ParsedPatient {
   patientId?: string;
   /** Search only: Veradigm® EHR patient ID (medications, allergies, problems, staff tasks). */
   chartPatientId?: string;
+  /**
+   * Last 4 digits of the SSN, when Veradigm® returns one and doesn't flag it hidden. Never the full SSN.
+   * For document matching only: stripped before any result reaches the phone agent.
+   */
+  ssnLast4?: string;
 }
 
 /** MM/DD/YYYY with zero padding ("3/5/1979" → "03/05/1979"); '' when not a date. */
@@ -443,6 +448,9 @@ export class UnityPatientTools {
       if (existing) {
         existing.chartPatientId = p.id;
         existing.chartMrn = p.mrn;
+        // Address and SSN-4 (document matching): PM's when it has them, else the EHR's.
+        if (!existing.address?.line1 && p.address?.line1) existing.address = p.address;
+        if (!existing.ssnLast4 && p.ssnLast4) existing.ssnLast4 = p.ssnLast4;
       } else merged.set(k, { ...p, chartPatientId: p.id, chartMrn: p.mrn });
     }
     return { patients: [...merged.values()], pmOk: Boolean(pmRes.success) };
@@ -959,6 +967,14 @@ export class UnityPatientTools {
         "Marital",
       ),
     };
+
+    // SSN: only ever its last 4 digits, and only when Veradigm® doesn't flag it hidden or suppressed
+    // (PM SearchPatients rows carry ssn, HideSSN, SuppressSSN; EHR rows carry ssn). Sandbox, Oct 11 2026:
+    // ssn comes back blank in both, HideSSN = SuppressSSN = Y in PM. The document intake add-on compares
+    // it with the last 4 on a faxed document (match.ts); it is never shown to a caller.
+    const hidden = ["HideSSN", "SuppressSSN"].some((k) => /^(y|yes|true|1)$/i.test(getValue(data, k) || ""));
+    const ssnDigits = (getValue(data, "ssn", "SSN", "SocialSecurityNumber") || "").replace(/\D/g, "");
+    if (!hidden && ssnDigits.length >= 4) patient.ssnLast4 = ssnDigits.slice(-4);
 
     return patient;
   }

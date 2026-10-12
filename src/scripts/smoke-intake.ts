@@ -325,6 +325,11 @@ MRN: 771234                   COLL: 10/08/2026 07:10
   const hidden = `${A()}------------------------------------------\n##########  ######   #####\n  CREAT      1.10  (0.60-1.30) mg/dL\n  K           3.9  (3.5-5.1) mmol/L\n`;
   assert.match(seg([hidden], true).reason, /Page 1 has a block of results without a readable patient line/, 'in-page blind spot (ruled-off block without a patient line): review');
   assert.strictEqual(seg([`${A()}------------------------------------------\nEND OF BATCH 20261009-03   1 PATIENT(S)\n`], true).decision, 'single', 'a closing rule is not a block');
+  // The same when OCR also lost the rule: a second run of the same tests under one patient line (bench, seed 7007).
+  const panel = '  NA          141  (135-145) mmol/L\n  K           3.6  (3.5-5.1) mmol/L\n  CL          105  (98-107) mmol/L\n  CREAT      1.58H (0.60-1.30) mg/dL\n';
+  assert.match(seg([`${A()}${panel}${panel}`], true).reason, /Page 1 has a block of results without a readable patient line/, 'batch: the same tests twice under one patient line: review');
+  assert.strictEqual(seg([`${A()}${panel}  CUMULATIVE HISTORY (PRIOR RESULTS)\n${panel}`], true).decision, 'single', 'a cumulative history repeats tests under its own heading');
+  assert.strictEqual(seg([`${A()}${panel}${panel}`], false).decision, 'single', 'other senders: unchanged');
   assert.match(seg([pt('QUILLFEATHER,MARK', '1970-05-05', ''), pt('QUILLFEATHER,MARY', '1970-05-05', '')].map((t) => t.replace('MRN: ', 'ACCT: ')), true).reason, /almost, but not exactly/, 'twins Mark / Mary: staff decide');
   assert.match(seg([A(), B], true, { expectedPages: 3 }).reason, /text has 2 page\(s\) but the file has 3/, 'page count mismatch');
   assert.match(seg([A(), B], false, { split: false }).reason, /splitting is turned off/);
@@ -549,6 +554,132 @@ MRN: 771234                   COLL: 10/08/2026 07:10
   delete process.env.INTAKE_ROSTER_CSV;
   delete process.env.INTAKE_MATCH_RULE;
   ok(`optional name_dob rule (${ndTable.length} cases; off by default; never changes a default decision; wider searches for similar names at the same or a near DOB, on Veradigm or the local patient list, failures are errors)`);
+
+  // 6e. Third identifier: SSN last 4 and address (MOATiT standard, Oct 11 2026). Made-up people; the
+  // full SSNs use area numbers 900-999, which are never issued.
+  const { redactSsn } = await import('../platform/modules/intake/extract');
+  const { addressAgreement, streetParts, toCandidates: toCands } = await import('../platform/modules/intake/match');
+  const { matchReasonCode } = await import('../platform/modules/intake/shadow');
+  const head = 'Patient Name: TESTPATIENT, MARIGOLD J        DOB: 03/14/1961\n';
+  const ssnOf = (line: string) => extractFields(head + line + '\n', NOW);
+  const addrOfLater = (rows: string) => extractFields(head + rows, NOW);
+  for (const [line, want] of [
+    ['SSN: ***-**-1234', '1234'],
+    ['SSN: XXX-XX-1234', '1234'],
+    ['SS#: xxx xx 1234', '1234'],
+    ['SSN Last 4: 1234', '1234'],
+    ['SSN (last 4): 1234', '1234'],
+    ['Soc Sec #: ***-**-1234', '1234'],
+    ['S5N; **¥-**-1234', '1234'],
+  ] as const) {
+    const x = ssnOf(line);
+    assert.strictEqual(x.ssn_last4?.value, want, `SSN read from "${line}"`);
+  }
+  const fullSsn = ssnOf('SSN: 912-34-5678    Sex: F');
+  assert.deepStrictEqual([fullSsn.ssn_last4?.value, fullSsn.unread_identifier], ['5678', undefined], 'a full SSN: only the last 4 is kept; not an unread MRN');
+  const fullJson = JSON.stringify(fullSsn);
+  assert.ok(!fullJson.includes('912-34') && !fullJson.includes('91234') && !fullJson.includes('912 34'), 'no full SSN in the extracted fields (items.json)');
+  assert.ok(!JSON.stringify(ssnOf('SSN: 912345678')).includes('912345678'), 'an undashed full SSN is not kept either');
+  assert.deepStrictEqual([ssnOf('SSN: on file').ssn_last4, ssnOf('SSN: on file').ssn_unreadable], [undefined, true], 'an SSN label without a readable last 4');
+  assert.strictEqual(extractFields(head + 'SSN: ***-**-1234\n' + 'SSN: ***-**-9876\n', NOW).ssn_unreadable, true, 'two different last 4: nothing to compare');
+  assert.strictEqual(ssnOf('Soc See #: 946-41-9100').ssn_last4?.value, '9100', 'OCR-misread "Soc Sec #" label');
+  const lostLabel = ssnOf('S0x 5ee: 946-41-9100');
+  assert.deepStrictEqual([lostLabel.ssn_last4, lostLabel.ssn_unreadable, lostLabel.unread_identifier], [undefined, true, true], 'an SSN-like number next to the patient whose label OCR lost: unreadable, never ignored');
+  assert.ok(!JSON.stringify(lostLabel).includes('946'), 'and never kept');
+  const streetOnly = addrOfLater('Sex: F\n4416 Ponderosa Pl Apt 37\nNampu, ID 8365\n');
+  assert.deepStrictEqual([streetOnly.address, streetOnly.address_unreadable], [undefined, true], 'a street line next to the patient without a readable ZIP: unreadable');
+  assert.strictEqual(redactSsn('SSN: 912-34-5678, ref 913-45-6789, SSN 912 34 5678, phone 208-555-0142'), 'SSN: ***-**-5678, ref ***-**-6789, SSN ***-**-5678, phone 208-555-0142', 'stored text: full SSNs masked, phones untouched');
+  const addrOf = (rows: string) => extractFields(head + rows, NOW);
+  const ad1 = addrOf('Address: 1234 W Juniper St, Apt 4, Boise, ID 83704\n');
+  assert.deepStrictEqual([ad1.address?.value, ad1.address?.confidence], [{ line1: '1234 W Juniper St Apt 4', city: 'Boise', state: 'ID', zip: '83704' }, 'high']);
+  const ad2 = addrOf('Patient Address: 12345 North Overland Road     Collected: 10/07/2026\nBoise, ID 83709\n');
+  assert.deepStrictEqual([ad2.address?.value.line1, ad2.address?.value.zip, ad2.unread_identifier], ['12345 North Overland Road', '83709', undefined], 'two lines, a 5-digit street number is not an unread MRN');
+  const ad3 = addrOf('Sex: F\n1234 West Juniper Street\nBoise, ID $3704\n');
+  assert.deepStrictEqual([ad3.address?.value.zip, ad3.address?.confidence], ['83704', 'medium'], 'unlabelled street line under the patient, OCR "$" for 8 in the ZIP');
+  assert.strictEqual(addrOf('ADDR: 1234 W JUNIPER ST BOISE ID 83704\n').address?.value.zip, '83704', 'batch style, no commas');
+  assert.strictEqual(addrOf('Address: PO Box 77, Eagle, ID 83616\n').address?.value.line1, 'PO Box 77');
+  assert.deepStrictEqual([addrOf('Address: see chart\n').address, addrOf('Address: see chart\n').address_unreadable], [undefined, true], 'an address label without a street line');
+  assert.strictEqual(extractFields('BITTERBRUSH DIAGNOSTIC LABS\n1200 Lab Way, Nampa, ID 83651\n' + head, NOW).address, undefined, 'the sender\'s letterhead is not the patient\'s address');
+  ok('third identifier extraction: SSN last 4 (masked, XXX, last 4, OCR-garbled), a full SSN kept only as its last 4 and masked in stored text, addresses (labelled, two lines, unlabelled, PO box, OCR ZIP), unreadable labels');
+
+  // Address and SSN-4 agreement, then the decision table under both rules
+  const home = { line1: '1234 W Juniper St Apt 4', city: 'Boise', state: 'ID', zip: '83704' };
+  assert.deepStrictEqual(streetParts('1234 West Juniper Street #4'), { number: '1234', core: 'juniper', suffix: 'st', dir: 'w' });
+  for (const [doc, want] of [
+    [{ line1: '1234 WEST JUNIPER STREET', zip: '83704' }, 'agree'],
+    [{ line1: '1234 Juniper Street, Apt. 4' }, 'agree'], // number + street name (no ZIP, no directional)
+    [{ line1: '1234 Juniper Ave', zip: '83704' }, 'agree'], // number + ZIP
+    [{ line1: '1234 W Juniper St', zip: '83709' }, 'agree'], // number + street name, ZIP differs
+    [{ line1: '1234 E Juniper St', zip: '83709' }, 'disagree'],
+    [{ line1: '1234 Juniper Ave', zip: '83709' }, 'disagree'],
+    [{ line1: '1243 W Juniper St', zip: '83704' }, 'disagree'],
+    [{ line1: 'see chart' }, 'unchecked'],
+  ] as const) {
+    assert.strictEqual(addressAgreement(doc, home), want, `address ${JSON.stringify(doc)}`);
+  }
+  const third = (o: Record<string, any> = {}) => ({ ...cand(), ssnLast4: '1234', addresses: [home], ...o });
+  const withAddr = (x: any, line1 = '1234 W Juniper St', zip = '83704') => ({ ...x, address: { value: { line1, zip }, confidence: 'high' } });
+  const withSsn = (x: any, v = '1234') => ({ ...x, ssn_last4: { value: v, confidence: 'high' } });
+  const thirdTable: [string, any, any[], string, string?, string?][] = [
+    ['MRN agrees, SSN-4 agrees: recorded', withSsn(lab), [third()], 'auto', 'mrn', 'ssn4'],
+    ['MRN agrees, address agrees (Street/St, case)', withAddr(lab, '1234 WEST JUNIPER STREET'), [third()], 'auto', 'mrn', 'address'],
+    ['MRN agrees, SSN-4 differs', withSsn(lab, '9999'), [third()], 'review'],
+    ['MRN agrees, address differs (moved)', withAddr(lab, '88 S Camas Rd', '83642'), [third()], 'review'],
+    ['phone agrees, address differs', withAddr(noMrn, '88 S Camas Rd', '83642'), [third({ mrn: '' })], 'review'],
+    ['name + DOB + SSN-4 (second identifier)', withSsn(noMrnNoPhone), [third()], 'auto', 'ssn4'],
+    ['name + DOB + address (second identifier)', withAddr(noMrnNoPhone, '1234 Juniper Street #4'), [third()], 'auto', 'address'],
+    ['name + DOB + SSN-4 + address', withAddr(withSsn(noMrnNoPhone)), [third()], 'auto', 'ssn4', 'address'],
+    ['address agrees, SSN-4 differs', withAddr(withSsn(noMrnNoPhone, '9999')), [third()], 'review'],
+    ['a first name that only starts the chart name + address', withAddr(noMrnNoPhone), [third({ firstName: 'Marigoldine' })], 'review'],
+    ['address agrees but a twin at the same address', withAddr({ ...noMrnNoPhone }), [third(), third({ patientId: '9002', chartPatientId: '7002', firstName: 'Mark', mrn: '1', ssnLast4: '5555' })], 'review'],
+    ['SSN-4 none on file (Veradigm masks it): unchecked', withSsn(noMrnNoPhone), [third({ ssnLast4: '' })], 'review'],
+    ['SSN-4 none on file, MRN agrees', withSsn(lab), [third({ ssnLast4: '' })], 'auto', 'mrn'],
+    ['address agrees, SSN label unreadable', { ...withAddr(noMrnNoPhone), ssn_unreadable: true }, [third()], 'review'],
+    ['MRN agrees, SSN label unreadable', { ...lab, ssn_unreadable: true }, [third()], 'auto', 'mrn'],
+    ['low-confidence SSN-4 ignored', { ...noMrnNoPhone, ssn_last4: { value: '9999', confidence: 'low' } }, [third()], 'review'],
+  ];
+  for (const [label, ex, cands, want, second, thirdId] of thirdTable) {
+    const r = decideMatch(ex, cands);
+    assert.strictEqual(r.decision, want, `${label}: got ${r.decision} (${r.reason})`);
+    if (second) assert.strictEqual(r.second_identifier, second, `${label}: second identifier`);
+    assert.strictEqual(r.third_identifier, thirdId, `${label}: third identifier`);
+    assert.ok(!/\d{4}/.test(r.reason.replace(/\d{2}\/\d{2}\/\d{4}/g, '')), `${label}: no SSN digits in the reason`);
+  }
+  const ssnDiff = decideMatch(withSsn(lab, '9999'), [third()]);
+  const addrDiff = decideMatch(withAddr(lab, '88 S Camas Rd', '83642'), [third()]);
+  assert.deepStrictEqual([matchReasonCode(ssnDiff.decision, ssnDiff.reason), matchReasonCode(addrDiff.decision, addrDiff.reason)], ['ssn_conflict', 'address_conflict'], 'shadow report reason codes');
+  // name_dob (the MOATiT standard): a third identifier that disagrees blocks it; one that can't be checked doesn't
+  const ndThird: [string, any, any[], string, string?][] = [
+    ['name + DOB, nothing else', nd, [third()], 'auto'],
+    ['name + DOB, SSN-4 differs (a namesake who is not our patient)', withSsn(nd, '9999'), [third()], 'review'],
+    ['name + DOB, address differs', withAddr(nd, '88 S Camas Rd', '83642'), [third()], 'review'],
+    ['name + DOB, SSN-4 printed but none on file (could be a namesake)', withSsn(nd), [third({ ssnLast4: '' })], 'review'],
+    ['name + DOB, address printed but none on file', withAddr(nd), [third({ addresses: [] })], 'review'],
+    ['name + DOB + address agrees, SSN-4 none on file', withAddr(withSsn(nd)), [third({ ssnLast4: '' })], 'auto'],
+    ['name + DOB, address agrees', withAddr(nd), [third()], 'auto'],
+    ['name + DOB, address printed but unreadable', { ...nd, address_unreadable: true }, [third()], 'review'],
+  ];
+  for (const [label, ex, cands, want] of ndThird) {
+    const r = decideMatch(ex, cands, { rule: 'name_dob' });
+    assert.strictEqual(r.decision, want, `name_dob, ${label}: got ${r.decision} (${r.reason})`);
+  }
+  // Candidates carry the address and only the SSN's last 4
+  const rows = { patients: [{ ...cand(), address: { line1: '1234 W Juniper St', city: 'Boise', state: 'ID', zipCode: '83704-1234' }, ssnLast4: '912345678' }], total: 1 };
+  assert.deepStrictEqual([toCands(rows)[0].ssnLast4, toCands(rows)[0].addresses], ['5678', [{ line1: '1234 W Juniper St', city: 'Boise', state: 'ID', zip: '83704' }]], 'toCandidates: address, SSN cut to its last 4');
+  // The Veradigm® search: SSN only as its last 4, never when HideSSN/SuppressSSN is set; address merged from PM or EHR
+  const { UnityPatientTools } = await import('../unity/tools/patient.tools');
+  const searchUnity = (pm: any[], ehr: any[]) => ({ searchPatients: async (_c: any, t: string) => ({ success: true, data: [{ searchpatientsinfo: t === 'PM' ? pm : ehr }] }) });
+  const pmRow = { ID: '9001', lastname: 'Testpatient', firstname: 'Marigold', dateofbirth: '03/14/1961', MRN: '482913', ssn: '***-**-1234', HideSSN: 'N', SuppressSSN: 'N', AddressLine1: '', ZipCode: '' };
+  const ehrRow = { ID: '7001', lastname: 'Testpatient', firstname: 'Marigold', dateofbirth: '03/14/1961', MRN: '17804', ssn: '', AddressLine1: '1234 W Juniper St', City: 'Boise', State: 'ID', ZipCode: '83704' };
+  const found = await quiet(() => new UnityPatientTools(searchUnity([pmRow], [ehrRow]) as any).searchPatients({ lastName: 'Testpatient', firstName: 'Marigold', dateOfBirth: '03/14/1961' }));
+  assert.deepStrictEqual([found.patients[0].ssnLast4, found.patients[0].address?.line1, found.patients[0].chartPatientId], ['1234', '1234 W Juniper St', '7001'], 'PM SSN-4 + EHR address merged');
+  const hiddenSsn = await quiet(() => new UnityPatientTools(searchUnity([{ ...pmRow, ssn: '912345678', HideSSN: 'Y' }], [ehrRow]) as any).searchPatients({ lastName: 'Testpatient', firstName: 'Marigold', dateOfBirth: '03/14/1961' }));
+  assert.strictEqual(hiddenSsn.patients[0].ssnLast4, undefined, 'HideSSN=Y: no SSN digits at all');
+  const sandbox = await quiet(() => new UnityPatientTools(searchUnity([{ ...pmRow, ssn: ' ', HideSSN: 'Y', SuppressSSN: 'Y' }], [{ ...ehrRow, ssn: '' }]) as any).searchPatients({ lastName: 'Testpatient', firstName: 'Marigold', dateOfBirth: '03/14/1961' }));
+  assert.deepStrictEqual([sandbox.patients[0].ssnLast4, toCands(sandbox)[0].ssnLast4, toCands(sandbox)[0].addresses?.length], [undefined, '', 1], 'what the sandbox returns (Oct 11 2026): blank SSN, address only');
+  const full = await quiet(() => new UnityPatientTools(searchUnity([{ ...pmRow, ssn: '912-34-5678' }], [ehrRow]) as any).searchPatients({ lastName: 'Testpatient', firstName: 'Marigold', dateOfBirth: '03/14/1961' }));
+  assert.ok(!JSON.stringify(full).includes('912') && full.patients[0].ssnLast4 === '5678', 'a full SSN from the search is cut to its last 4');
+  ok(`third identifier matching (${thirdTable.length} + ${ndThird.length} cases): disagreeing SSN-4 or address goes to staff (also with an MRN), agreeing one recorded or used as the second identifier behind the look-alike guard, unchecked when none on file; Veradigm search rows carry address and SSN-4 (last 4 only, hidden flags honoured)`);
 
   // 7. Document types
   const typeRows = [

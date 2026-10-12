@@ -74,6 +74,19 @@ class Patient:
     home_phone: str  # 10 digits
     cell_phone: str  # 10 digits or ''
     tags: list[str] = field(default_factory=list)
+    # Third identifier (add_third_ids): current address, a previous one (moved), SSN last 4 ('' = none on
+    # file). Every value is invented; no full SSN exists anywhere in the generator.
+    address1: str = ""  # "1234 W Juniper St Apt 4"
+    city: str = ""
+    state: str = ""
+    zip: str = ""
+    old_address1: str = ""
+    old_city: str = ""
+    old_zip: str = ""
+    ssn4: str = ""
+    # The street parts behind address1 / old_address1 (layouts print them in different styles).
+    street: dict = field(default_factory=dict)
+    old_street: dict = field(default_factory=dict)
 
     @property
     def full(self) -> str:
@@ -217,3 +230,100 @@ def build_roster(n: int, rng: random.Random) -> tuple[list[Patient], list[Patien
             cell_phone="", tags=tags,
         ))
     return out, outside
+
+
+# ── Third identifier: addresses and SSN last 4 ───────────────────────────────
+
+STREETS = """Juniper Sagebrush Cottonwood Larkspur Bitterroot Chokecherry Ponderosa Syringa Camas Tamarack Bluebunch
+Wapiti Kestrel Basalt Lupine Mallard Serviceberry Quaking Aspen Owyhee Bannock Redfish Teton Clearwater Selway Pinedale
+Rimrock Coyote Thornapple Bramble Heron Osprey Willowcreek Goldenrod Canyonview Ridgecrest Meadowlark Riverbend Falconer
+Haystack Windfall Stonegate Cedarbrook Hollyhock Elkhorn Silvercreek""".split()
+# (abbreviation, spelled out)
+SUFFIXES = [("St", "Street"), ("Ave", "Avenue"), ("Rd", "Road"), ("Dr", "Drive"), ("Ln", "Lane"), ("Ct", "Court"),
+            ("Way", "Way"), ("Pl", "Place"), ("Blvd", "Boulevard"), ("Cir", "Circle")]
+DIRS = [("N", "North"), ("S", "South"), ("E", "East"), ("W", "West")]
+# Towns in the clinic's area with their 5-digit ZIP codes (public postal data, not personal data).
+TOWNS = [("Boise", "83704"), ("Boise", "83706"), ("Boise", "83709"), ("Meridian", "83642"), ("Meridian", "83646"),
+         ("Nampa", "83651"), ("Nampa", "83686"), ("Caldwell", "83605"), ("Eagle", "83616"), ("Kuna", "83634"),
+         ("Star", "83669"), ("Emmett", "83617"), ("Mountain Home", "83647"), ("Payette", "83661"), ("Ontario", "97914")]
+
+
+def _street(rng: random.Random) -> dict:
+    """A street address as parts: number, directional, name, suffix, unit."""
+    return {
+        "number": str(rng.randint(100, 19999)),
+        "dir": rng.randrange(len(DIRS)) if rng.random() < 0.4 else -1,
+        "name": rng.choice(STREETS),
+        "suffix": rng.randrange(len(SUFFIXES)),
+        "unit": f"Apt {rng.randint(1, 40)}" if rng.random() < 0.18 else "",
+    }
+
+
+def street_line(s: dict, spelled: bool = False, upper: bool = False, unit_style: str = "Apt") -> str:
+    """'1234 W Juniper St Apt 4'; spelled: '1234 West Juniper Street'; unit_style '#': '... #4'."""
+    parts = [s["number"]]
+    if s["dir"] >= 0:
+        parts.append(DIRS[s["dir"]][1 if spelled else 0])
+    parts.append(s["name"])
+    parts.append(SUFFIXES[s["suffix"]][1 if spelled else 0])
+    if s["unit"]:
+        n = s["unit"].split()[-1]
+        parts.append(f"#{n}" if unit_style == "#" else f"Apt {n}")
+    line = " ".join(parts)
+    return line.upper() if upper else line
+
+
+def add_third_ids(roster: list[Patient], outside: list[Patient], rng: random.Random, namesakes: int = 8) -> list[Patient]:
+    """
+    Give every patient an address (households and twins share one), 30% a previous address, and an SSN
+    last 4 (10% have none on file). Outside people get their own. Then add `namesakes` outside people
+    with exactly a plain roster patient's name and DOB but their own address and SSN last 4 (tag
+    "namesake"): a document about them must never be filed to the roster patient. Uses its own RNG so
+    the rest of the set stays as before. Returns the namesakes (already appended to `outside`).
+    """
+    shared: dict[str, dict] = {}
+    used_ssn: set[str] = set()
+
+    def ssn4() -> str:
+        while True:
+            v = f"{rng.randint(1, 9999):04d}"
+            if v not in used_ssn:
+                used_ssn.add(v)
+                return v
+
+    def assign(p: Patient, home_key: str | None, on_file: bool) -> None:
+        if home_key and home_key in shared:
+            a = shared[home_key]
+        else:
+            town = rng.choice(TOWNS)
+            a = {"street": _street(rng), "city": town[0], "zip": town[1]}
+            if home_key:
+                shared[home_key] = a
+        p.address1, p.city, p.state, p.zip = street_line(a["street"]), a["city"], "OR" if a["zip"].startswith("97") else "ID", a["zip"]
+        p.street = dict(a["street"])
+        if rng.random() < 0.30:
+            old = _street(rng)
+            while old["number"] == a["street"]["number"]:
+                old = _street(rng)
+            town = rng.choice(TOWNS)
+            p.old_address1, p.old_city, p.old_zip = street_line(old), town[0], town[1]
+            p.old_street = old
+        p.ssn4 = ssn4() if on_file else ""
+
+    for p in roster:
+        share = "twin" in p.tags or "household" in p.tags
+        assign(p, f"{p.last}|{p.home_phone}" if share else None, rng.random() >= 0.10)
+    for p in outside:
+        assign(p, None, True)
+    plain = [p for p in roster if not p.tags]
+    made: list[Patient] = []
+    for j, r in enumerate(rng.sample(plain, k=min(namesakes, len(plain)))):
+        n = Patient(key=f"X9{j + 1:03d}", patient_id="", chart_patient_id="", first=r.first, middle="", last=r.last,
+                    dob=r.dob, sex=r.sex, pm_mrn=str(rng.randint(100000, 9999999)), ehr_mrn=str(rng.randint(100000, 9999999)),
+                    home_phone="", cell_phone="", tags=["outside", "namesake"])
+        assign(n, None, True)
+        while n.street["number"] == r.street["number"] or n.ssn4 == r.ssn4:
+            assign(n, None, True)
+        made.append(n)
+        outside.append(n)
+    return made

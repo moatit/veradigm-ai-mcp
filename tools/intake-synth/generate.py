@@ -18,6 +18,10 @@ three styles (a new page per patient with the patient line repeated on continuat
 same without the repeat, or packed several to a page); some fax copies have one page's or one
 patient's identifier lines blotted out. "multi_report" faxes carry two single-patient reports.
 
+Third identifier: patients have addresses and SSN last 4 (invented); some layouts print them, current,
+outdated or wrong (see plan_third). "namesake" documents are about someone outside the roster with exactly
+a roster patient's name and DOB; they print their own address or SSN last 4 and must never be filed.
+
 Deterministic: the same seed and arguments give the same documents byte for byte (each document
 has its own RNG seeded from "<seed>:<index>", so worker count does not matter).
 """
@@ -39,7 +43,7 @@ import numpy as np
 from synth.content import ckd_profile
 from synth.fax import fax_pages, save_image_pdf, save_tiff
 from synth.layouts import SENDERS, DocSpec, Printed, render
-from synth.roster import Patient, build_roster
+from synth.roster import DIRS, SUFFIXES, Patient, add_third_ids, build_roster, street_line
 
 GENERATED = datetime(2026, 10, 11, 8, 0)
 
@@ -47,7 +51,7 @@ LAYOUT_WEIGHTS = {"reference_lab": 22, "hospital_lab": 17, "small_clinic": 14, "
 CASE_WEIGHTS = {
     "normal": 50, "no_mrn": 11, "wrong_mrn": 6, "not_in_roster": 8, "duplicate": 4, "same_name_diff_dob": 4,
     "soundalike": 4, "hyphen_apostrophe": 4, "multiword": 1.5, "twin": 2, "household": 2, "old_phone": 1.5,
-    "dob_typo": 1.5, "multi_patient": 8, "multi_report": 2,
+    "dob_typo": 1.5, "multi_patient": 8, "multi_report": 2, "namesake": 1.5,
 }
 BATCH_STYLE_MULTI = {"per_page": 65, "no_repeat": 15, "packed": 20}
 BATCH_STYLE_SINGLE = {"per_page": 85, "no_repeat": 15}
@@ -91,6 +95,17 @@ DOB_STYLES = {
 }
 
 
+# Third identifier (SSN last 4, patient address): how often each layout prints them.
+ADDR_P = {"reference_lab": 0.35, "hospital_lab": 0.45, "small_clinic": 0.35, "daily_batch": 0.15, "imaging": 0.25, "consult": 0.5}
+SSN_P = {"reference_lab": 0.25, "hospital_lab": 0.3, "small_clinic": 0.15, "daily_batch": 0.15, "imaging": 0.1, "consult": 0.1}
+ADDR_LABELS = {
+    "reference_lab": ["Address:", "Patient Address:"], "hospital_lab": ["Address:", "Home Address:"],
+    "small_clinic": ["Address:"], "daily_batch": ["ADDR:"], "imaging": ["Address:", "Patient Address:"],
+    "consult": ["", "", "Address:"],  # letters often print the address under the patient line, unlabelled
+}
+NAMESAKE_LAYOUTS = ["reference_lab", "hospital_lab", "small_clinic", "imaging", "consult"]
+
+
 def pick(rng: random.Random, weights: dict) -> str:
     return rng.choices(list(weights), weights=list(weights.values()))[0]
 
@@ -131,13 +146,54 @@ def expected_decision(p: Printed, roster: list[Patient]) -> tuple[str, str | Non
     if len(hits) > 1:
         return "ambiguous", None
     c = hits[0]
+    if p.mrn and norm_mrn(p.mrn) not in {norm_mrn(c.pm_mrn), norm_mrn(c.ehr_mrn)}:
+        return "review", c.key
+    agree, conflict = third_status(p, c)
+    if conflict:  # an SSN last 4 or address that disagrees: staff, whatever else agrees
+        return "review", c.key
     if p.mrn:
-        return ("auto" if norm_mrn(p.mrn) in {norm_mrn(c.pm_mrn), norm_mrn(c.ehr_mrn)} else "review"), c.key
+        return "auto", c.key
+    exact = norm(c.first) == norm(p.first) and norm(c.last) == norm(p.last)
     if p.phone:
-        exact = norm(c.first) == norm(p.first) and norm(c.last) == norm(p.last)
         if exact and p.phone in {c.home_phone, c.cell_phone}:
             return "auto", c.key
+        if p.phone not in {c.home_phone, c.cell_phone}:
+            return "review", c.key
+    if exact and agree:  # SSN last 4 or address as the second identifier, like the phone
+        return "auto", c.key
     return "review", c.key
+
+
+def _street_key(s: dict) -> tuple:
+    suffix = SUFFIXES[s["suffix"]][0].lower() if "suffix" in s else ""
+    direction = DIRS[s["dir"]][0].lower() if s.get("dir", -1) >= 0 else ""
+    return s.get("number", ""), s.get("name", "").lower(), suffix, direction
+
+
+def third_status(p: Printed, c: Patient) -> tuple:
+    """
+    Mirror of checkThird() in match.ts on what is printed: (agreeing third identifiers, any conflict).
+    SSN last 4: equal digits agree; none on file is unchecked. Address: street number + ZIP, or street
+    number + street name (a missing suffix or directional is allowed).
+    """
+    t = p.third or {}
+    agree = []
+    conflict = False
+    if t.get("ssn4") and c.ssn4:
+        if t["ssn4"] == c.ssn4:
+            agree.append("ssn4")
+        else:
+            conflict = True
+    a = t.get("address")
+    if a and c.street:
+        dn, dname, dsuf, ddir = _street_key(a)
+        cn, cname, csuf, cdir = _street_key(c.street)
+        same_name = dname == cname and (not dsuf or not csuf or dsuf == csuf) and (not ddir or not cdir or ddir == cdir)
+        if dn == cn and (a.get("zip") == c.zip or same_name):
+            agree.append("address")
+        else:
+            conflict = True
+    return agree, conflict
 
 
 # Labels the extractor reads as an explicit patient-name label ('high'); "RE:" and "Name:" are weaker.
@@ -207,6 +263,11 @@ def expected_decision_name_dob(p: Printed, roster: list[Patient], name_label: st
     if d != "review" or hit is None or p.mrn or p.phone or name_label not in STRONG_NAME_LABELS:
         return d, hit
     c = next(r for r in roster if r.key == hit)
+    if third_status(p, c)[1]:  # a disagreeing SSN last 4 or address: staff under every rule
+        return d, hit
+    t = p.third or {}
+    if (t.get("ssn4") and not c.ssn4) or (t.get("address") and not c.street):
+        return d, hit  # printed but nothing on file to compare with: may be a namesake, staff
     if norm(c.first) != norm(p.first) or norm(c.last) != norm(p.last):
         return d, hit
     dob = mmddyyyy(p.dob)
@@ -219,6 +280,57 @@ def expected_decision_name_dob(p: Printed, roster: list[Patient], name_label: st
 
 
 # ── Planning one document ────────────────────────────────────────────────────
+
+def plan_third(seed: int, i: int, layout: str, case: str, pts: list, printed: list) -> None:
+    """
+    Whether and how each patient's SSN last 4 and address are printed: current address (in varied
+    spellings), an outdated one (the patient moved) or a wrong one (another house number), and the right
+    SSN last 4 or a wrong one, masked, last 4 only or a full fictional SSN. Own RNG: the rest of the
+    document is the same as without third identifiers. Namesake documents always carry at least one.
+    """
+    trng = random.Random(f"{seed}:{i}:third")
+    for pt, pr in zip(pts, printed):
+        force = case == "namesake"
+        show_addr = trng.random() < ADDR_P[layout]
+        show_ssn = trng.random() < SSN_P[layout]
+        if force and not (show_addr or show_ssn):
+            show_addr, show_ssn = (True, False) if trng.random() < 0.5 else (False, True)
+        if show_addr and pt.street:
+            kind, street, city, zip_ = "current", pt.street, pt.city, pt.zip
+            r = trng.random()
+            if not force and r < 0.14 and pt.old_street:
+                kind, street, city, zip_ = "outdated", pt.old_street, pt.old_city, pt.old_zip
+            elif not force and 0.14 <= r < 0.22:
+                kind, street = "wrong", dict(pt.street)
+                while street["number"] == pt.street["number"]:
+                    street["number"] = str(trng.randint(100, 19999))
+            upper = layout == "daily_batch" or trng.random() < 0.15
+            line = street_line(street, spelled=trng.random() < 0.3, upper=upper, unit_style="#" if trng.random() < 0.3 else "Apt")
+            state = "OR" if zip_.startswith("97") else "ID"
+            csz = f"{city}, {state} {zip_}"
+            csz = csz.upper() if upper else csz
+            pr.address_lines = [f"{line}, {csz}"] if layout == "daily_batch" or trng.random() < 0.5 else [line, csz]
+            pr.address_label = trng.choice(ADDR_LABELS[layout])
+            pr.third["address"] = {**street, "zip": zip_}
+            pr.third["address_kind"] = kind
+        if show_ssn:
+            kind, last4 = ("right", pt.ssn4) if pt.ssn4 else ("not_on_file", f"{trng.randint(1, 9999):04d}")
+            if not force and pt.ssn4 and trng.random() < 0.10:
+                kind = "wrong"
+                while last4 == pt.ssn4:
+                    last4 = f"{trng.randint(1, 9999):04d}"
+            style = trng.choices(["masked", "xxx", "last4", "full"], weights=[35, 25, 20, 20])[0]
+            # Full SSNs use area numbers 900-999, which are never issued: fictional by construction.
+            pr.ssn_text = {"masked": f"***-**-{last4}", "xxx": f"XXX-XX-{last4}", "last4": last4,
+                           "full": f"{trng.randint(900, 999)}-{trng.randint(10, 99)}-{last4}"}[style]
+            if style == "last4":
+                pr.ssn_label = "SSN Last 4:"
+            elif layout == "daily_batch":
+                pr.ssn_label = trng.choice(["SSN:", "SS#:"])
+            else:
+                pr.ssn_label = trng.choice(["SSN:", "SSN:", "Soc Sec #:"])
+            pr.third.update({"ssn4": last4, "ssn_kind": kind, "ssn_style": style})
+
 
 def sender_numbers() -> None:
     """Give every sender a fixed fictional phone and fax: 208-555-0150 and up (patients use other areas)."""
@@ -249,7 +361,11 @@ def plan_doc(i: int, seed: int, roster: list[Patient], outside: list[Patient]) -
     elif case == "hyphen_apostrophe":
         pts = [rng.choice(by_tag.get("hyphen", []) + by_tag.get("apostrophe", []))]
     elif case == "not_in_roster":
-        pts = [rng.choice(outside)]
+        pts = [rng.choice([p for p in outside if "namesake" not in p.tags])]
+    elif case == "namesake":
+        # Not our patient, but exactly the name and DOB of one; the document carries their own address or SSN.
+        layout = layout if layout in NAMESAKE_LAYOUTS else rng.choice(NAMESAKE_LAYOUTS)
+        pts = [rng.choice([p for p in outside if "namesake" in p.tags])]
     elif case == "multi_patient":
         pts = rng.sample([p for p in roster if "duplicate" not in p.tags], k=rng.randint(2, 6))
     elif case == "multi_report":
@@ -274,10 +390,10 @@ def plan_doc(i: int, seed: int, roster: list[Patient], outside: list[Patient]) -
             other = rng.choice([p for p in roster if p.key != pt.key])
             mrn_kind = "wrong_other_patient" if rng.random() < 0.5 else "wrong_random"
             mrn = (other.pm_mrn if rng.random() < 0.5 else other.ehr_mrn) if mrn_kind == "wrong_other_patient" else str(rng.randint(10000, 999999))
-        if case in ("no_mrn", "old_phone"):
+        if case in ("no_mrn", "old_phone", "namesake"):
             mrn, mrn_kind = None, None
         phone = None
-        if rng.random() < PHONE_P[layout] or case == "old_phone":
+        if (rng.random() < PHONE_P[layout] or case == "old_phone") and case != "namesake":
             phone = pt.cell_phone if pt.cell_phone and rng.random() < 0.4 else pt.home_phone
         if case == "old_phone":
             phone = f"3075550{rng.randint(100, 199)}"  # an outdated number: 307 is not used for patients
@@ -290,6 +406,7 @@ def plan_doc(i: int, seed: int, roster: list[Patient], outside: list[Patient]) -
             mrn=mrn, mrn_label=rng.choice(MRN_LABELS[layout]), phone=phone,
             phone_label=rng.choice(PHONE_LABELS[layout]), mrn_kind=mrn_kind,
         ))
+    plan_third(seed, i, layout, case, pts, printed)
 
     quality = pick(rng, QUALITY_WEIGHTS)
     container = "pdf_text" if quality == "text_pdf" else pick(rng, CONTAINER_WEIGHTS)
@@ -407,7 +524,7 @@ def build_one(args: tuple) -> dict:
         intended = "multiple"
     else:
         decision, hit = expected_decision(p0, roster)
-        intended = plan["patients"][0].key if plan["case"] != "not_in_roster" else "not_in_roster"
+        intended = plan["patients"][0].key if plan["case"] not in ("not_in_roster", "namesake") else "not_in_roster"
     markers = sorted(spec.abnormal_markers)
     keys = [p.key for p in plan["patients"]]
     decisions = [expected_decision(p, roster)[0] for p in plan["printed"]]
@@ -426,7 +543,7 @@ def build_one(args: tuple) -> dict:
         for n, m in enumerate(page_meta)
     ]
     patients_truth = [
-        {"key": keys[k], "in_roster": plan["case"] != "not_in_roster", "expected_decision": decisions[k],
+        {"key": keys[k], "in_roster": plan["case"] not in ("not_in_roster", "namesake"), "expected_decision": decisions[k],
          "expected_decision_name_dob": decisions_nd[k],
          "pages": [t["page"] for t in page_truth if keys[k] in t["owners"]]}
         for k in range(len(keys))
@@ -455,6 +572,10 @@ def build_one(args: tuple) -> dict:
             "dob": mmddyyyy(p0.dob), "dob_style": p0.dob_style,
             "mrn": p0.mrn, "mrn_kind": p0.mrn_kind, "mrn_label": p0.mrn_label if p0.mrn else None,
             "phone": p0.phone, "phone_label": p0.phone_label if p0.phone else None,
+            # Third identifier as printed (a full fictional SSN is not repeated here: last 4 only).
+            "ssn4": p0.third.get("ssn4"), "ssn_kind": p0.third.get("ssn_kind"), "ssn_style": p0.third.get("ssn_style"),
+            "address": p0.address_lines, "address_kind": p0.third.get("address_kind"),
+            "address_labelled": bool(p0.address_lines and p0.address_label),
         },
         "patients_on_document": len(plan["printed"]),
         "batch_style": plan["batch_style"] if plan["layout"] == "daily_batch" else None,
@@ -509,6 +630,8 @@ def generate(args: argparse.Namespace) -> int:
     if args.roster_file:
         roster = load_sandbox_roster(args.roster_file)
         CASE_WEIGHTS = SANDBOX_CASE_WEIGHTS
+    # Addresses, previous addresses, SSN last 4 and namesakes, from their own RNG (see add_third_ids).
+    add_third_ids(roster, outside, random.Random(f"{args.seed}:third"))
     with open(os.path.join(out, "roster.json"), "w", encoding="utf-8") as f:
         json.dump([p.to_json() for p in roster], f, indent=1)
     with open(os.path.join(out, "outside.json"), "w", encoding="utf-8") as f:

@@ -1,4 +1,4 @@
-Last Name,First Name,Middle,DOB,MRN,Patient Number,Chart ID,Home Phone,Cell Phone
-Testpatient,Marigold,J,03/14/1961,00482913,E-48291,7001,(208) 555-0142,
-Zephyr,Quillon,,1958-07-02,771234,,7002,208-555-0177,
-Lightfoot,Orrin,B,9/5/1949,330017,,7003,,2085550199
+Last Name,First Name,Middle,DOB,MRN,Patient Number,Chart ID,Home Phone,Cell Phone,SSN Last 4,Address,City,State,Zip
+Testpatient,Marigold,J,03/14/1961,00482913,E-48291,7001,(208) 555-0142,,1234,1234 W Juniper St Apt 4,Boise,ID,83704
+Zephyr,Quillon,,1958-07-02,771234,,7002,208-555-0177,,,880 Sagebrush Ln,Meridian,ID,83642
+Lightfoot,Orrin,B,9/5/1949,330017,,7003,,2085550199,,,,,

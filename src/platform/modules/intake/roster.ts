@@ -22,7 +22,9 @@ import { normalizeDate } from './extract';
  *   required   last name, first name, date of birth, MRN
  *              ("Patient Name" / "Name" as "LAST, FIRST M" stands in for last + first)
  *   optional   middle name, a second MRN (EHR chart MRN / PatientNumber), chart ID, patient ID,
- *              phones (home, cell, work, ...)
+ *              phones (home, cell, work, ...), SSN (only its last 4 digits are read and kept; a full
+ *              SSN never leaves the parser), address (street, address line 2, city, state, ZIP)
+ *              for the third-identifier check in match.ts
  * The chart ID is the patient key (what a document would be filed to); without that column the MRN
  * is the key. Rows with the same key, name and DOB (an export with one row per insurance or address)
  * are merged. Rows without a usable name or date of birth are skipped and counted, never guessed.
@@ -40,6 +42,13 @@ export const ROSTER_COLUMNS: Record<string, string[]> = {
   chart: ['chartid', 'chartpatientid', 'ehrpatientid', 'ehrid', 'ehrchartid'],
   patientId: ['patientid', 'pmpatientid', 'personid', 'id'],
   phone: ['phone', 'homephone', 'cellphone', 'mobile', 'mobilephone', 'cell', 'workphone', 'phone1', 'phone2', 'phone3', 'primaryphone', 'telephone', 'phonenumber', 'contactphone', 'dayphone', 'eveningphone'],
+  // Third identifier (match.ts). A full SSN column is read for its last 4 digits only, never kept.
+  ssn: ['ssn', 'ssnlast4', 'last4ssn', 'ssn4', 'last4', 'socialsecuritynumber', 'socialsecurity', 'socsec', 'socsecno', 'patientssn', 'ptssn'],
+  address1: ['address', 'address1', 'addressline1', 'street', 'streetaddress', 'street1', 'addr1', 'addr', 'homeaddress', 'patientaddress', 'mailingaddress'],
+  address2: ['address2', 'addressline2', 'street2', 'addr2', 'apt', 'unit', 'suite'],
+  city: ['city', 'patientcity', 'town'],
+  state: ['state', 'st', 'patientstate', 'province'],
+  zip: ['zip', 'zipcode', 'postalcode', 'postcode', 'zip5', 'patientzip'],
 };
 export const ROSTER_REQUIRED = ['last name and first name (or "Patient Name")', 'date of birth', 'MRN'];
 
@@ -54,6 +63,17 @@ export interface RosterPatient {
   dob: string;
   mrns: string[];
   phones: string[];
+  /** Last 4 digits of the SSN ('' when none, or when merged rows disagree). */
+  ssnLast4: string;
+  /** Addresses on file (an export with one row per address gives several). */
+  addresses: RosterAddress[];
+}
+
+export interface RosterAddress {
+  line1: string;
+  city: string;
+  state: string;
+  zip: string;
 }
 
 export interface RosterStats {
@@ -146,6 +166,30 @@ export function rosterDob(raw: string, now: Date = new Date()): string {
   return normalizeDate(v, { pastOnly: true, now });
 }
 
+/** The last 4 digits of an SSN cell (full, masked or last 4 only); '' otherwise. The rest is dropped here. */
+export function ssnLast4(raw: string): string {
+  const d = String(raw ?? '').replace(/\D/g, '');
+  return d.length === 4 || d.length === 9 ? d.slice(-4) : '';
+}
+
+/**
+ * An address from the export's columns. A single "Address" column holding the whole address
+ * ("1234 W Juniper St, Apt 4, Boise, ID 83704") is split when there are no city/state/ZIP columns.
+ */
+export function rosterAddress(line1: string, line2: string, city: string, state: string, zip: string): RosterAddress | null {
+  let l1 = String(line1 ?? '').replace(/\s+/g, ' ').trim();
+  let c = String(city ?? '').trim();
+  let s = String(state ?? '').trim().toUpperCase();
+  let z = (String(zip ?? '').match(/\d{5}/) || [''])[0];
+  if (!z) {
+    const m = l1.match(/^(.*?),\s*([^,]+?),?\s+([A-Za-z]{2})\s+(\d{5})(?:-\d{4})?$/);
+    if (m) [l1, c, s, z] = [m[1], c || m[2].trim(), s || m[3].toUpperCase(), m[4]];
+  }
+  if (!l1) return null;
+  const l2 = String(line2 ?? '').trim();
+  return { line1: l2 && !l1.toLowerCase().includes(l2.toLowerCase()) ? `${l1} ${l2}` : l1, city: c, state: s, zip: z };
+}
+
 /** Which column holds what (first header that matches each role; every phone-like column). */
 export function mapColumns(header: string[]): { cols: Record<string, number>; phones: number[] } {
   const keys = header.map(headerKey);
@@ -175,6 +219,7 @@ export function parseRoster(text: string, now: Date = new Date()): { patients: R
   const stats: RosterStats = { rows: rows.length - 1, patients: 0, skipped: 0, merged: 0, key_conflicts: 0, columns: Object.keys(cols).concat(phones.length ? ['phone'] : []).sort() };
   const byKey = new Map<string, RosterPatient[]>();
   const out: RosterPatient[] = [];
+  const ssnConflict = new WeakSet<RosterPatient>();
   const at = (r: string[], role: string) => (cols[role] === undefined ? '' : String(r[cols[role]] ?? '').trim());
   for (const r of rows.slice(1)) {
     let last = at(r, 'last');
@@ -195,6 +240,7 @@ export function parseRoster(text: string, now: Date = new Date()): { patients: R
       stats.skipped++;
       continue;
     }
+    const address = rosterAddress(at(r, 'address1'), at(r, 'address2'), at(r, 'city'), at(r, 'state'), at(r, 'zip'));
     const p: RosterPatient = {
       key,
       patientId: at(r, 'patientId'),
@@ -204,12 +250,20 @@ export function parseRoster(text: string, now: Date = new Date()): { patients: R
       dob,
       mrns: [...new Set(mrns)],
       phones: [...new Set(phones.map((i) => phone10(r[i])).filter((x) => x.length === 10))],
+      ssnLast4: ssnLast4(at(r, 'ssn')),
+      addresses: address ? [address] : [],
     };
     const same = byKey.get(normKey(key)) || [];
     const twin = same.find((q) => letters(q.last) === letters(p.last) && letters(q.first) === letters(p.first) && q.dob === p.dob);
     if (twin) {
       twin.mrns = [...new Set([...twin.mrns, ...p.mrns])];
       twin.phones = [...new Set([...twin.phones, ...p.phones])];
+      // Two different SSNs for one patient: nothing to compare with.
+      if (p.ssnLast4 && twin.ssnLast4 !== p.ssnLast4) {
+        if (twin.ssnLast4) ssnConflict.add(twin);
+        twin.ssnLast4 = ssnConflict.has(twin) ? '' : p.ssnLast4;
+      }
+      for (const a of p.addresses) if (!twin.addresses.some((b) => b.line1.toLowerCase() === a.line1.toLowerCase() && b.zip === a.zip)) twin.addresses.push(a);
       twin.patientId = twin.patientId || p.patientId;
       stats.merged++;
       continue;
@@ -242,6 +296,10 @@ function toRow(p: RosterPatient): Record<string, unknown> {
     ...(patientNumber ? { patientNumber } : {}),
     ...(chartMrn ? { chartMrn } : {}),
     phone: { ...(home ? { home } : {}), ...(cell ? { cell } : {}), ...(work ? { work } : {}) },
+    // Same shape as patient.tools.ts (address {line1, city, state, zipCode}); more addresses in `addresses`.
+    ...(p.addresses[0] ? { address: { line1: p.addresses[0].line1, city: p.addresses[0].city, state: p.addresses[0].state, zipCode: p.addresses[0].zip } } : {}),
+    ...(p.addresses.length > 1 ? { addresses: p.addresses.slice(1).map((a) => ({ line1: a.line1, city: a.city, state: a.state, zipCode: a.zip })) } : {}),
+    ...(p.ssnLast4 ? { ssnLast4: p.ssnLast4 } : {}),
   };
 }
 

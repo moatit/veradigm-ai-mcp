@@ -89,6 +89,8 @@ Patient list CSV (`lists/roster.csv`, comma, semicolon, tab or `|`; header names
 | Second MRN | no | `Patient Number`, `EHR MRN`, `Chart MRN`, `Alt MRN` |
 | Chart ID | no (else the MRN is the patient key) | `Chart ID`, `EHR Patient ID` |
 | Phones | no | `Home Phone`, `Cell Phone`, `Work Phone`, `Phone` |
+| SSN | no (third identifier) | `SSN`, `SSN Last 4`, `Last4 SSN`, `Social Security Number`; only the last 4 digits are read and kept, a full SSN never leaves the parser |
+| Address | no (third identifier) | `Address` / `Address1` / `Street`, `Address2` / `Apt`, `City`, `State`, `ZIP` / `Zip Code`; one `Address` column holding the whole address is split |
 
 Rows for the same patient (same key, name and DOB) are merged; rows without a usable name or DOB are skipped and counted. A missing or unreadable list is an error (the server won't start; documents fail with `ROSTER_UNAVAILABLE` and can be retried), never "no match". The list is re-read when the file changes: replace it with `cp new.csv lists/roster.csv.tmp && mv lists/roster.csv.tmp lists/roster.csv`. `examples/roster.example.csv` shows the format (made-up people).
 

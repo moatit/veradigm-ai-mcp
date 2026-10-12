@@ -131,7 +131,9 @@ export const REASON_LABEL: Record<string, string> = {
   mrn_conflict: 'MRN on the document differs',
   mrn_unreadable: 'MRN printed but unreadable',
   phone_conflict: 'Phone on the document differs',
-  no_second_id: 'Only name + DOB match (no MRN or phone)',
+  ssn_conflict: 'SSN last 4 on the document differs',
+  address_conflict: 'Address on the document differs',
+  no_second_id: 'Only name + DOB match (no MRN, phone, SSN-4 or address)',
   no_category: 'No specific chart category',
   duplicate: 'Same file as an earlier document',
   pages_unchecked: 'Batch sender: pages not checked',
@@ -159,6 +161,8 @@ export function matchReasonCode(decision: string, reason: string): string {
   if (/MRN on the document is different/.test(r)) return 'mrn_conflict';
   if (/MRN on the document could not be read/.test(r)) return 'mrn_unreadable';
   if (/phone on the document is different/.test(r)) return 'phone_conflict';
+  if (/SSN last 4 on the document is different/.test(r)) return 'ssn_conflict';
+  if (/address on the document is different/.test(r)) return 'address_conflict';
   if (/no second identifier/.test(r)) return 'no_second_id';
   return 'other';
 }

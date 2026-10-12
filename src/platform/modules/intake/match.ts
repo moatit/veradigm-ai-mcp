@@ -22,7 +22,8 @@ import { patientSearch, rosterPath } from './roster';
  *
  * decideMatch() is the pure decision table (smoke-tested); matchPatient() runs the search.
  *
- * Optional clinic rule INTAKE_MATCH_RULE=name_dob (default: two_identifiers, the rule above). It adds
+ * INTAKE_MATCH_RULE=name_dob is the MOATiT standard (decided Oct 11, 2026: the two identifiers are name +
+ * date of birth); deployments set it. Unset, the stricter two_identifiers rule above applies. name_dob adds
  * one way to reach 'auto' when the document carries no MRN or patient phone at all; everything that
  * is review, none or ambiguous under the default stays so. With name_dob, auto also needs ALL of:
  *   - the exact normalized full name (first + last, letters only) and DOB, both from an explicit label
@@ -37,12 +38,26 @@ import { patientSearch, rosterPath } from './roster';
  *     unexplained MRN- or phone-like number near the patient line (extract.ts unread_identifier)
  *   - the pipeline's OCR-confidence gate (INTAKE_OCR_MIN_CONFIDENCE), as for every auto match
  * The result says which rule decided it (rule: 'name_dob').
+ *
+ * Third identifier (MOATiT standard, Oct 11, 2026): the last 4 of the SSN or the patient's address,
+ * checked whenever the document carries one and the patient's record has one to compare with.
+ *   disagrees  the document goes to staff, like a conflicting MRN or phone (also when the MRN agrees)
+ *   agrees     recorded on the result (third_identifier) and in the reason. Under either rule, with the
+ *              exact full name + DOB it may also be the second identifier (second_identifier 'ssn4' or
+ *              'address'), the way the phone is, behind the same look-alike guard
+ *   unchecked  the record has none (Veradigm® masks SSNs in search results): it doesn't block an MRN,
+ *              phone or other agreeing identifier, but name + DOB alone (name_dob) never file over it,
+ *              since it may be someone else's (a namesake), like an unconfirmed phone
+ * Address agrees when the street number and the 5-digit ZIP are equal, or the street number and the
+ * street name (St/Street, Ave/Avenue, N/North, units like Apt/# ignored, case ignored). SSN-4 agrees when
+ * the 4 digits are equal. A printed SSN or address that can't be read (ssn_unreadable,
+ * address_unreadable) stops name_dob and an SSN-4/address second identifier, never an MRN match.
  */
 export type MatchDecision = 'auto' | 'review' | 'none' | 'ambiguous' | 'error';
-/** two_identifiers (default): name + DOB + MRN or phone. name_dob: also exact name + DOB alone, see above. */
+/** two_identifiers (when unset): name + DOB + MRN, phone, SSN-4 or address. name_dob (MOATiT standard): also exact name + DOB alone, see above. */
 export type MatchRule = 'two_identifiers' | 'name_dob';
 
-/** INTAKE_MATCH_RULE: 'name_dob' turns on the optional clinic rule; anything else is the default. */
+/** INTAKE_MATCH_RULE: 'name_dob' (the MOATiT standard, set by deployments); unset or anything else is two_identifiers. */
 export function matchRule(): MatchRule {
   return String(process.env.INTAKE_MATCH_RULE || '').trim().toLowerCase() === 'name_dob' ? 'name_dob' : 'two_identifiers';
 }
@@ -63,7 +78,21 @@ export interface Candidate {
   /** Every MRN the patient has (PM MRN, EHR chart MRN / PatientNumber). Defaults to [mrn]. */
   mrns?: string[];
   phones: string[];
+  /** Last 4 digits of the SSN on file ('' or absent when the search returns none). Never a full SSN. */
+  ssnLast4?: string;
+  /** Addresses on file (Veradigm® returns one; a patient list may hold more). */
+  addresses?: CandidateAddress[];
 }
+
+export interface CandidateAddress {
+  line1: string;
+  city?: string;
+  state?: string;
+  zip?: string;
+}
+
+/** The SSN's last 4 or the address: the third identifier (see the header). */
+export type ThirdIdentifier = 'ssn4' | 'address';
 
 export interface MatchedPatient {
   /** Veradigm® PM patient ID ('' when the person exists only in the EHR). */
@@ -82,7 +111,9 @@ export interface MatchResult {
   /** People that matched name + DOB. */
   candidates: number;
   patient?: MatchedPatient;
-  second_identifier?: 'mrn' | 'phone';
+  second_identifier?: 'mrn' | 'phone' | ThirdIdentifier;
+  /** An SSN-4 or address on the document that agrees with the patient's record (beyond the second identifier). */
+  third_identifier?: ThirdIdentifier;
   /** Set when the optional name_dob rule made the decision 'auto' (no second identifier). */
   rule?: 'name_dob';
   error_code?: string;
@@ -182,6 +213,105 @@ export function nearDob(a: string, b: string): boolean {
   return ay === by && am === bd && ad === bm;
 }
 
+// ── Third identifier: SSN last 4 and address ─────────────────────────────────
+
+const STREET_SUFFIXES: Record<string, string> = {
+  st: 'st', street: 'st', str: 'st', ave: 'ave', avenue: 'ave', av: 'ave', rd: 'rd', road: 'rd', dr: 'dr', drive: 'dr',
+  blvd: 'blvd', boulevard: 'blvd', ln: 'ln', lane: 'ln', ct: 'ct', court: 'ct', pl: 'pl', place: 'pl', cir: 'cir',
+  circle: 'cir', ter: 'ter', terrace: 'ter', pkwy: 'pkwy', parkway: 'pkwy', hwy: 'hwy', highway: 'hwy', way: 'way',
+  trl: 'trl', trail: 'trl', loop: 'loop', sq: 'sq', square: 'sq', xing: 'xing', crossing: 'xing', row: 'row', run: 'run',
+  pass: 'pass', pike: 'pike', path: 'path',
+};
+const DIRECTIONS: Record<string, string> = {
+  n: 'n', north: 'n', s: 's', south: 's', e: 'e', east: 'e', w: 'w', west: 'w',
+  ne: 'ne', northeast: 'ne', nw: 'nw', northwest: 'nw', se: 'se', southeast: 'se', sw: 'sw', southwest: 'sw',
+};
+const ORDINALS: Record<string, string> = {
+  first: '1st', second: '2nd', third: '3rd', fourth: '4th', fifth: '5th', sixth: '6th', seventh: '7th', eighth: '8th', ninth: '9th', tenth: '10th',
+};
+
+/** A street line in comparable parts: number, street name words, suffix, directional. Units dropped. */
+export function streetParts(line: unknown): { number: string; core: string; suffix: string; dir: string } | null {
+  let s = String(line ?? '').toLowerCase().replace(/[.,]/g, ' ').replace(/\s+/g, ' ').trim();
+  const box = s.match(/^p ?o ?box (\d+)/);
+  if (box) return { number: box[1].replace(/^0+(?=.)/, ''), core: 'pobox', suffix: '', dir: '' };
+  s = s.replace(/\s(?:apt|apartment|unit|ste|suite|bldg|building|lot|spc|space|rm|room|fl|floor)\b.*$/, '').replace(/\s*#.*$/, '');
+  const toks = s.split(' ').filter(Boolean);
+  const num = (toks[0] || '').match(/^(\d{1,6})([a-z]?)$/);
+  if (!num) return null;
+  const rest = toks.slice(1).map((t) => ORDINALS[t] || t);
+  let dir = '';
+  let suffix = '';
+  const core: string[] = [];
+  rest.forEach((t, i) => {
+    const last = i === rest.length - 1;
+    const beforeTrailingDir = i === rest.length - 2 && !!DIRECTIONS[rest[rest.length - 1]];
+    if (DIRECTIONS[t] && rest.length > 1 && (i === 0 || last)) dir = dir || DIRECTIONS[t];
+    else if (STREET_SUFFIXES[t] && core.length && (last || beforeTrailingDir)) suffix = STREET_SUFFIXES[t];
+    else core.push(t);
+  });
+  if (!core.length) return null;
+  return { number: `${num[1].replace(/^0+(?=.)/, '')}${num[2]}`, core: core.join(' '), suffix, dir };
+}
+
+const zip5 = (z: unknown) => (String(z ?? '').match(/\d{5}/) || [''])[0];
+
+/**
+ * Document address vs one address on file: agrees when the street number and ZIP are equal, or the street
+ * number and street name (a missing suffix or directional on one side is allowed, a different one is not).
+ * 'unchecked' when either side has no readable street line.
+ */
+export function addressAgreement(doc: CandidateAddress, onFile: CandidateAddress): 'agree' | 'disagree' | 'unchecked' {
+  const d = streetParts(doc.line1);
+  const c = streetParts(onFile.line1);
+  if (!d || !c) return 'unchecked';
+  if (d.number !== c.number) return 'disagree';
+  const dz = zip5(doc.zip);
+  const cz = zip5(onFile.zip);
+  if (dz && cz && dz === cz) return 'agree';
+  const same = d.core === c.core && (!d.suffix || !c.suffix || d.suffix === c.suffix) && (!d.dir || !c.dir || d.dir === c.dir);
+  return same ? 'agree' : 'disagree';
+}
+
+interface ThirdCheck {
+  /** Third identifiers on the document that agree with the record ('ssn4' first). */
+  agree: ThirdIdentifier[];
+  /** Staff reason when one disagrees, else ''. */
+  conflict: string;
+  /** An SSN or address is printed but could not be read: can't be checked. */
+  unreadable: boolean;
+}
+
+/** The document's SSN-4 and address against the candidate's record. */
+function checkThird(extracted: ExtractedFields, c: Candidate): ThirdCheck {
+  const out: ThirdCheck = { agree: [], conflict: '', unreadable: !!(extracted.ssn_unreadable || extracted.address_unreadable) };
+  const ssn = extracted.ssn_last4 && usable(extracted.ssn_last4.confidence) ? extracted.ssn_last4.value.replace(/\D/g, '') : '';
+  const onFile = String(c.ssnLast4 ?? '').replace(/\D/g, '').slice(-4);
+  let ssnConflict = false;
+  if (ssn.length === 4 && onFile.length === 4) {
+    if (ssn === onFile) out.agree.push('ssn4');
+    else ssnConflict = true;
+  }
+  let addrConflict = false;
+  const doc = extracted.address && usable(extracted.address.confidence) ? extracted.address.value : undefined;
+  if (doc) {
+    const results = (c.addresses || []).map((a) => addressAgreement(doc, a));
+    if (results.includes('agree')) out.agree.push('address');
+    else if (results.includes('disagree')) addrConflict = true;
+  }
+  if (ssnConflict) out.conflict = 'Name and date of birth match one patient, but the SSN last 4 on the document is different.';
+  else if (addrConflict) out.conflict = 'Name and date of birth match one patient, but the address on the document is different (an old address, or someone else).';
+  return out;
+}
+
+const THIRD_TEXT: Record<ThirdIdentifier, string> = { ssn4: 'SSN last 4', address: 'address' };
+/** " The SSN last 4 and address also match." for the agreeing third identifiers not used as the second. */
+function alsoMatch(ids: ThirdIdentifier[]): string {
+  if (!ids.length) return '';
+  const t = ids.map((i) => THIRD_TEXT[i]).join(' and ');
+  return ` The ${t} also match${ids.length === 1 ? 'es' : ''}.`;
+}
+
 /**
  * The name_dob conditions for a document whose one name + DOB match is `c` and that reached the end
  * of the default rule (no MRN or phone confirmed it). ok, or the condition that failed.
@@ -214,6 +344,15 @@ function nameDobCheck(extracted: ExtractedFields, c: Candidate, candidates: Cand
   if (extracted.mrn || extracted.mrn_unreadable) return { ok: false, reason: 'an MRN on the document could not be checked' };
   if (extracted.phone && usable(extracted.phone.confidence)) return { ok: false, reason: 'the phone on the document could not be checked' };
   if (extracted.unread_identifier) return { ok: false, reason: 'a number near the patient line may be an MRN or phone that could not be read' };
+  if (extracted.ssn_unreadable || extracted.address_unreadable) return { ok: false, reason: 'an SSN or address on the document could not be read' };
+  // Like a phone that can't be confirmed: an SSN-4 or address the chart has nothing to compare with may
+  // be someone else's (a namesake), so name + DOB alone don't file it.
+  if (extracted.ssn_last4 && usable(extracted.ssn_last4.confidence) && last4Of(c.ssnLast4).length !== 4) {
+    return { ok: false, reason: 'the SSN last 4 on the document could not be checked (none on file)' };
+  }
+  if (extracted.address && usable(extracted.address.confidence) && !(c.addresses || []).some((a) => addressAgreement(extracted.address!.value, a) !== 'unchecked')) {
+    return { ok: false, reason: 'the address on the document could not be checked (none on file)' };
+  }
   return { ok: true };
 }
 
@@ -268,16 +407,23 @@ export function decideMatch(extracted: ExtractedFields, candidates: Candidate[],
   // Second identifier 1: MRN. A different MRN on the document is a conflict, never a match.
   const docMrn = extracted.mrn && usable(extracted.mrn.confidence) ? normMrn(extracted.mrn.value) : '';
   const known = (c.mrns && c.mrns.length ? c.mrns : [c.mrn]).map(normMrn).filter(Boolean);
-  if (docMrn && known.length) {
-    if (known.includes(docMrn)) {
-      // Twins have different MRNs, so an exact chart name + MRN is decisive. A name that only loosely
-      // agrees (a misread first name) plus a look-alike patient is not.
-      const exactName = norm(c.firstName) === first && norm(c.lastName) === last;
-      const twin = exactName ? '' : lookalike(extracted, c, candidates);
-      if (twin) return review(twin);
-      return { decision: 'auto', reason: 'Name, date of birth and MRN match one patient.', candidates: 1, patient, second_identifier: 'mrn' };
-    }
+  if (docMrn && known.length && !known.includes(docMrn)) {
     return review('Name and date of birth match one patient, but the MRN on the document is different.');
+  }
+  // Third identifier: an SSN-4 or address that disagrees sends the document to staff, whatever agrees.
+  const third = checkThird(extracted, c);
+  if (third.conflict) return review(third.conflict);
+  const exactName = norm(c.firstName) === first && norm(c.lastName) === last;
+  const withThird = (r: Omit<MatchResult, 'checked_at'>): Omit<MatchResult, 'checked_at'> => {
+    const extra = third.agree.filter((t) => t !== r.second_identifier);
+    return extra.length ? { ...r, reason: r.reason + alsoMatch(extra), third_identifier: extra[0] } : r;
+  };
+  if (docMrn && known.length) {
+    // Twins have different MRNs, so an exact chart name + MRN is decisive. A name that only loosely
+    // agrees (a misread first name) plus a look-alike patient is not.
+    const twin = exactName ? '' : lookalike(extracted, c, candidates);
+    if (twin) return review(twin);
+    return withThird({ decision: 'auto', reason: 'Name, date of birth and MRN match one patient.', candidates: 1, patient, second_identifier: 'mrn' });
   }
 
   // An MRN is printed but unreadable: it may disagree, so the phone cannot stand in for it.
@@ -288,34 +434,46 @@ export function decideMatch(extracted: ExtractedFields, candidates: Candidate[],
   // Second identifier 2: exact full name + DOB + phone (only when the document has a patient phone).
   const docPhone = extracted.phone && usable(extracted.phone.confidence) ? digits10(extracted.phone.value) : '';
   if (docPhone.length === 10) {
-    const exactName = norm(c.firstName) === first && norm(c.lastName) === last;
     const phoneHit = c.phones.some((p) => digits10(p) === docPhone);
     if (exactName && phoneHit) {
       // A household often shares a phone (twins, a parent and child), so a look-alike always blocks it.
       const twin = lookalike(extracted, c, candidates);
       if (twin) return review(twin);
-      return { decision: 'auto', reason: 'Full name, date of birth and phone match one patient.', candidates: 1, patient, second_identifier: 'phone' };
+      return withThird({ decision: 'auto', reason: 'Full name, date of birth and phone match one patient.', candidates: 1, patient, second_identifier: 'phone' });
     }
     if (!phoneHit) return review('Name and date of birth match one patient, but the phone on the document is different.');
+  }
+
+  // Second identifier 3: exact full name + DOB + an SSN-4 or address that agrees, the way the phone does.
+  // Twins and households share an address, so a look-alike always blocks it; an SSN or address that
+  // couldn't be read might disagree, so it blocks too.
+  if (exactName && third.agree.length && !third.unreadable) {
+    const twin = lookalike(extracted, c, candidates);
+    if (twin) return review(twin);
+    const second = third.agree[0];
+    return withThird({ decision: 'auto', reason: `Full name, date of birth and ${THIRD_TEXT[second]} match one patient.`, candidates: 1, patient, second_identifier: second });
   }
 
   if (opts.rule === 'name_dob') {
     const nd = nameDobCheck(extracted, c, candidates);
     if (nd.ok) {
-      return {
+      return withThird({
         decision: 'auto',
-        reason: 'Exact full name and date of birth match one patient, and no other patient has a similar name and the same date of birth (clinic rule: name + date of birth).',
+        reason: 'Exact full name and date of birth match one patient, and no other patient has a similar name and the same date of birth (MOATiT standard: name + date of birth).',
         candidates: 1,
         patient,
         rule: 'name_dob',
-      };
+      });
     }
     return review(`Name and date of birth match one patient; no second identifier to confirm (name + date of birth rule not met: ${nd.reason}).`);
   }
   return review('Name and date of birth match one patient; no second identifier to confirm.');
 }
 
-/** Rows from unity_search_patients → candidates. */
+/**
+ * Rows from unity_search_patients → candidates. The SSN comes in as its last 4 only (patient.tools.ts and
+ * roster.ts never pass on more); any longer value is cut to its last 4 here too.
+ */
 export function toCandidates(result: any): Candidate[] {
   const rows: any[] = Array.isArray(result?.patients) ? result.patients : [];
   return rows.map((p) => {
@@ -334,8 +492,30 @@ export function toCandidates(result: any): Candidate[] {
       phones: [p?.phone?.home, p?.phone?.cell, p?.phone?.work, typeof p?.phone === 'string' ? p.phone : '']
         .filter((x) => typeof x === 'string' && x.trim())
         .map(String),
+      ssnLast4: last4Of(p?.ssnLast4 ?? p?.ssn4),
+      addresses: candidateAddresses(p),
     };
   });
+}
+
+/** The last 4 digits of an SSN field (masked or not); '' when it has fewer than 4 digits. Never more than 4. */
+export function last4Of(v: unknown): string {
+  const d = String(v ?? '').replace(/\D/g, '');
+  return d.length >= 4 ? d.slice(-4) : '';
+}
+
+/** Addresses on a search row: `address` {line1, city, state, zipCode} (patient.tools.ts), and `addresses` (patient list). */
+function candidateAddresses(p: any): CandidateAddress[] {
+  const raw = [p?.address, ...(Array.isArray(p?.addresses) ? p.addresses : [])];
+  const out: CandidateAddress[] = [];
+  for (const a of raw) {
+    if (!a || typeof a !== 'object') continue;
+    const line1 = String(a.line1 ?? a.address1 ?? a.street ?? '').trim();
+    if (!line1) continue;
+    const addr: CandidateAddress = { line1, city: String(a.city ?? '').trim(), state: String(a.state ?? '').trim(), zip: zip5(a.zipCode ?? a.zip) };
+    if (!out.some((x) => x.line1.toLowerCase() === addr.line1.toLowerCase() && x.zip === addr.zip)) out.push(addr);
+  }
+  return out;
 }
 
 /**
