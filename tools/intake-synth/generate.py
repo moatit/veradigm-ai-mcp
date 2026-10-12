@@ -265,6 +265,9 @@ def expected_decision_name_dob(p: Printed, roster: list[Patient], name_label: st
     c = next(r for r in roster if r.key == hit)
     if third_status(p, c)[1]:  # a disagreeing SSN last 4 or address: staff under every rule
         return d, hit
+    t = p.third or {}
+    if (t.get("ssn4") and not c.ssn4) or (t.get("address") and not c.street):
+        return d, hit  # printed but nothing on file to compare with: may be a namesake, staff
     if norm(c.first) != norm(p.first) or norm(c.last) != norm(p.last):
         return d, hit
     dob = mmddyyyy(p.dob)

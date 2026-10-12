@@ -653,7 +653,9 @@ MRN: 771234                   COLL: 10/08/2026 07:10
     ['name + DOB, nothing else', nd, [third()], 'auto'],
     ['name + DOB, SSN-4 differs (a namesake who is not our patient)', withSsn(nd, '9999'), [third()], 'review'],
     ['name + DOB, address differs', withAddr(nd, '88 S Camas Rd', '83642'), [third()], 'review'],
-    ['name + DOB, SSN-4 none on file', withSsn(nd), [third({ ssnLast4: '' })], 'auto'],
+    ['name + DOB, SSN-4 printed but none on file (could be a namesake)', withSsn(nd), [third({ ssnLast4: '' })], 'review'],
+    ['name + DOB, address printed but none on file', withAddr(nd), [third({ addresses: [] })], 'review'],
+    ['name + DOB + address agrees, SSN-4 none on file', withAddr(withSsn(nd)), [third({ ssnLast4: '' })], 'auto'],
     ['name + DOB, address agrees', withAddr(nd), [third()], 'auto'],
     ['name + DOB, address printed but unreadable', { ...nd, address_unreadable: true }, [third()], 'review'],
   ];

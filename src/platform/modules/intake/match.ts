@@ -45,7 +45,9 @@ import { patientSearch, rosterPath } from './roster';
  *   agrees     recorded on the result (third_identifier) and in the reason. Under either rule, with the
  *              exact full name + DOB it may also be the second identifier (second_identifier 'ssn4' or
  *              'address'), the way the phone is, behind the same look-alike guard
- *   unchecked  the record has none (Veradigm® masks SSNs in search results): neither raises nor blocks
+ *   unchecked  the record has none (Veradigm® masks SSNs in search results): it doesn't block an MRN,
+ *              phone or other agreeing identifier, but name + DOB alone (name_dob) never file over it,
+ *              since it may be someone else's (a namesake), like an unconfirmed phone
  * Address agrees when the street number and the 5-digit ZIP are equal, or the street number and the
  * street name (St/Street, Ave/Avenue, N/North, units like Apt/# ignored, case ignored). SSN-4 agrees when
  * the 4 digits are equal. A printed SSN or address that can't be read (ssn_unreadable,
@@ -343,6 +345,14 @@ function nameDobCheck(extracted: ExtractedFields, c: Candidate, candidates: Cand
   if (extracted.phone && usable(extracted.phone.confidence)) return { ok: false, reason: 'the phone on the document could not be checked' };
   if (extracted.unread_identifier) return { ok: false, reason: 'a number near the patient line may be an MRN or phone that could not be read' };
   if (extracted.ssn_unreadable || extracted.address_unreadable) return { ok: false, reason: 'an SSN or address on the document could not be read' };
+  // Like a phone that can't be confirmed: an SSN-4 or address the chart has nothing to compare with may
+  // be someone else's (a namesake), so name + DOB alone don't file it.
+  if (extracted.ssn_last4 && usable(extracted.ssn_last4.confidence) && last4Of(c.ssnLast4).length !== 4) {
+    return { ok: false, reason: 'the SSN last 4 on the document could not be checked (none on file)' };
+  }
+  if (extracted.address && usable(extracted.address.confidence) && !(c.addresses || []).some((a) => addressAgreement(extracted.address!.value, a) !== 'unchecked')) {
+    return { ok: false, reason: 'the address on the document could not be checked (none on file)' };
+  }
   return { ok: true };
 }
 
