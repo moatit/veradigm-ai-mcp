@@ -36,6 +36,11 @@ Optional later: an S3 bucket with SSE-KMS under MOATiT's AWS BAA (account alread
 6. **Notify.** `SaveTask` to the ordering provider / results pool: "New outside result for review", abnormal flags called out.
 7. **Fallback.** Low confidence or any failure → file under "(ready for indexing)" for the patient if matched, else leave it in the Drawbridge review queue. Staff confirm or correct with one click on `/app/intake`.
 
+## MOATiT standard process (Ali, Oct 11, 2026)
+
+- **Patient identification:** two identifiers, full name + date of birth, matching exactly one patient (`INTAKE_MATCH_RULE=name_dob`). When the document also carries the last 4 of the SSN or the patient's address, that third identifier is checked as well. A disagreement, or a look-alike patient, sends the document to staff.
+- **Go-live:** one week in shadow mode first (`INTAKE_MODE=shadow`). Staff keep indexing as usual; Drawbridge records what it would have done and compares it with where staff filed each document. The team reviews the differences and fixes them, then filing into the chart is switched on.
+
 ## Safety rules
 
 - Never file to a chart on one identifier. Never guess between two patients. A document that shows more than one patient (a daily batch) is never filed to one chart: it is split into one document per patient, or it goes to staff. **A page is never filed to a patient it does not name** (outside batch senders, an unlabelled continuation page goes with the patient on the page before it).
