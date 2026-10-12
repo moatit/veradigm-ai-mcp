@@ -114,6 +114,16 @@ class Printed:
     phone_label: str
     # pm | ehr | foreign | wrong_other_patient | wrong_random | None
     mrn_kind: Optional[str] = None
+    # Third identifier as printed (generate.py plan_third). address_lines: the street line and the
+    # "City, ST 12345" line, or one line with both; ssn_text: "***-**-1234", "XXX-XX-1234", "1234"
+    # (with a "Last 4" label) or a full fictional SSN (900-999 area numbers are never issued).
+    address_lines: Optional[list] = None
+    address_label: str = "Address:"
+    ssn_text: Optional[str] = None
+    ssn_label: str = "SSN:"
+    # Truth only (never printed as such): {"address": {number, zip, name, dir, suffix}, "address_kind":
+    # current | outdated | wrong, "ssn4", "ssn_kind": right | wrong | not_on_file, "ssn_style"}.
+    third: dict = field(default_factory=dict)
 
 
 @dataclass
@@ -277,6 +287,18 @@ def phone_line(p: Printed, style: int) -> str:
     return f"{p.phone_label} {phone_fmt(p.phone, style)}" if p.phone else ""
 
 
+def ssn_line(p: Printed) -> str:
+    return f"{p.ssn_label} {p.ssn_text}" if p.ssn_text else ""
+
+
+def address_rows(p: Printed, labelled: bool = True) -> list[str]:
+    """The address as printed: 'Address: <street>[, City, ST 12345]' plus a city line when split."""
+    if not p.address_lines:
+        return []
+    first = f"{p.address_label} {p.address_lines[0]}" if labelled and p.address_label else p.address_lines[0]
+    return [first] + list(p.address_lines[1:])
+
+
 def cover_sheet(spec: DocSpec) -> Doc:
     rng = spec.rng
     d = Doc()
@@ -342,7 +364,8 @@ def reference_lab(spec: DocSpec) -> tuple[Doc, Callable]:
     d = Doc(page_top)
     d.owner = 0
     d.mark_shown()
-    left = [f"{name_label} {banner_name}", f"{dob_label} {banner_dob}     Sex: {p.sex}", mrn_line(p), phone_line(p, rng.randint(0, 3))]
+    left = [f"{name_label} {banner_name}", f"{dob_label} {banner_dob}     Sex: {p.sex}", mrn_line(p), phone_line(p, rng.randint(0, 3)),
+            ssn_line(p), *address_rows(p)]
     right = [f"Specimen ID: {spec_id}", f"Collected: {spec.collected.strftime('%m/%d/%Y %H:%M')}",
              f"Received: {spec.collected.strftime('%m/%d/%Y')} {rng.randint(9, 14)}:{rng.randint(10, 59)}",
              f"Reported: {spec.reported.strftime('%m/%d/%Y %H:%M')}", f"Ordering: {doctor}, MD", f"Client: {CLINIC}"]
@@ -435,6 +458,12 @@ def hospital_lab(spec: DocSpec) -> tuple[Doc, Callable]:
         if p.phone:
             d.put(54, phone_line(p, 0), "Times-Roman", 10)
             d.ln(13)
+        if p.ssn_text:
+            d.put(54, ssn_line(p), "Times-Roman", 10)
+            d.ln(13)
+        for row in address_rows(p):
+            d.put(54, row, "Times-Roman", 10)
+            d.ln(13)
         d.hline()
         d.ln(16)
 
@@ -506,6 +535,9 @@ def small_clinic(spec: DocSpec) -> tuple[Doc, Callable]:
     if p.mrn:
         d.put(54, mrn_line(p), "Helvetica", 10)
         d.ln(14)
+    for row in address_rows(p) + ([ssn_line(p)] if p.ssn_text else []):
+        d.put(54, row, "Helvetica", 10)
+        d.ln(14)
     lbl = rng.choice(["Date of Service:", "Collected:", "Date Collected:"])
     d.put(54, f"{lbl} {date_fmt(spec.collected.date(), rng.choice(['mdy', 'mdy_short']))}", "Helvetica", 10)
     d.ln(22)
@@ -565,6 +597,12 @@ def daily_batch(spec: DocSpec) -> tuple[Doc, Callable]:
         d.ln(11)
         if p.phone and not cont:
             d.put(54, f"{p.phone_label} {phone_fmt(p.phone, 1)}", "Courier", 8.5)
+            d.ln(11)
+        if (p.ssn_text or p.address_lines) and not cont:
+            extra = [ssn_line(p)] if p.ssn_text else []
+            if p.address_lines:
+                extra.append(f"{p.address_label} {', '.join(p.address_lines)}")
+            d.put(54, "   ".join(extra), "Courier", 8.5)
             d.ln(11)
         d.mark_shown(k)
         if (k, d.patient_page.get(k, 0)) in spec.obscure:
@@ -652,6 +690,9 @@ def imaging(spec: DocSpec) -> tuple[Doc, Callable]:
     if p.phone:
         d.put(54, phone_line(p, 0), "Times-Roman", 11)
         d.ln(14)
+    for row in address_rows(p) + ([ssn_line(p)] if p.ssn_text else []):
+        d.put(54, row, "Times-Roman", 11)
+        d.ln(14)
     d.put(54, "Exam: US RENAL COMPLETE (RETROPERITONEAL)", "Times-Roman", 11)
     d.ln(14)
     d.put(54, f"{rng.choice(['Exam Date:', 'Date of Exam:', 'Study Date:'])} {date_fmt(spec.collected.date(), rng.choice(['mon', 'mdy', 'month']))}", "Times-Roman", 11)
@@ -707,6 +748,9 @@ def consult(spec: DocSpec) -> tuple[Doc, Callable]:
         d.ln(14)
     if p.phone:
         d.put(72, phone_line(p, 0), "Times-Roman", 11)
+        d.ln(14)
+    for row in address_rows(p) + ([ssn_line(p)] if p.ssn_text else []):
+        d.put(72, row, "Times-Roman", 11)
         d.ln(14)
     d.put(72, f"{rng.choice(['Date of Visit:', 'Date of Service:', 'Date of Consultation:'])} {date_fmt(spec.collected.date(), rng.choice(['mdy', 'mdy_short', 'mon']))}", "Times-Roman", 11)
     d.ln(26)

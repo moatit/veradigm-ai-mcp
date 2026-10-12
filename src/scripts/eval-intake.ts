@@ -22,9 +22,18 @@
  * Batch sender: --batch-sender (default INTAKE_BATCH_SENDERS or "Sawtooth Rapid Lab", the synthetic
  * stand-in for Express Lab).
  *
- * Matching rule: --rule two_identifiers (default) or --rule name_dob (the optional clinic rule,
+ * Matching rule: --rule two_identifiers (default) or --rule name_dob (the MOATiT standard since Oct 11 2026,
  * INTAKE_MATCH_RULE=name_dob). Run both on the same set with different --label values to compare.
  * Sender templates: --templates deploy/ocr/templates (INTAKE_SENDER_TEMPLATES_DIR); off by default.
+ *
+ * Third identifier (SSN last 4, patient address; sets made since Oct 11 2026 carry them in the truth):
+ *   --third off        drop the extracted SSN-4 and address before matching (the matcher before the
+ *                      third-identifier check), to compare with the same set and OCR
+ *   --search-ssn off   the fake search returns no SSN (what Veradigm® search returns today: blank, masked);
+ *                      addresses are still returned
+ * The report's "Third identifier" section breaks the documents down by what they print (none, agreeing,
+ * outdated or wrong address, wrong SSN-4, a namesake who is not our patient) and scores the SSN-4 and
+ * address reads. It also checks that no extracted value carries more than the SSN's last 4 digits.
  *
  * Documents, end to end (sets with per-page truth): every document is put in a class from its truth,
  * independent of OCR and of the rule being run:
@@ -68,6 +77,11 @@ interface RosterPatient {
   home_phone: string;
   cell_phone: string;
   tags: string[];
+  address1?: string;
+  city?: string;
+  state?: string;
+  zip?: string;
+  ssn4?: string;
 }
 
 interface Truth {
@@ -87,7 +101,22 @@ interface Truth {
   sender: { name: string; aliases: string[] };
   collection_date: string;
   abnormal: { flagged: boolean; critical: boolean; markers: string[] };
-  printed: { first: string; last: string; dob: string; mrn: string | null; mrn_kind: string | null; phone: string | null };
+  printed: {
+    first: string;
+    last: string;
+    dob: string;
+    mrn: string | null;
+    mrn_kind: string | null;
+    phone: string | null;
+    ssn4?: string | null;
+    /** right | wrong | not_on_file */
+    ssn_kind?: string | null;
+    ssn_style?: string | null;
+    address?: string[] | null;
+    /** current | outdated | wrong */
+    address_kind?: string | null;
+    address_labelled?: boolean;
+  };
   patients_on_document: number;
   // Per-page truth (generator with batch splitting; absent in older sets).
   batch_style?: string | null;
@@ -145,7 +174,7 @@ interface Row {
   filing?: { before: Filing; open: Filing; after: Filing; info: AfterInfo };
 }
 
-function args(): { set: string; label: string; examples: number; ocr: string; batchSender: string; rule: MatchRule; templates: string } {
+function args(): { set: string; label: string; examples: number; ocr: string; batchSender: string; rule: MatchRule; templates: string; third: boolean; searchSsn: boolean } {
   const a = process.argv.slice(2);
   const get = (k: string) => {
     const i = a.indexOf(k);
@@ -164,7 +193,15 @@ function args(): { set: string; label: string; examples: number; ocr: string; ba
     batchSender: get('--batch-sender') || process.env.INTAKE_BATCH_SENDERS || 'Sawtooth Rapid Lab',
     rule: get('--rule') === 'name_dob' ? 'name_dob' : 'two_identifiers',
     templates: get('--templates') || '',
+    third: get('--third') !== 'off',
+    searchSsn: get('--search-ssn') !== 'off',
   };
+}
+
+/** --third off: the document as the matcher saw it before the third-identifier check. */
+function withoutThird(x: ExtractedFields): ExtractedFields {
+  const { ssn_last4: _s, ssn_unreadable: _su, address: _a, address_unreadable: _au, ...rest } = x;
+  return rest;
 }
 
 // ── Filing simulation, page by page ──────────────────────────────────────────
@@ -190,7 +227,8 @@ async function afterFiling(
   whole: MatchResult,
   n: number,
   search: ReturnType<typeof fakePatientSearch>,
-  minConf: number
+  minConf: number,
+  third = true
 ): Promise<{ filing: Filing; info: AfterInfo }> {
   const ocr = { engine: 'local' as const, pages: Number(meta.pages || 0), mean_confidence: Number(meta.mean_confidence ?? 0), used_text_layer: meta.used_text_layer === true, page_confidences: meta.page_confidences };
   const seg = segmentItem({ ocr }, text, x, NOW);
@@ -203,7 +241,8 @@ async function afterFiling(
   const texts = splitPages(text, seg.page_count);
   const filing: Filing = { pages: Array.from({ length: n }, () => ''), units: 0, wrong_units: 0 };
   for (const g of seg.patients) {
-    const px = extractFields(g.pages.map((p) => texts[p - 1]).join('\f'), NOW);
+    let px = extractFields(g.pages.map((p) => texts[p - 1]).join('\f'), NOW);
+    if (!third) px = withoutThird(px);
     if (!px.sender && x.sender) px.sender = x.sender;
     const m = await matchPatient(px, search, () => NOW);
     const po = partOcr(ocr, g.pages)!;
@@ -273,7 +312,7 @@ const lower = (s: unknown) => String(s ?? '').trim().toLowerCase();
  * with patientId (PM), chartPatientId (EHR), names, dateOfBirth, mrn and phone {home, cell}. Both
  * MRNs are returned: mrn = PM MRN, patientNumber = EHR chart MRN (= PM PatientNumber).
  */
-export function fakePatientSearch(roster: RosterPatient[]) {
+export function fakePatientSearch(roster: RosterPatient[], opts: { ssn?: boolean } = {}) {
   return async (name: string, a: any): Promise<any> => {
     if (name !== 'unity_search_patients') return { success: false, error_code: 'UNKNOWN_TOOL', retryable: false, tool: name, message: '' };
     const dob = normDob(a?.dateOfBirth);
@@ -299,6 +338,9 @@ export function fakePatientSearch(roster: RosterPatient[]) {
         mrn: p.pm_mrn,
         patientNumber: p.ehr_mrn,
         phone: { home: p.home_phone, ...(p.cell_phone ? { cell: p.cell_phone } : {}) },
+        // Third identifier: address as patient.tools.ts returns it; SSN last 4 unless --search-ssn off.
+        ...(p.address1 ? { address: { line1: p.address1, city: p.city, state: p.state, zipCode: p.zip } } : {}),
+        ...(opts.ssn !== false && p.ssn4 ? { ssnLast4: p.ssn4 } : {}),
       })),
       total: rows.length,
       message: `${rows.length} patient(s) found`,
@@ -410,7 +452,7 @@ function groupTable(title: string, groups: [string, Group][]): string {
 }
 
 async function main(): Promise<void> {
-  const { set, label, examples, ocr: ocrSub, batchSender, rule, templates } = args();
+  const { set, label, examples, ocr: ocrSub, batchSender, rule, templates, third, searchSsn } = args();
   // Sender templates (templates.ts): off unless --templates names the directory (deploy/ocr/templates).
   if (templates) process.env.INTAKE_SENDER_TEMPLATES_DIR = path.resolve(templates);
   else delete process.env.INTAKE_SENDER_TEMPLATES_DIR;
@@ -425,13 +467,14 @@ async function main(): Promise<void> {
   delete process.env.INTAKE_MODE;
   const roster: RosterPatient[] = JSON.parse(fs.readFileSync(path.join(set, 'roster.json'), 'utf8'));
   const byKey = new Map(roster.map((p) => [p.key, p]));
-  const search = fakePatientSearch(roster);
+  const search = fakePatientSearch(roster, { ssn: searchSsn });
   const truthDir = path.join(set, 'truth');
   const ocrDir = path.join(set, ocrSub);
   const ids = fs.readdirSync(truthDir).filter((f) => f.endsWith('.json')).map((f) => f.slice(0, -5)).sort();
   const minConf = ocrMinConfidence();
 
   const rows: Row[] = [];
+  const thirdReads = new Map<string, ThirdRead>();
   let missingOcr = 0;
   for (const id of ids) {
     const t: Truth = JSON.parse(fs.readFileSync(path.join(truthDir, `${id}.json`), 'utf8'));
@@ -452,7 +495,9 @@ async function main(): Promise<void> {
       missingOcr++;
       meta = { error: 'NOT_RUN' };
     }
-    const x = extractFields(text, NOW);
+    const xFull = extractFields(text, NOW);
+    thirdReads.set(id, thirdScore(t, xFull));
+    const x = third ? xFull : withoutThird(xFull);
     const sc = score(t, x);
     if (meta.error) {
       rows.push({ t, decision: 'ocr_failed', gated: false, wrong_patient: false, fields: sc.ok, got: sc.got, want: sc.want, ocr: meta });
@@ -475,7 +520,7 @@ async function main(): Promise<void> {
       const chart = decision === 'auto' ? match.patient!.chartPatientId : '';
       // The old stopgap only looked at the extracted sender (autoFileBlocker before INTAKE_BATCH_SENDERS).
       const listed = (x.sender?.value || '').toLowerCase().includes(batchSender.toLowerCase());
-      const after = await afterFiling(text, meta, x, match, n, search, minConf);
+      const after = await afterFiling(text, meta, x, match, n, search, minConf, third);
       row.filing = { before: wholeFiling(n, listed ? '' : chart), open: wholeFiling(n, chart), after: after.filing, info: after.info };
     }
     rows.push(row);
@@ -647,7 +692,12 @@ ${ex(wrongPagesOpen, (r) => `${perDoc.get(r)!.open.wrong} page(s) of ${r.t.page_
     return 'mixed';
   };
   const neverWhy = (t: Truth): string => {
-    if (['not_in_roster', 'wrong_mrn', 'duplicate', 'dob_typo', 'old_phone'].includes(t.case)) return t.case;
+    if (['not_in_roster', 'wrong_mrn', 'duplicate', 'dob_typo', 'old_phone', 'namesake'].includes(t.case)) return t.case;
+    if ((t.patients_truth?.length || 0) <= 1 && t.printed.mrn_kind !== 'foreign') {
+      if (t.printed.ssn_kind === 'wrong') return 'wrong SSN last 4';
+      if (t.printed.address_kind === 'outdated') return 'outdated address';
+      if (t.printed.address_kind === 'wrong') return 'wrong address';
+    }
     if ((t.patients_truth?.length || 0) > 1) return `several patients: ${t.expected_pages_why || 'some parts not fileable'}`;
     if (t.printed.mrn_kind === 'foreign') return 'the sender\'s own MRN (conflict)';
     if (t.obscured) return 'identifiers blotted';
@@ -741,6 +791,48 @@ ${ex(paged.filter((r) => docOut.get(r)!.should && !docOut.get(r)!.all_right), (r
 `
     : '';
 
+  // ── Third identifier: what the documents print, how it was read, what it changed ──
+  const thirdCat = (t: Truth): string => {
+    if (t.case === 'namesake') return '6 namesake (not our patient; prints their own SSN-4 or address)';
+    if ((t.patients_truth?.length || 0) > 1) return '7 several patients on the document';
+    const pr = t.printed;
+    if (pr.ssn_kind === 'wrong') return '3 wrong SSN last 4';
+    if (pr.address_kind === 'outdated') return '4 outdated address (patient moved)';
+    if (pr.address_kind === 'wrong') return '5 wrong address (another house number)';
+    if (pr.ssn_kind === 'right' || pr.address_kind === 'current') return '2 agrees (SSN-4 and/or address)';
+    if (pr.ssn_kind === 'not_on_file') return '2b SSN-4 printed, none on file (unchecked)';
+    return '1 none printed';
+  };
+  const conflictReason = (m?: MatchResult) => !!m && /SSN last 4 on the document is different|address on the document is different/.test(m.reason);
+  const thirdRows = paged.length ? paged : rows;
+  const thirdGroups = (() => {
+    const m = new Map<string, Row[]>();
+    for (const r of thirdRows) m.set(thirdCat(r.t), [...(m.get(thirdCat(r.t)) || []), r]);
+    return [...m.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+  })();
+  const thirdLine = (k: string, v: Row[]) => {
+    const g = paged.length ? docStats(v) : null;
+    const staff = v.filter((r) => conflictReason(r.match)).length;
+    const asSecond = v.filter((r) => r.decision === 'auto' && (r.match?.second_identifier === 'ssn4' || r.match?.second_identifier === 'address')).length;
+    const recorded = v.filter((r) => r.decision === 'auto' && !!r.match?.third_identifier).length;
+    return `| ${k.replace(/^\w+ /, '')} | ${v.length} | ${g ? g.should_file : '-'} | ${g ? g.filed_right : '-'} | ${g && g.should_file ? pct(g.filed_right, g.should_file) : 'n/a'} | ${g ? pct(g.auto_docs, g.docs) : pct(v.filter((r) => r.decision === 'auto').length, v.length)} | **${g ? g.wrong_pages : v.filter((r) => r.wrong_patient).length}** | ${staff} | ${asSecond} | ${recorded} |`;
+  };
+  const tr = [...thirdReads.values()];
+  const ssnPrinted = tr.filter((x) => x.ssn_printed);
+  const addrPrinted = tr.filter((x) => x.addr_printed);
+  const fullSsnDocs = rows.filter((r) => r.t.printed.ssn_style === 'full').length;
+  const tooLong = tr.filter((x) => x.too_long).length;
+  const thirdSection = `## Third identifier: SSN last 4 and address (${third ? 'checked' : 'NOT checked: --third off'}${searchSsn ? '' : '; search returns no SSN: --search-ssn off'})
+
+| Printed on the document (first patient) | Docs | Should be filed (rule) | ...filed right | Recall | Auto-filed (whole doc) | **Wrong-patient pages** | To staff: SSN-4 / address differs | Auto with SSN-4 / address as 2nd identifier | Auto with an agreeing 3rd identifier recorded |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+${thirdGroups.map(([k, v]) => thirdLine(k, v)).join('\n')}
+
+Reads (whole document, independent of --third): SSN last 4 printed on ${ssnPrinted.length} documents, read right ${ssnPrinted.filter((x) => x.ssn_right).length} (${pct(ssnPrinted.filter((x) => x.ssn_right).length, ssnPrinted.length)}), read wrong ${ssnPrinted.filter((x) => x.ssn_wrong).length}, printed but unreadable ${ssnPrinted.filter((x) => x.ssn_unreadable).length}, missed ${ssnPrinted.filter((x) => !x.ssn_right && !x.ssn_wrong && !x.ssn_unreadable).length}; SSN-4 read where none is printed: ${tr.filter((x) => !x.ssn_printed && x.ssn_read).length}.
+Address printed on ${addrPrinted.length} documents (${addrPrinted.filter((x) => x.addr_labelled).length} labelled), street number + ZIP read right ${addrPrinted.filter((x) => x.addr_right).length} (${pct(addrPrinted.filter((x) => x.addr_right).length, addrPrinted.length)}), read wrong ${addrPrinted.filter((x) => x.addr_wrong).length}, unreadable ${addrPrinted.filter((x) => x.addr_unreadable).length}, missed ${addrPrinted.filter((x) => !x.addr_right && !x.addr_wrong && !x.addr_unreadable).length}; address read where none is printed: ${tr.filter((x) => !x.addr_printed && x.addr_read).length}.
+**Full SSNs:** ${fullSsnDocs} documents print a full (fictional) SSN; extracted SSN values longer than 4 digits: **${tooLong}** (required: 0). Reports and rows carry no SSN digits.
+`;
+
   const fieldMisses = FIELDS.map((f) => {
     const miss = rows.filter((r) => !r.fields[f]);
     return `### ${f}: ${miss.length} wrong\n\n${ex(miss, (r) => `want \`${r.want[f] || '(none)'}\`, got \`${r.got[f] || '(none)'}\``)}`;
@@ -750,6 +842,8 @@ ${ex(paged.filter((r) => docOut.get(r)!.should && !docOut.get(r)!.all_right), (r
     label,
     rule,
     templates: templates || null,
+    third_identifier_checked: third,
+    search_returns_ssn: searchSsn,
     generated_at: new Date().toISOString(),
     set: path.basename(set),
     docs: rows.length,
@@ -791,6 +885,27 @@ ${ex(paged.filter((r) => docOut.get(r)!.should && !docOut.get(r)!.all_right), (r
           never_auto_any_page: neverAuto.length,
         }
       : null,
+    third_identifier: {
+      by_printed: Object.fromEntries(
+        thirdGroups.map(([k, v]) => [
+          k.replace(/^\w+ /, ''),
+          {
+            ...(paged.length ? docStats(v) : { docs: v.length }),
+            staff_third_conflict: v.filter((r) => conflictReason(r.match)).length,
+            auto_third_as_second: v.filter((r) => r.decision === 'auto' && (r.match?.second_identifier === 'ssn4' || r.match?.second_identifier === 'address')).length,
+            auto_third_recorded: v.filter((r) => r.decision === 'auto' && !!r.match?.third_identifier).length,
+          },
+        ])
+      ),
+      ssn_printed: ssnPrinted.length,
+      ssn_read_right: ssnPrinted.filter((x) => x.ssn_right).length,
+      ssn_read_wrong: ssnPrinted.filter((x) => x.ssn_wrong).length,
+      address_printed: addrPrinted.length,
+      address_read_right: addrPrinted.filter((x) => x.addr_right).length,
+      address_read_wrong: addrPrinted.filter((x) => x.addr_wrong).length,
+      full_ssn_docs: fullSsnDocs,
+      extracted_ssn_longer_than_4: tooLong,
+    },
   };
 
   const md = `# Intake accuracy report${label ? ` (${label})` : ''}
@@ -814,6 +929,7 @@ ${
 ${wrong.length ? `### Wrong-patient auto-files\n\n${ex(wrong, (r) => `intended ${r.t.intended_patient}, filed to chart ${r.match?.patient?.chartPatientId} (${r.match?.reason})`)}\n` : ''}
 ${unexpectedAuto.length ? `### Auto-filed to the right patient although "${'auto'}" was not expected\n\n${ex(unexpectedAuto, (r) => `expected ${r.t.expected_decision}; ${r.match?.reason} (document MRN \`${r.want.mrn || '-'}\` read as \`${r.got.mrn || '-'}\`, phone \`${r.want.phone || '-'}\` read as \`${r.got.phone || '-'}\`)`)}\n` : ''}
 ${docsSection}
+${thirdSection}
 ${pagesSection}
 ## Overall (whole-document match)
 
@@ -897,8 +1013,51 @@ ${fieldMisses}
       `documents (rule ${rule}): should be filed ${docAll.should_file}, filed right ${docAll.filed_right} (recall ${pct(docAll.filed_right, docAll.should_file)}), auto-filed ${pct(docAll.auto_docs, docAll.docs)}, partly ${docAll.partly_filed}, WRONG-PATIENT PAGES ${docAll.wrong_pages}, never-auto docs with a page filed ${neverAuto.length}`
     );
   }
+  console.log(`third identifier (${third ? 'checked' : 'off'}${searchSsn ? '' : ', no SSN from search'}): ${thirdGroups.map(([k, v]) => { const g = paged.length ? docStats(v) : null; return `${k.replace(/^\w+ /, '').split(' (')[0]} ${v.length} docs, filed right ${g ? `${g.filed_right}/${g.should_file}` : '-'}, wrong pages ${g ? g.wrong_pages : '-'}, staff for conflict ${v.filter((r) => conflictReason(r.match)).length}`; }).join('; ')}`);
+  console.log(`third-id reads: SSN-4 ${ssnPrinted.filter((x) => x.ssn_right).length}/${ssnPrinted.length} right (${ssnPrinted.filter((x) => x.ssn_wrong).length} wrong), address ${addrPrinted.filter((x) => x.addr_right).length}/${addrPrinted.length} right (${addrPrinted.filter((x) => x.addr_wrong).length} wrong); full SSNs printed ${fullSsnDocs}, extracted SSN values longer than 4 digits ${tooLong}`);
   console.log(`report: ${path.join(set, `report${suffix}.md`)}`);
   if (paged.length ? totals.after.wrong || totals.after.wrong_units : wrong.length) process.exitCode = 1;
+  if (tooLong) process.exitCode = 1;
+}
+
+interface ThirdRead {
+  ssn_printed: boolean;
+  ssn_read: boolean;
+  ssn_right: boolean;
+  ssn_wrong: boolean;
+  ssn_unreadable: boolean;
+  addr_printed: boolean;
+  addr_labelled: boolean;
+  addr_read: boolean;
+  addr_right: boolean;
+  addr_wrong: boolean;
+  addr_unreadable: boolean;
+  /** An extracted SSN value with more than 4 digits (must never happen). */
+  too_long: boolean;
+}
+
+/** SSN-4 and address reads against what is printed for the first patient (street number + ZIP for the address). */
+function thirdScore(t: Truth, x: ExtractedFields): ThirdRead {
+  const pr = t.printed;
+  const ssn = x.ssn_last4 && usable(x.ssn_last4.confidence) ? x.ssn_last4.value : '';
+  const printedAddr = (pr.address || []).join(', ');
+  const want = { number: (printedAddr.match(/^\s*(\d+)/) || [])[1] || '', zip: (printedAddr.match(/(\d{5})\s*$/) || [])[1] || '' };
+  const a = x.address && usable(x.address.confidence) ? x.address.value : undefined;
+  const got = { number: (a?.line1.match(/^\s*(\d+)/) || [])[1] || '', zip: a?.zip || '' };
+  return {
+    ssn_printed: !!pr.ssn4,
+    ssn_read: !!ssn,
+    ssn_right: !!pr.ssn4 && ssn === pr.ssn4,
+    ssn_wrong: !!pr.ssn4 && !!ssn && ssn !== pr.ssn4,
+    ssn_unreadable: !!pr.ssn4 && !ssn && !!x.ssn_unreadable,
+    addr_printed: !!printedAddr,
+    addr_labelled: !!pr.address_labelled,
+    addr_read: !!a,
+    addr_right: !!printedAddr && !!a && got.number === want.number && (!got.zip || got.zip === want.zip),
+    addr_wrong: !!printedAddr && !!a && (got.number !== want.number || (!!got.zip && got.zip !== want.zip)),
+    addr_unreadable: !!printedAddr && !a && !!x.address_unreadable,
+    too_long: !!x.ssn_last4 && String(x.ssn_last4.value).replace(/\D/g, '').length > 4,
+  };
 }
 
 function median(xs: number[]): number {
