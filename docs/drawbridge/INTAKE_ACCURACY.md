@@ -1,6 +1,72 @@
 # Fax / lab intake: accuracy on synthetic documents
 
-Status Oct 11, 2026, branches `drawbridge/fax-intake` and `drawbridge/fax-intake-accuracy` (newest section first). Offline test bench: no Veradigm call, no real patient data, and OCR runs in our own container.
+Status Oct 11, 2026, branches `drawbridge/fax-intake`, `drawbridge/fax-intake-accuracy` and `drawbridge/fax-intake-thirdid` (newest section first). Offline test bench: no Veradigm call, no real patient data, and OCR runs in our own container.
+
+## Third identifier: SSN last 4 and address (Oct 11, branch `drawbridge/fax-intake-thirdid`)
+
+Policy: [Matching](FAX_INTAKE_ADDON.md#matching) (MOATiT standard, Oct 11, 2026). Name + DOB are the two identifiers (`INTAKE_MATCH_RULE=name_dob`); the SSN last 4 or the address is checked whenever the document carries one: agreeing raises confidence (recorded, or the second identifier with the exact name), disagreeing sends the document to staff, also when the MRN agrees.
+
+**What Veradigm® returns** (one read-only `SearchPatients`, PM and EHR, synthetic patient "Quillfeather, Harlan", Oct 11): rows carry `AddressLine1`, `AddressLine2`, `City`, `State`, `ZipCode` and `ssn` (PM also `HideSSN`, `SuppressSSN`). The address fields were filled; `ssn` was blank in both systems (PM: blank with `HideSSN = Y`, `SuppressSSN = Y`; EHR: empty). Whether that is the announced masking or these test patients having no SSN can't be told from the sandbox; either way, live, only the address can be checked today. The bench therefore runs both ways: with the SSN last 4 on file (a patient list) and with `--search-ssn off` (the search returns none, as now).
+
+**Set.** The synthetic generator now gives patients addresses (twins and households share one, 30% a previous one) and an SSN last 4 (10% none on file), and prints them on some layouts: about a third of documents carry an address, a sixth an SSN (masked, `XXX-XX`, "Last 4", or a full fictional SSN with a 900-999 area number). Most are right; some addresses are outdated (the patient moved) or carry another house number, some SSN last 4 are wrong. A new **namesake** case (about 1.5%): someone who is **not** in the roster but has exactly a roster patient's name and DOB, whose document prints their own address or SSN last 4 and no MRN or phone. Seeds 7007 and 8008 (3,000 documents each) were development sets: they found three problems, fixed before the held-out run (below). **Seed 9009, 3,000 documents, was generated after the last change and run once** per configuration.
+
+### Headline (held-out seed 9009, 3,000 documents, 4,402 result pages)
+
+"Check off" is the same code and OCR text with the extracted SSN-4 and address removed before matching (`--third off`), i.e. matching as before this change. Recall is on the documents the rule should file completely; the truth applies the third-identifier rules, so "check off" can't reach it on documents that need the third identifier.
+
+| Rule | Third identifier | Auto-filed (whole doc) | Fileable recall | **Wrong-patient pages** | Never-auto docs with a page filed (right patient) | Namesake docs filed |
+|---|---|---:|---:|---:|---:|---:|
+| `two_identifiers` (unset) | check off | 41.9% | 75.9% (1,181/1,557) | **0** | 69 | 0 |
+| `two_identifiers` | **checked** | 45.2% | **86.8%** (1,351/1,557) | **0** | 4 | 0 |
+| `two_identifiers` | checked, search returns no SSN | 45.0% | 85.0% (1,324/1,557) | **0** | 24 | 0 |
+| `name_dob` (standard) | check off | 50.6% | 81.4% (1,401/1,721) | **37** | 109 | 30 of 45 |
+| `name_dob` | **checked** | 50.0% | **86.9%** (1,495/1,721) | **0** | 4 | **0** |
+| `name_dob` | checked, search returns no SSN | 49.8% | 85.3% (1,468/1,721) | **0** | 24 | **0** |
+
+- **Wrong-patient pages: 0** under both rules with the check, also when the search returns no SSN. Without the check, `name_dob` files 30 of the 45 namesake documents to our patient with the same name and DOB (37 pages): exactly the residual risk the name + DOB rule had, now closed whenever the document carries the other person's SSN last 4 or address.
+- **Never-auto documents filed** (a wrong SSN last 4 or an outdated/wrong address, but the MRN or phone matched the right patient): 69 → 4 (default) and 109 → 4 (`name_dob`). The 4 left are fax copies where OCR could not read the printed SSN or address at all (3 daily-batch pages in 8.5 pt Courier, 1 consult letter); they went to the right patient on their MRN.
+- **More filed right:** with the exact name + DOB, an agreeing SSN-4 or address is a second identifier like the phone: 169 documents filed on it under the default rule. Under `name_dob` the gain is in documents whose MRN-less, phone-less match now rests on more than name + DOB.
+- **What the policy costs:** documents with an outdated or wrong address go to staff even when the MRN agrees (32 outdated + 75 wrong-address documents on this set; 23 and 51 sent to staff for that reason, the rest for other reasons). Only 4 documents whose third identifier was right went to staff on a false disagreement (an OCR misread of a street number or SSN digit).
+- **Search returns no SSN** (Veradigm® today): the address still catches 26 of the 45 namesakes; the other 19 print only an SSN last 4, which can't be checked, so they go to staff under the name + DOB rule too ("the SSN last 4 on the document could not be checked"). Recall drops 1.6 points against having the SSN on file.
+
+**By what the document prints** (seed 9009, `name_dob`, checked):
+
+| Printed (first patient) | Docs | Should be filed | Filed right | To staff: SSN-4 / address differs | Auto with SSN-4 / address as 2nd identifier | Auto with an agreeing 3rd identifier recorded | Wrong-patient pages |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| none | 1,443 | 862 | 765 | 0 | 0 | 0 | 0 |
+| agrees (SSN-4 and/or address) | 1,069 | 715 | 632 | 4 | 169 | 448 | 0 |
+| SSN-4 printed, none on file | 21 | 10 | 10 | 0 | 0 | 0 | 0 |
+| wrong SSN last 4 | 43 | 0 | 0 | 22 | 0 | 0 | 0 |
+| outdated address | 32 | 0 | 0 | 23 | 0 | 0 | 0 |
+| wrong address (house number) | 75 | 0 | 0 | 51 | 0 | 0 | 0 |
+| namesake (not our patient) | 45 | 0 | 0 | 44 | 0 | 0 | **0** |
+| several patients | 272 | 134 | 88 | 0 | 0 | 0 | 0 |
+
+The rows that should never be filed but show fewer staff-for-conflict documents than documents went to staff for an earlier reason (wrong MRN, no match, OCR) or, in 4 cases, were filed on the MRN because OCR lost the third identifier (above).
+
+**Reads** (seed 9009): SSN last 4 printed on 546 documents, read right on 465 (85.2%), read wrong on 3 (each then a false disagreement, so staff), the rest unreadable or missed (fax OCR on 8.5 pt type). Address printed on 1,017, street number and ZIP read right on 924 (90.9%), wrong on 7. **105 documents print a full SSN; extracted values longer than 4 digits: 0**, and none reaches `items.json`, reports or logs (only its last 4 is read; stored text is masked).
+
+By fax quality (`name_dob`, should be filed → filed right, check off → checked): text PDF 328 → 346 of 350, fine 552 → 596 of 616, standard 397 → 429 of 556, poor 124 → 124 of 199.
+
+### Found on the development sets and fixed
+
+1. **A namesake filed under name + DOB because OCR misread the SSN label** (seed 7007, `D02502`): "Soc See #: 946-41-9100" was neither read as an SSN nor flagged, so nothing on the document disagreed. Fixed: OCR-tolerant SSN labels, and an SSN-like number next to the patient that wasn't read as the SSN makes it unreadable (blocks name + DOB alone). The same for a street line next to the patient without a readable ZIP.
+2. **A namesake filed because our patient has no SSN on file** (seed 8008, 2 documents): the document's SSN last 4 had nothing to compare with. Fixed: under name + DOB alone, an SSN-4 or address the record can't confirm sends the document to staff, like an unconfirmed phone. An MRN, phone or the other third identifier still confirms the match.
+3. **A batch page with a second patient whose identifiers were blotted and every ruled separator lost by OCR** (seed 7007, `D02527`, packed daily batch, fine fax): filed whole to the first patient. Not caused by this change: the base branch files it too (checked by running its code on the same OCR text); it is the in-page blind spot named under [Limits](#limits-of-this-test), reached because OCR dropped the "------" rules. Fixed for batch senders: three or more tests repeated under one patient line (outside a cumulative-history section) count as a block of results without a patient line, so the file goes to staff. Cost on seed 7007: at most 1 correctly filed page.
+
+### How to run
+
+```
+docker build -t <synth tag> tools/intake-synth
+docker build -t <ocr tag> deploy/ocr
+docker run --rm --network none -v "$PWD/deploy/local/intake/synth:/out" <synth tag> generate --roster 300 --docs 3000 --seed 9009 --out /out/set-s9009
+docker run --rm --network none -v ".../set-s9009/docs:/in:ro" -v ".../set-s9009/ocr:/out" <ocr tag> batch /in /out --workers=20
+npm run eval:intake -- --set deploy/local/intake/synth/set-s9009 --label nd --rule name_dob
+npm run eval:intake -- --set <set> --label nd-off --rule name_dob --third off        # matcher without the check
+npm run eval:intake -- --set <set> --label nd-nossn --rule name_dob --search-ssn off # search returns no SSN
+```
+
+The images were built under new tags (`drawbridge-intake-synth-thirdid`, `drawbridge-intake-ocr-thirdid`) and run with `--network none`; the live stack's containers were not touched.
 
 ## Accuracy work: more auto-filing, still no wrong patient (Oct 11, branch `drawbridge/fax-intake-accuracy`)
 
@@ -55,7 +121,7 @@ Never-auto documents, none of which had any page auto-filed under either rule: n
 
 **3. Sender templates** (`templates.ts`, `deploy/ocr/templates/`). See [Sender templates](FAX_INTAKE_ADDON.md#sender-templates). On the synthetic daily batch (`sawtooth-rapid-lab.json`): labels OCR mangles are read anyway ("PTt", "PT!", "PATLENT 1D!", "DOB:" with no space after it), "SCHMITT ALMA" without its comma is Schmitt, Alma, only the batch's two date formats are accepted, an MRN that isn't 5-8 digits is unreadable (never matched), and the OCR container always re-reads those lines with upper-case letters, digits and `: , . ' - / # ( )` only. Gain on seed 6006: batch-lab documents filed 234 → 243 of 354 with all changes (67.2% → 68.6% on top of the header pass), batch-lab pages filed 569 → 591 of 890 that should be. Honest reading: **the template is not what limits the batch lab**. Its misses are DOB and name digits/letters lost in 8.5 pt Courier at 98 dpi (OCR), and batches whose pages the rules send to staff (blotted lines, packed pages). The template mechanism is there for Express Lab's real layout, which we haven't seen.
 
-**4. Optional rule `INTAKE_MATCH_RULE=name_dob`** (`match.ts`, off by default). See [Optional rule: name + DOB](FAX_INTAKE_ADDON.md#optional-rule-name--dob). On seed 6006 it would raise the share of documents auto-filed from **43.0% to 52.7%** (+291 one-identifier documents: reference labs, imaging reports, batch-lab pages, hospital labs and small clinics that print no MRN or phone of ours; consult letters gain nothing because their patient line is "RE:"), with **0 wrong-patient pages** and no never-auto document filed. Recall on the documents it should file stays at 87.5%. What it can't see, and the bench doesn't contain: a document about someone who is **not** our patient but has exactly the name and DOB of one of ours, with no MRN on it.
+**4. Optional rule `INTAKE_MATCH_RULE=name_dob`** (`match.ts`, off by default). See [Name + DOB](FAX_INTAKE_ADDON.md#name--dob) (the MOATiT standard since Oct 11). On seed 6006 it would raise the share of documents auto-filed from **43.0% to 52.7%** (+291 one-identifier documents: reference labs, imaging reports, batch-lab pages, hospital labs and small clinics that print no MRN or phone of ours; consult letters gain nothing because their patient line is "RE:"), with **0 wrong-patient pages** and no never-auto document filed. Recall on the documents it should file stays at 87.5%. What it can't see, and the bench doesn't contain: a document about someone who is **not** our patient but has exactly the name and DOB of one of ours, with no MRN on it.
 
 ### OCR options (dev seed 5005, 900 standard and poor faxes re-read; other documents as before)
 

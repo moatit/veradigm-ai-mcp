@@ -29,8 +29,7 @@ Optional later: an S3 bucket with SSE-KMS under MOATiT's AWS BAA (account alread
 1. **Receive.** A webhook (fax) or the folder watcher creates an intake item. Dedupe by `X-Webhook-Id` / file hash.
 2. **Read.** Text from MOATiT Fax OCR, or Drawbridge's own OCR container (`deploy/ocr`, Tesseract 5 on the internal Docker network, with a second, larger reading of the patient lines) for dropped and uploaded files (and for faxes too with `INTAKE_OCR_FAX=local`), **page by page** (form feeds between pages; MOATiT Fax's `--- Page N ---` markers are converted). Extract: patient name, DOB, MRN, sender (lab/office, fax number), document kind, collection/test date, abnormal flags. OCR is treated as untrusted until matched.
    **Pages and batch files.** For a batch sender (`INTAKE_BATCH_SENDERS`, e.g. IKI's Express Lab daily file) or any document that names more than one patient, every page is read on its own and grouped by patient (see [Batch faxes](#batch-faxes-one-document-per-patient)). Several patients, cleanly separated: the file is **split into one document per patient** and each part goes through steps 3-6 on its own. Any doubt: the whole file goes to staff.
-3. **Match.** `unity_search_patients` (PM + EHR, name + DOB). **Auto-file only when exactly one patient matches AND a second identifier agrees** (MRN, or phone, or the ordering provider + recent order). Anything else → `needs_review`.
-   *Optional, off by default, pending the clinic's decision:* `INTAKE_MATCH_RULE=name_dob` also auto-files a document that carries **no MRN or patient phone at all** when the exact full name and DOB match exactly one patient and nobody with a similar name has that DOB or one a digit off (see [Optional rule: name + DOB](#optional-rule-name--dob)).
+3. **Match.** `unity_search_patients` (PM + EHR, name + DOB), under the MOATiT standard in [Matching](#matching): **two identifiers, name + date of birth**, exactly one patient, nobody look-alike, no conflicting MRN or phone; and a **third identifier** (SSN last 4 or address) checked whenever the document carries one. Anything else → `needs_review`.
 4. **Choose the document type.** Map the kind to a `GetDocumentType` entry (e.g. lab → "Labs/Procedures", consult → "Consultant Letter"); unknown → "(ready for indexing)".
 5. **File.** `SaveScanDocument` to the matched patient's chart (EHR patient ID) with the clinical date and a short title ("Outside lab Oct 8 2026 - <sender>"; Veradigm shows ~50 characters and strips "/"). Auto-filing only in `INTAKE_FILING=auto`, for two-identifier matches with a specific document type; for batch senders only after every page passed the page check; never for a duplicate file or for senders in `INTAKE_NO_AUTO_SENDERS` (optional "always staff" list).
 6. **Notify.** `SaveTask` to the ordering provider / results pool: "New outside result for review", abnormal flags called out.
@@ -38,26 +37,46 @@ Optional later: an S3 bucket with SSE-KMS under MOATiT's AWS BAA (account alread
 
 ## Safety rules
 
-- Never file to a chart on one identifier. Never guess between two patients. A document that shows more than one patient (a daily batch) is never filed to one chart: it is split into one document per patient, or it goes to staff. **A page is never filed to a patient it does not name** (outside batch senders, an unlabelled continuation page goes with the patient on the page before it).
+- Never file to a chart on one identifier (name + date of birth count as two under the [MOATiT standard](#matching)). Never file when an MRN, phone, SSN last 4 or address on the document disagrees with the chart. Never guess between two patients. A document that shows more than one patient (a daily batch) is never filed to one chart: it is split into one document per patient, or it goes to staff. **A page is never filed to a patient it does not name** (outside batch senders, an unlabelled continuation page goes with the patient on the page before it).
 - Never alter or summarize clinical content inside the document; the original file is what's filed.
 - Every filing is audited (who/what/when, intake item, patient ID, document ID) and visible on `/app/intake`.
 - Writes are idempotent per intake item (same item never filed twice).
 - The phone agent never files documents; this is a staff-side add-on.
 - `INTAKE_FILING=off` by default. Modes: `off` (read + match + queue only), `review` (staff click to file), `auto` (high-confidence auto-file, everything else review).
 
-## Optional rule: name + DOB
+## Matching
 
-Many documents (consult letters, hospital labs that print their own MRN, small clinics) carry the patient's name and DOB but no MRN or phone of ours. Under the default rule they always go to staff. Whether an exact full name + DOB matching exactly one patient is enough is the clinic's call (question to IKI, Oct 2026). Until it decides, `INTAKE_MATCH_RULE` stays `two_identifiers`.
+**MOATiT standard, decided by the owner Oct 11, 2026.**
 
-With `INTAKE_MATCH_RULE=name_dob`, such a document is auto-matched only when **all** of these hold (`match.ts` `nameDobCheck`):
+- **Two identifiers are name + date of birth.** That is the default: deployments set `INTAKE_MATCH_RULE=name_dob` (both `.env.example` files do). A document is auto-matched on them under the conditions in [Name + DOB](#name--dob) below: exact name and DOB, one patient, no look-alikes, no conflicting MRN or phone. (Unset, the code falls back to the stricter `two_identifiers` rule: name + DOB + an MRN, phone, SSN last 4 or address that agrees.)
+- **A third identifier is checked whenever the document carries one:** the **last 4 of the SSN**, or the **patient's address**.
+  - **Agrees:** confidence goes up. The match records it (`third_identifier: 'ssn4' | 'address'`), the reason says so, and the staff screen shows it ("Third identifier: Address, agrees"). With the exact full name + DOB it may also serve as the second identifier, the way the phone does (`second_identifier: 'ssn4' | 'address'`), behind the same look-alike guard (twins and households share an address).
+  - **Disagrees:** the document goes to staff with the reason ("...but the SSN last 4 on the document is different." / "...but the address on the document is different (an old address, or someone else)."), the same way a conflicting MRN or phone does today, **also when the MRN agrees**. A patient who moved therefore goes to staff until the chart has the new address.
+  - **Can't be checked:** the patient's record has none (the Veradigm® search returns the SSN blank, see below), or it is printed but unreadable (a label whose value OCR lost, an SSN-like number without its label). It might belong to someone else, so it stops a match on name + DOB alone and an SSN-4/address second identifier, the way an unconfirmed phone does; a match confirmed by an MRN, phone or the other third identifier still stands. (Found on the bench: without this, a namesake document printing only an SSN-4 the chart lacks was filed to our patient.)
+- **MRN and phone** work as before: an MRN that agrees (either Veradigm® MRN) files; one that differs, or a different phone, sends the document to staff.
+- Every other safety rule is unchanged: look-alike patients, several patients on a document, the OCR-confidence gate, the page checks of batch files.
+
+**When they agree** (`match.ts` `addressAgreement`, `checkThird`):
+
+| Identifier | Agrees when | Read from the document (`extract.ts`) |
+|---|---|---|
+| SSN last 4 | the 4 digits are equal | `SSN: ***-**-1234`, `XXX-XX-1234`, `SS#`, `Soc Sec #`, `SSN Last 4: 1234`, OCR-garbled masks. A full SSN is read for its last 4 only: never stored, logged or reported, and masked to `***-**-1234` in the stored document text (`redactSsn`). Two different last 4 on one document count as unreadable. |
+| Address | street number + 5-digit ZIP equal, **or** street number + street name equal (St/Street, Ave/Avenue, Rd/Road, N/North ..., case ignored; Apt/Unit/# dropped; a missing suffix or directional on one side is allowed, a different one is not) | `Address:` / `Patient Address:` / `Home Address:` / `ADDR:` (OCR-tolerant), one or two lines; or an unlabelled street line with a street suffix under the patient's name/DOB, backed by city, state and ZIP. PO boxes compare by box number. The sender's letterhead is never read as the patient's address. |
+
+**Patient data.** `SearchPatients` rows (PM and EHR) carry `AddressLine1`, `AddressLine2`, `City`, `State`, `ZipCode` and `ssn`; PM rows also `HideSSN` and `SuppressSSN`. One read-only search on the sandbox (Oct 11, 2026, after Veradigm's announced SSN masking of Oct 10): the address fields are filled in both systems; **`ssn` comes back blank** (PM: a blank value with `HideSSN = Y`, `SuppressSSN = Y`; EHR: empty). `patient.tools.ts` keeps only the last 4 digits of `ssn`, none when `HideSSN` or `SuppressSSN` is set, and merges PM and EHR (address and SSN-4 from whichever has them); the stdio agent server strips `ssnLast4` from what it returns to the agent (the voice summary never had it). So **against live Veradigm® today only the address can be checked**, and a document whose only confirmation would be an SSN last 4 goes to staff; the SSN last 4 can be checked against a patient list (`INTAKE_ROSTER_CSV` optional `SSN` and address columns, `deploy/datacenter/README.md`) or once Veradigm® returns it. Bench numbers: `INTAKE_ACCURACY.md`.
+
+### Name + DOB
+
+With `INTAKE_MATCH_RULE=name_dob`, a document whose name and DOB match is not confirmed by an MRN, phone, SSN-4 or address is auto-matched only when **all** of these hold (`match.ts` `nameDobCheck`):
 
 - the exact normalized full name (first + last) and DOB, both next to an explicit patient label (`Patient:`, `Patient Name:`, `PT:`; not `RE:` or `Name:`), and every labelled read of them on the document identical;
 - exactly one patient has that exact name + DOB;
 - no other patient has a similar name (one edit apart, Soundex sound-alike, a first name that starts the other, first/last swapped, or the same last name: twins) **and** the same DOB, a DOB one character off, or day/month swapped. Two wider searches back this: same DOB with the last name's first two letters, and the last name at any DOB. A failed search is an error (retry), never "nobody similar";
 - no MRN or patient phone on the document (one that agrees already files under the default rule; one that disagrees sends it to staff), no MRN label left unread, and no MRN- or phone-like number near the patient line that wasn't read as one;
+- no SSN last 4 or address on the document that disagrees with the record, none printed but unreadable, and none the record has nothing to compare with;
 - the OCR-confidence gate.
 
-Everything the default rule files, rejects or calls ambiguous is unchanged. Residual risk the bench can't measure: a document about someone who is **not** our patient but has exactly the name and DOB of one of our patients, with no MRN on it. A sender template can mark a sender's "RE:" line as its patient label.
+Everything the stricter `two_identifiers` rule files, rejects or calls ambiguous is unchanged. Residual risk: a document about someone who is **not** our patient but has exactly the name and DOB of one of our patients. When it carries that person's SSN last 4 or address, the third-identifier check sends it to staff (the synthetic bench now has such "namesake" documents); when it carries neither, nothing on the page tells them apart. A sender template can mark a sender's "RE:" line as its patient label.
 
 ## Sender templates
 
@@ -93,7 +112,7 @@ Ground truth comes mainly from watching staff: they keep indexing faxes from Ver
 | Action | System | Use | Status |
 |---|---|---|---|
 | `GetDocumentType` | EHR | List document types | Verified Oct 9 |
-| `SearchPatients` (via `unity_search_patients`) | PM + EHR | Match patient | Verified Oct 9 |
+| `SearchPatients` (via `unity_search_patients`) | PM + EHR | Match patient; address (and SSN last 4 when returned) for the third identifier | Verified Oct 9; SSN and address fields checked Oct 11 (SSN blank) |
 | `GetDocuments` | EHR | Confirm the filed document appears; avoid duplicates; shadow observer: a candidate's chart | Verified Oct 9 (read) |
 | `GetDocumentsByDocumentType` | EHR | Shadow observer: the "(ready for indexing)" queue and category listings (all patients, date window) | Verified read-only on the sandbox |
 | `GetDocumentImage` | EHR | Shadow observer: a queue document as PDF, to tell two similar faxes apart | Verified read-only on the sandbox |
