@@ -155,7 +155,8 @@ class VeradigmUnityMCPServer {
           content: [
             {
               type: "text",
-              text: JSON.stringify(result, null, 2),
+              // The SSN's last 4 is for document matching only, never for the agent.
+              text: JSON.stringify(result, (k, v) => (k === "ssnLast4" ? undefined : v), 2),
             },
           ],
         };

@@ -83,6 +83,7 @@ export const KIND_LABEL: Record<DocumentKind, string> = {
 const SOURCE_LABEL = { moatit_fax: 'MOATiT Fax', folder: 'Drop folder', upload: 'Staff upload' } as const;
 const DECISION_LABEL = { auto: 'Two identifiers match', review: 'Check the patient', none: 'No match', ambiguous: 'More than one patient', error: 'Search failed' } as const;
 const DECISION_PILL = { auto: 'ok', review: 'warn', none: 'warn', ambiguous: 'urgent', error: 'urgent' } as const;
+const ID_LABEL: Record<string, string> = { mrn: 'MRN', phone: 'Phone', ssn4: 'SSN last 4', address: 'Address' };
 const MESSAGES: Record<string, string> = {
   reviewed: 'Marked as reviewed.',
   retry: 'Queued to read again.',
@@ -257,6 +258,8 @@ ${i.reviewed_by ? `<dt>Reviewed</dt><dd>${esc(i.reviewed_by)} · ${esc(fmtTime(i
 <dt>Date of birth</dt><dd>${field(x.dob)}</dd>
 <dt>MRN</dt><dd>${field(x.mrn)}</dd>
 <dt>Patient phone</dt><dd>${field(x.phone, (v) => v.replace(/^(\d{3})(\d{3})(\d{4})$/, '($1) $2-$3'))}</dd>
+${x.ssn_last4 || x.ssn_unreadable ? `<dt>SSN last 4</dt><dd>${x.ssn_last4 ? field(x.ssn_last4, (v) => `***-**-${v}`) : '<span class="muted">printed, could not be read</span>'}</dd>` : ''}
+${x.address || x.address_unreadable ? `<dt>Patient address</dt><dd>${x.address ? field(x.address, (v) => [v.line1, [v.city, [v.state, v.zip].filter(Boolean).join(' ')].filter(Boolean).join(', ')].filter(Boolean).join(', ')) : '<span class="muted">printed, could not be read</span>'}</dd>` : ''}
 <dt>Sender</dt><dd>${field(x.sender)}</dd>
 <dt>Collected / service date</dt><dd>${field(x.collection_date)}</dd>
 <dt>Abnormal flags</dt><dd>${
@@ -272,7 +275,8 @@ ${i.reviewed_by ? `<dt>Reviewed</dt><dd>${esc(i.reviewed_by)} · ${esc(fmtTime(i
 <dt>Result</dt><dd>${pill(DECISION_PILL[m.decision], DECISION_LABEL[m.decision])} ${esc(m.reason)}</dd>
 ${m.patient ? `<dt>Patient</dt><dd>${esc(m.patient.name)} · DOB ${esc(m.patient.dateOfBirth)}${m.patient.mrn ? ` · MRN ${esc(m.patient.mrn)}` : ''}</dd>
 <dt>Veradigm® EHR chart</dt><dd>${m.patient.chartPatientId ? esc(m.patient.chartPatientId) : '<span class="muted">none</span>'}</dd>` : ''}
-${m.second_identifier ? `<dt>Second identifier</dt><dd>${esc(m.second_identifier === 'mrn' ? 'MRN' : 'Phone')}</dd>` : ''}
+${m.second_identifier ? `<dt>Second identifier</dt><dd>${esc(ID_LABEL[m.second_identifier] || m.second_identifier)}</dd>` : ''}
+${m.third_identifier ? `<dt>Third identifier</dt><dd>${esc(ID_LABEL[m.third_identifier] || m.third_identifier)} ${pill('ok', 'agrees')}</dd>` : ''}
 <dt>Checked</dt><dd>${esc(fmtTime(m.checked_at))}</dd></dl></div>`
     : '<div class="card muted">Not matched yet.</div>';
 

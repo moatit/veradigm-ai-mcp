@@ -171,6 +171,32 @@ function unlabelledBlock(text: string): boolean {
   return rows >= 2;
 }
 
+/**
+ * Batch senders: three or more result codes repeated inside one patient's block (between patient lines,
+ * before any history/prior section) mean a second set of results, most likely another patient whose
+ * patient line and ruled separator OCR lost (seen on the bench: a packed batch page, the second
+ * patient's identifiers blotted, every "------" rule dropped). One patient's results don't repeat a
+ * test; a sender's cumulative history comes under its own heading.
+ */
+function repeatedResults(text: string): boolean {
+  let seen = new Map<string, number>();
+  let history = false;
+  for (const l of text.split('\n')) {
+    if (ID_LABEL.test(l) || RULE_LINE.test(l.trim())) {
+      seen = new Map();
+      history = false;
+      continue;
+    }
+    if (/\b(?:history|prior|previous|cumulative|trend)\b/i.test(l)) history = true;
+    if (history || !RESULT_ROW.test(l)) continue;
+    const code = (l.replace(/^\W+/, '').match(/^[A-Za-z][A-Za-z0-9]*/) || [''])[0].toUpperCase();
+    if (code.length < 1) continue;
+    seen.set(code, (seen.get(code) || 0) + 1);
+    if ([...seen.values()].filter((n) => n > 1).length >= 3) return true;
+  }
+  return false;
+}
+
 function resultsAboveFirstId(text: string): number {
   const lines = text.split('\n');
   const first = lines.findIndex((l) => ID_LABEL.test(l));
@@ -203,7 +229,7 @@ function readPage(text: string, n: number, opts: SegmentOptions): PageRead {
     multi: (x.patient_count ?? 0) > 1,
     cover: !full && looksLikeCover(text),
     resultsAbove: full ? resultsAboveFirstId(text) : 0,
-    unlabelled: unlabelledBlock(text),
+    unlabelled: unlabelledBlock(text) || (opts.batch && repeatedResults(text)),
   };
 }
 

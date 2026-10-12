@@ -1,7 +1,7 @@
 import { createHash, randomBytes } from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
-import type { ExtractedFields } from './extract';
+import { redactSsn, type ExtractedFields } from './extract';
 import type { MatchResult } from './match';
 import type { DocTypeSuggestion } from './doctypes';
 import type { GroundTruth, ShadowDecision, StaffObservation } from './shadow';
@@ -18,6 +18,8 @@ import type { GroundTruth, ShadowDecision, StaffObservation } from './shadow';
  *
  * Dedupe: by source_ref (MOATiT Fax X-Webhook-Id, folder file name + hash, upload hash) and by
  * the SHA-256 of the file. Nothing here logs file contents, document text or patient identifiers.
+ * Stored document text has every full SSN masked to its last 4 (extract.ts redactSsn); the original
+ * file is kept as received.
  */
 export type IntakeSource = 'moatit_fax' | 'folder' | 'upload';
 /** 'split': a file with several patients, split into one part (child item) per patient; never filed itself. */
@@ -268,7 +270,7 @@ export class IntakeStore {
     const id = newId();
     const storedAs = `${id}${EXT_BY_MIME[mime] || '.bin'}`;
     this.writeBlob(storedAs, doc.data);
-    if (doc.text && doc.text.trim()) this.writeBlob(`${id}.txt`, doc.text);
+    if (doc.text && doc.text.trim()) this.writeBlob(`${id}.txt`, redactSsn(doc.text));
     const ts = this.now().toISOString();
     const item: IntakeItem = {
       id,
@@ -306,7 +308,7 @@ export class IntakeStore {
     const id = newId();
     const storedAs = `${id}${EXT_BY_MIME[mime] || '.bin'}`;
     this.writeBlob(storedAs, part.data);
-    if (part.text.trim()) this.writeBlob(`${id}.txt`, part.text);
+    if (part.text.trim()) this.writeBlob(`${id}.txt`, redactSsn(part.text));
     const ts = this.now().toISOString();
     const range = part.pages.length > 1 && part.pages[part.pages.length - 1] - part.pages[0] === part.pages.length - 1
       ? `${part.pages[0]}-${part.pages[part.pages.length - 1]}`
@@ -354,7 +356,7 @@ export class IntakeStore {
 
   saveText(id: string, text: string): void {
     this.require(id);
-    this.writeBlob(`${id}.txt`, text);
+    this.writeBlob(`${id}.txt`, redactSsn(text));
     this.update(id, { has_text: !!text.trim() });
   }
 

@@ -87,8 +87,29 @@ export interface ExtractedFields {
    * patient's phone. It may be an MRN or phone that disagrees, so the name_dob rule never files on it.
    */
   unread_identifier?: boolean;
+  /**
+   * Last 4 digits of the patient's SSN ("SSN: ***-**-1234", "xxx-xx-1234", "SSN Last 4: 1234"). A full
+   * SSN printed on the document is never kept anywhere: only its last 4 digits are read.
+   */
+  ssn_last4?: Extracted;
+  /** An SSN label is printed but no last 4 digits could be read (or two different ones were read). */
+  ssn_unreadable?: boolean;
+  /** The patient's address from the patient block (labelled "Address:", or a street line under the patient). */
+  address?: Extracted<PatientAddress>;
+  /** An address label is printed but no street number + street could be read from it. */
+  address_unreadable?: boolean;
   /** Sender template used to read the fields (templates.ts). */
   template?: string;
+}
+
+export interface PatientAddress {
+  /** Street line as read, unit included ("1234 W Juniper St Apt 4"). */
+  line1: string;
+  city?: string;
+  /** Two letters. */
+  state?: string;
+  /** Five digits. */
+  zip?: string;
 }
 
 // ── Dates ────────────────────────────────────────────────────────────────────
@@ -143,7 +164,7 @@ const DOB_LABEL = String.raw`D[.,]?\s?[O0][.,]?\s?[BR8]\b\.?|Date\s+of\s+Birth|B
 
 /** Labels that end a value when several fields share one line ("Name: X   DOB: Y"). */
 const NEXT_LABEL = new RegExp(
-  String.raw`\s{2,}|\t|\s+(?=(?:${DOB_LABEL}|MRN|Med(?:ical)? Rec(?:ord)?|Sex|Gender|Age|Phone|Tel|PT PHONE|Acct|Account|ACC#|Accession|Patient [I1l]D|Chart|Coll\w*|Ordered|Ordering|Received|Reported|Resulted|Specimen|Fax|Provider|Physician|Referring|Location|Room|SSN|Client|Exam)\b)`,
+  String.raw`\s{2,}|\t|\s+(?=(?:${DOB_LABEL}|MRN|Med(?:ical)? Rec(?:ord)?|Sex|Gender|Age|Phone|Tel|PT PHONE|Acct|Account|ACC#|Accession|Patient [I1l]D|Chart|Coll\w*|Ordered|Ordering|Received|Reported|Resulted|Specimen|Fax|Provider|Physician|Referring|Location|Room|SSN|Client|Exam|Addr(?:ess)?)\b)`,
   'i'
 );
 
@@ -352,6 +373,179 @@ function templateReads(lines: string[], t: SenderTemplate, now: Date): TemplateR
   return r;
 }
 
+// ── Third identifiers: SSN last 4 and address ────────────────────────────────
+
+/**
+ * An SSN label as printed and as OCR reads it: SSN, S.S.N., SS#, S5N, Soc Sec #, Social Security No.,
+ * optionally followed by "Last 4" / "(last 4)" / "L4".
+ */
+const SSN_LABEL = String.raw`(?:\bS[.,]?\s?[S5][.,]?\s?N\b\.?|\bSS\s?#|\bS[o0]c(?:ial)?\.?\s*S[e3][ce](?:urity)?\.?(?:\s*(?:No\b\.?|Num(?:ber)?\b|#))?)(?:\s*\(?\s*(?:l\w{2,3}\s*(?:4|four)|L4)\b\s*\)?)?`;
+const SSN_LABEL_RE = new RegExp(SSN_LABEL, 'i');
+/** A masked SSN: "***-**-1234", "XXX-XX-1234", "xxx xx 1234", "###-##-1234" (OCR reads * as + or ., X as x). */
+const SSN_MASKED = /^[*xX#•+.]{3}[\s-]?[*xX#•+.]{2}[\s-]?(\d{4})(?!\d)/;
+/** A mask OCR garbled ("**¥-**-5846", "***-\"*-5200", "eee *KRK_-0185"): 3-16 non-digits, then the last 4. */
+const SSN_MASK_NOISY = /^([^\d\n]{3,16}?)(\d{4})(?!\d)/;
+/** A full SSN: "912-34-5678", "912 34 5678", "912345678". Only its last 4 digits are ever kept. */
+const SSN_FULL = /^(\d{3})[\s-]?(\d{2})[\s-]?(\d{4})(?!\d)/;
+/** Just the last 4 ("SSN Last 4: 1234", "SSN: 1234"). */
+const SSN_LAST4 = /^(\d{4})(?![\d-])/;
+/** Anything that looks like a full SSN with dashes, for redaction anywhere in a text. */
+const SSN_FULL_ANY = /\b(\d{3})-(\d{2})-(\d{4})\b/g;
+
+/**
+ * The last 4 digits at the start of an SSN label's value ('' when there are none): 'high' for a clean
+ * mask, full SSN or last 4, 'medium' for a mask OCR garbled.
+ */
+function ssnLast4Of(value: string): { last4: string; confidence: Confidence } | null {
+  const v = fixDigits(value.replace(LEAD_JUNK, '')).trim();
+  const m = v.match(SSN_MASKED) || v.match(SSN_FULL);
+  if (m) return { last4: m[m.length - 1], confidence: 'high' };
+  const l = v.match(SSN_LAST4);
+  if (l) return { last4: l[1], confidence: 'high' };
+  const n = v.match(SSN_MASK_NOISY);
+  // A garbled mask: mostly mask-like marks, never words ("on file 1234", "see chart 1234").
+  if (n && (n[1].match(/[*xX#•+.\-"'¥§_~]/g) || []).length >= 3 && !/[a-wyz]{3,}/i.test(n[1])) return { last4: n[2], confidence: 'medium' };
+  return null;
+}
+
+/**
+ * The SSN's last 4 from every SSN label on the document. Two different last-4 values (another person's
+ * SSN, or a misread) make it unreadable: nothing to compare with.
+ */
+function extractSsn(lines: string[]): { last4?: Extracted; unreadable: boolean } {
+  const reads: { last4: string; confidence: Confidence }[] = [];
+  let labels = 0;
+  for (const line of lines) {
+    const m = line.match(SSN_LABEL_RE);
+    if (!m || m.index === undefined) continue;
+    labels++;
+    const r = ssnLast4Of(line.slice(m.index + m[0].length));
+    if (r) reads.push(r);
+  }
+  const distinct = [...new Set(reads.map((r) => r.last4))];
+  if (distinct.length === 1) return { last4: { value: distinct[0], confidence: reads.some((r) => r.confidence === 'high') ? 'high' : 'medium' }, unreadable: false };
+  return { unreadable: labels > 0 };
+}
+
+/**
+ * Mask every full SSN in a text, keeping the last 4 ("912-34-5678" → "***-**-5678"): after an SSN label
+ * in any form, and anywhere in the dashed or spaced 3-2-4 form. Used before a document's text is stored.
+ */
+export function redactSsn(text: string): string {
+  const s = String(text ?? '');
+  const labelled = new RegExp(`(${SSN_LABEL})(\\s*[:;!,#.\\-_'"|]*\\s*)(\\d{3})[\\s-]?(\\d{2})[\\s-]?(\\d{4})(?!\\d)`, 'gi');
+  return s.replace(labelled, (_m, label, sep, _a, _b, last) => `${label}${sep}***-**-${last}`).replace(SSN_FULL_ANY, (_m, _a, _b, last) => `***-**-${last}`);
+}
+
+/** US state codes (and DC) for address lines. */
+const STATES = new Set(
+  'AL AK AZ AR CA CO CT DE DC FL GA HI ID IL IN IA KS KY LA ME MD MA MI MN MS MO MT NE NV NH NJ NM NY NC ND OH OK OR PA RI SC SD TN TX UT VT VA WA WV WI WY'.split(' ')
+);
+/** Street suffixes a street line ends with ("St", "Avenue", "Rd.", ...). */
+const STREET_SUFFIX = String.raw`(?:St|Street|Str|Ave|Avenue|Av|Rd|Road|Dr|Drive|Blvd|Boulevard|Ln|Lane|Ct|Court|Pl|Place|Cir|Circle|Ter|Terrace|Pkwy|Parkway|Hwy|Highway|Way|Trl|Trail|Loop|Sq|Square|Xing|Crossing|Row|Run|Pass|Pike|Path)`;
+/** "Address:" as printed and as OCR reads it ("Adatess:", "ARDR:"), at a line start or after a column gap. */
+const ADDRESS_LABEL = /(?:^|\s{2,}|\t|(?<=\d)\s+)\W{0,3}(?:(?:Patient|Pt\.?|Home|Mailing|Street)\s+)?(?:Addr(?:ess)?|Ad\w{1,4}ss|A[DR]{2}R)\b\.?\s*[:;!,]/i;
+/** A ZIP as fax OCR reads it: "$3706", "&3647", "§1302" ($ and & for 8, § and S for 5, O for 0). */
+const fixZip = (s: string) => s.replace(/(?<=\s)[\d$&§SBO]{5}(?=(?:-\d{4})?\s*$)/, (z) => z.replace(/[$&B]/g, '8').replace(/[§S]/g, '5').replace(/O/g, '0'));
+/** Where an address value ends: a column gap, or the next patient label on the same line. */
+const ADDRESS_END = new RegExp(String.raw`\s{2,}|\t|\s+(?=(?:${DOB_LABEL}|MRN|SSN|Sex|Gender|Phone|Tel|Cell|Home\s+Phone|Patient\s+Phone|Acct|ACC#)\b\s*[:;#.!]?)`, 'i');
+const firstSegment = (s: string) => String(s || '').trim().split(/\s{2,}|\t/)[0];
+/** "Boise, ID 83704", "BOISE ID 83704-1234", "Boise, Idaho 83704" is not read (state must be two letters). */
+const CITY_STATE_ZIP = /^\s*([A-Za-z][A-Za-z .'-]*?),?\s+([A-Za-z]{2})\.?\s+(\d{5})(?:-\d{4})?\s*$/;
+const STREET_LINE = new RegExp(String.raw`^\s*(\d{1,6}[A-Za-z]?)\s+([A-Za-z0-9][A-Za-z0-9 .'#-]*?\b${STREET_SUFFIX}\b\.?(?:[ ,]+(?:N|S|E|W|NE|NW|SE|SW)\b\.?)?(?:[ ,]+(?:Apt|Apartment|Unit|Ste|Suite|Bldg|Lot|Spc|Space|Rm|Room|Fl|Floor|#)\.?\s*#?\s*[A-Za-z0-9-]+)?)\s*$`, 'i');
+
+/** Street line + city/state/zip from an address value (and the line after it when the value has no ZIP). */
+function parseAddress(value: string, next: string): PatientAddress | null {
+  const v = fixZip(fixDigits(value.replace(LEAD_JUNK, '')).replace(/\s+/g, ' ').trim());
+  const box =v.match(/^P\.?\s?O\.?\s?Box\s+(\d+)\b,?\s*(.*)$/i);
+  if (box) {
+    const m = fixZip(box[2] || fixDigits(firstSegment(next))).match(CITY_STATE_ZIP);
+    return { line1: `PO Box ${box[1]}`, ...(m && STATES.has(m[2].toUpperCase()) ? { city: m[1].trim(), state: m[2].toUpperCase(), zip: m[3] } : {}) };
+  }
+  const parts = v.split(/\s*,\s*/).filter(Boolean);
+  // "1234 W Juniper St, Apt 4, Boise, ID 83704" / "1234 W Juniper St Boise ID 83704" / "1234 W Juniper St"
+  let line1 = parts[0] || '';
+  let rest = parts.slice(1);
+  if (rest.length && /^(?:Apt|Apartment|Unit|Ste|Suite|Bldg|Lot|Spc|Space|Rm|Room|Fl|Floor|#)\b/i.test(rest[0])) {
+    line1 = `${line1} ${rest[0]}`;
+    rest = rest.slice(1);
+  }
+  let csz = rest.join(', ');
+  if (!rest.length) {
+    // City, state and ZIP on the street line without commas: take them off the end.
+    const tail = line1.match(/^(.*\b(?:St|Street|Ave|Avenue|Rd|Road|Dr|Drive|Blvd|Ln|Lane|Ct|Court|Pl|Way|Cir|Hwy|Pkwy|Loop|Trl)\b\.?(?:\s+(?:Apt|Unit|Ste|Suite|#)\.?\s*#?\s*\w+)?)\s+([A-Za-z][A-Za-z .'-]*\s+[A-Za-z]{2}\s+\d{5}(?:-\d{4})?)$/i);
+    if (tail) [line1, csz] = [tail[1], tail[2]];
+  }
+  if (!/^\d{1,6}[A-Za-z]?\s+[A-Za-z0-9]/.test(line1) || !/[A-Za-z]{2}/.test(line1.replace(/^\d+\S*\s*/, ''))) return null;
+  const out: PatientAddress = { line1: line1.replace(/[.,]+$/, '') };
+  const m = fixZip(csz || fixDigits(firstSegment(next)).replace(/^\W+/, '') || '').match(CITY_STATE_ZIP);
+  if (m && STATES.has(m[2].toUpperCase())) {
+    out.city = m[1].trim();
+    out.state = m[2].toUpperCase();
+    out.zip = m[3];
+  } else {
+    const zip = (csz || '').match(/\b(\d{5})(?:-\d{4})?\s*$/);
+    if (zip) out.zip = zip[1];
+  }
+  return out;
+}
+
+/**
+ * The patient's address: an "Address:" label ('high'), or a street line with a street suffix in the
+ * patient block (the name and DOB lines and the 3 after them, 'medium'), with city, state and ZIP on
+ * the same or the next line. The sender's letterhead is never in the patient block. Two different
+ * addresses read make it unreadable.
+ */
+function extractAddress(lines: string[], block: number[]): { address?: Extracted<PatientAddress>; unreadable: boolean; lines: Map<number, string[]> } {
+  const found: { a: PatientAddress; confidence: Confidence }[] = [];
+  const spans = new Map<number, string[]>();
+  const keep = (i: number, s: string) => spans.set(i, [...(spans.get(i) || []), s]);
+  let labelled = 0;
+  let streetUnread = false;
+  lines.forEach((line, i) => {
+    const m = line.match(ADDRESS_LABEL);
+    if (!m || m.index === undefined) return;
+    labelled++;
+    const value = line.slice(m.index + m[0].length).replace(LEAD_JUNK, '').split(ADDRESS_END)[0].trim();
+    // The city line: the next line, or the one after an empty line OCR left in between.
+    const j = !String(lines[i + 1] || '').trim() && String(lines[i + 2] || '').trim() ? i + 2 : i + 1;
+    const next = lines[j] || '';
+    const a = parseAddress(value, next);
+    if (!a) return;
+    keep(i, value);
+    if (a.zip && !fixZip(fixDigits(value)).includes(a.zip)) keep(j, firstSegment(next));
+    found.push({ a, confidence: 'high' });
+  });
+  if (!found.length) {
+    const rows = new Set<number>();
+    for (const b of block) for (let i = b; i <= b + 3 && i < lines.length; i++) rows.add(i);
+    for (const i of [...rows].sort((a, b) => a - b)) {
+      for (const seg of lines[i].split(/\s{2,}|\t/)) {
+        const s = fixDigits(seg.replace(/^\W{0,3}/, '')).trim();
+        if (!STREET_LINE.test(s.split(/\s*,\s*(?=[A-Za-z][A-Za-z .'-]*,?\s+[A-Za-z]{2}\s+\d{5})/)[0])) continue;
+        const a = parseAddress(s, lines[i + 1] || '');
+        if (!a || !a.zip) {
+          // Unlabelled: only with a city, state and ZIP to back it. A street line next to the patient
+          // without them can't be checked, and might disagree.
+          streetUnread = true;
+          continue;
+        }
+        keep(i, seg);
+        if (!s.includes(a.zip)) keep(i + 1, firstSegment(lines[i + 1] || ''));
+        found.push({ a, confidence: 'medium' });
+      }
+    }
+  }
+  const key = (a: PatientAddress) => a.line1.toLowerCase().replace(/[^a-z0-9]/g, '');
+  const distinct = [...new Set(found.map((f) => key(f.a)))];
+  const zips = new Set(found.map((f) => f.a.zip).filter(Boolean));
+  if (distinct.length === 1 && zips.size <= 1) {
+    const best = found.find((f) => f.a.zip) || found[0];
+    return { address: { value: best.a, confidence: best.confidence }, unreadable: false, lines: spans };
+  }
+  return { unreadable: labelled > 0 || found.length > 0 || streetUnread, lines: spans };
+}
+
 // ── Unread identifiers in the patient block ──────────────────────────────────
 
 const DATE_ANY = /\b\d{1,4}[/.-]\d{1,2}[/.-]\d{2,4}\b/g;
@@ -367,21 +561,30 @@ const NAMED_NUMBER = /\b(?:Acc\w*|Specimen(?:\s*ID)?|Order\w*|Req\w*|Acct|Accoun
  * Dates, times, "ID 83704" style zip codes and numbers after an accession, specimen, order, account
  * or batch label don't count.
  */
-function unreadIdentifier(lines: string[], block: number[], mrns: string[], phone: string): 'mrn' | 'phone' | null {
+function unreadIdentifier(lines: string[], block: number[], mrns: string[], phone: string, skip: Map<number, string[]> = new Map()): { kind: 'mrn' | 'phone' | null; ssn: boolean } {
   const rows = new Set<number>();
   for (const b of block) for (let i = b; i <= b + 3 && i < lines.length; i++) rows.add(i);
   const known = new Set(mrns.map((m) => m.replace(/^0+(?=.)/, '')));
+  let ssnSeen = false;
   for (const i of rows) {
-    const l = fixDigits(lines[i]).replace(NAMED_NUMBER, ' ').replace(DATE_ANY, ' ').replace(TIME_ANY, ' ').replace(STATE_ZIP, ' ');
+    // The patient's address (street number, ZIP) and SSN were read as what they are: not MRNs or phones.
+    let raw = lines[i];
+    for (const s of skip.get(i) || []) raw = raw.replace(s, ' ');
+    const ssn = raw.match(SSN_LABEL_RE);
+    if (ssn && ssn.index !== undefined) raw = raw.slice(0, ssn.index) + ' ' + raw.slice(ssn.index + ssn[0].length).replace(/^\W*(?:[*xX#•+.\d]{3}[\s-]?[*xX#•+.\d]{2}[\s-]?\d{4}|\d{4})/, ' ');
+    // An SSN (full or masked) whose label OCR lost ("Soc See #: 946-41-9100" read before the label
+    // was tolerated): it may be someone else's, so it counts as unread (before dates swallow it).
+    if (/\b\d{3}-\d{2}-\d{4}\b|[*xX#]{3}-[*xX#]{2}-\d{4}\b/.test(fixDigits(raw))) ssnSeen = true;
+    const l = fixDigits(raw).replace(NAMED_NUMBER, ' ').replace(DATE_ANY, ' ').replace(TIME_ANY, ' ').replace(STATE_ZIP, ' ');
     for (const m of l.match(PHONE_ANY) || []) {
       const d = m.replace(/\D/g, '');
-      if (d.length === 10 && d !== phone) return 'phone';
+      if (d.length === 10 && d !== phone) return { kind: 'phone', ssn: ssnSeen };
     }
     for (const m of l.replace(PHONE_ANY, ' ').replace(/(?<=\d) (?=\d)/g, '').match(/(?<![A-Za-z0-9])\d{5,10}(?![A-Za-z0-9])/g) || []) {
-      if (!known.has(m.replace(/^0+(?=.)/, ''))) return 'mrn';
+      if (!known.has(m.replace(/^0+(?=.)/, ''))) return { kind: 'mrn', ssn: ssnSeen };
     }
   }
-  return null;
+  return { kind: null, ssn: ssnSeen };
 }
 
 /**
@@ -703,11 +906,23 @@ export function extractFields(
   const block = [...names.map((n) => n.line), ...dobs.map((d) => d.line)];
   const phone = tr?.phone || extractPhone(lines, block);
   if (phone) out.phone = phone;
-  const unread = unreadIdentifier(lines, block, mrns.map((m) => mrnKey(m)), phone && usableConf(phone.confidence) ? phone.value : '');
-  if (unread) out.unread_identifier = true;
+  // Third identifiers (match.ts): the SSN's last 4 (a full SSN is never kept) and the patient's address.
+  const ssn = extractSsn(lines);
+  if (ssn.last4) out.ssn_last4 = ssn.last4;
+  else if (ssn.unreadable) out.ssn_unreadable = true;
+  const addr = extractAddress(lines, block);
+  if (addr.address) out.address = addr.address;
+  else if (addr.unreadable) out.address_unreadable = true;
+  const unread = unreadIdentifier(lines, block, mrns.map((m) => mrnKey(m)), phone && usableConf(phone.confidence) ? phone.value : '', addr.lines);
+  if (unread.kind || unread.ssn) out.unread_identifier = true;
   // An MRN-like number next to the patient that was not read as an MRN: like an unreadable MRN label,
   // the phone must not stand in for it.
-  if (unread === 'mrn' && !out.mrn) out.mrn_unreadable = true;
+  if (unread.kind === 'mrn' && !out.mrn) out.mrn_unreadable = true;
+  // An SSN-like number next to the patient that was not read as the SSN: it can't be checked.
+  if (unread.ssn) {
+    delete out.ssn_last4;
+    out.ssn_unreadable = true;
+  }
   const sender = extractSender(lines, clean, ownName);
   if (sender) out.sender = sender;
   const collected = extractCollectionDate(lines, now);

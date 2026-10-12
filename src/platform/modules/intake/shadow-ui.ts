@@ -226,7 +226,7 @@ export interface PatientDirectory {
 const fromCandidates = (r: any): RosterPatient[] =>
   toCandidates(r)
     .filter((c) => c.chartPatientId)
-    .map((c) => ({ key: c.chartPatientId, patientId: c.patientId, first: c.firstName, middle: '', last: c.lastName, dob: normDob(c.dateOfBirth) || c.dateOfBirth, mrns: c.mrns || [c.mrn], phones: c.phones }));
+    .map((c) => ({ key: c.chartPatientId, patientId: c.patientId, first: c.firstName, middle: '', last: c.lastName, dob: normDob(c.dateOfBirth) || c.dateOfBirth, mrns: c.mrns || [c.mrn], phones: c.phones, ssnLast4: '', addresses: [] }));
 
 export function patientDirectory(runTool: RunTool | null): PatientDirectory {
   if (rosterPath()) {
