@@ -72,7 +72,7 @@ async function main(): Promise<void> {
   const fax = await import('../platform/modules/intake/moatit-fax');
   const { IntakeStore, intakeStore } = await import('../platform/modules/intake/store');
   const { extractFields, normalizeDate, parseName, classifySubtype } = await import('../platform/modules/intake/extract');
-  const { decideMatch, matchPatient } = await import('../platform/modules/intake/match');
+  const { decideMatch, lookalike, matchPatient } = await import('../platform/modules/intake/match');
   const { DocTypeCache, mapKindToType, parseDocumentTypes, categoryOverrides } = await import('../platform/modules/intake/doctypes');
   const filing = await import('../platform/modules/intake/file');
   const { scanDropFolder } = await import('../platform/modules/intake/folder');
@@ -515,7 +515,19 @@ MRN: 771234                   COLL: 10/08/2026 07:10
   assert.strictEqual(ndFail.decision, 'error', 'name_dob: a failed wider search is an error, never "nobody similar"');
   ndCalls.length = 0;
   assert.strictEqual((await matchPatient(lab, ndRun([]), () => NOW)).second_identifier, 'mrn');
-  assert.strictEqual(ndCalls.length, 1, 'name_dob: no extra search when the MRN decides');
+  assert.strictEqual(ndCalls.length, 3, 'every automatic decision looks wider first, also when the MRN decides');
+  // Twin guard on the default rule: an MRN match is not enough when a look-alike shares the DOB
+  delete process.env.INTAKE_MATCH_RULE;
+  const twinRun = ndRun([cand(), { ...twin, phone: { home: '2085550142' } }]);
+  const exactMrn = await matchPatient(lab, twinRun, () => NOW);
+  assert.strictEqual(exactMrn.decision, 'auto', `exact chart name + MRN is decisive even with a twin: got ${exactMrn.decision}`);
+  const garbled = { ...lab, patient_name: { ...lab.patient_name!, value: { ...lab.patient_name!.value, first: lab.patient_name!.value.first.slice(0, 3) } } };
+  const twinMrn = await matchPatient(garbled, ndRun([{ ...cand(), firstName: lab.patient_name!.value.first.slice(0, 3) + 'x' }, { ...twin, firstName: lab.patient_name!.value.first.slice(0, 3) + 'y', phone: { home: '2085550142' } }]), () => NOW);
+  assert.notStrictEqual(twinMrn.decision, 'auto', `misread first name + MRN + a look-alike twin never auto-files: got ${twinMrn.decision} (${twinMrn.reason})`);
+  assert.strictEqual((await matchPatient(lab, ndRun([cand()]), () => NOW)).decision, 'auto', 'default rule still files on MRN when nobody looks alike');
+  assert.strictEqual((await matchPatient(lab, ndRun(new Error('down')), () => NOW)).decision, 'error', 'a failed wider search blocks auto (error, never silently auto)');
+  assert.strictEqual(lookalike(lab, cand(), [cand(), twin]) !== '', true, 'lookalike() sees the twin');
+  process.env.INTAKE_MATCH_RULE = 'name_dob';
   // The same rule on the local patient list (INTAKE_ROSTER_CSV): the wider searches go to the list too.
   const noVeradigm = async () => {
     throw new Error('Veradigm must not be called when the patient list is set');

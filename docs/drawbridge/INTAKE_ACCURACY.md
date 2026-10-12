@@ -326,6 +326,12 @@ Same-name patients (two "Harlan Quillfeather", different DOB) each got their own
 
 Sandbox documents 22615-22623, tasks 21722-21730. Running total of owner-approved sandbox writes: 11 synthetic patients, 23 documents, 22 tasks.
 
+## Twin guard (Oct 11, 2026)
+
+The accuracy work found one document (`D01104`, seed 6006) that the default rule could auto-file against "never choose between two patients": twins, a misread first name that matched only one twin, and that twin's MRN. Every automatic decision now looks wider first (same DOB, last name starting with the same two letters; this last name at any DOB). A look-alike patient (similar name, same DOB or one digit off) sends the document to staff when the match rests on a phone (households share phones) or on an MRN with a name that only loosely agrees. An exact chart name + MRN stays decisive, since twins have different MRNs.
+
+Held-out seed 6006, improved OCR + templates: fileable recall 87.7% → 87.0% (two identifiers), 86.9% with the name + DOB rule; auto-filed 42.7% / 52.4%; **wrong-patient pages 0** for both rules.
+
 ## How to run
 
 ```

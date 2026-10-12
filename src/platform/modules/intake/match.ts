@@ -217,6 +217,28 @@ function nameDobCheck(extracted: ExtractedFields, c: Candidate, candidates: Cand
   return { ok: true };
 }
 
+/**
+ * Look-alike guard for every automatic decision: another patient with a similar name and the same DOB
+ * (or a DOB one character off) means the document could be theirs (twins, a misread first name).
+ * Needs the wider candidate list from matchPatient; with only the exact search it finds nothing.
+ */
+export function lookalike(extracted: ExtractedFields, c: Candidate, candidates: Candidate[]): string {
+  const first = norm(extracted.patient_name!.value.first);
+  const last = norm(extracted.patient_name!.value.last);
+  const birth = normDob(extracted.dob!.value);
+  const same = (p: Candidate) => (!!p.chartPatientId && p.chartPatientId === c.chartPatientId) || (!!p.patientId && p.patientId === c.patientId);
+  const close = candidates.find((p) => {
+    if (same(p)) return false;
+    const d = normDob(p.dateOfBirth);
+    if (d !== birth && !nearDob(d, birth)) return false;
+    return similarNames(first, last, p.firstName, p.lastName) || similarNames(norm(c.firstName), norm(c.lastName), p.firstName, p.lastName);
+  });
+  if (!close) return '';
+  return normDob(close.dateOfBirth) === birth
+    ? 'Another patient with a similar name has the same date of birth (for example twins). Check which patient this is.'
+    : 'Another patient with a similar name has a date of birth one digit away. Check which patient this is.';
+}
+
 /** The decision table. Pure: same inputs, same answer. */
 export function decideMatch(extracted: ExtractedFields, candidates: Candidate[], opts: DecideOptions = {}): Omit<MatchResult, 'checked_at'> {
   const name = extracted.patient_name;
@@ -248,6 +270,11 @@ export function decideMatch(extracted: ExtractedFields, candidates: Candidate[],
   const known = (c.mrns && c.mrns.length ? c.mrns : [c.mrn]).map(normMrn).filter(Boolean);
   if (docMrn && known.length) {
     if (known.includes(docMrn)) {
+      // Twins have different MRNs, so an exact chart name + MRN is decisive. A name that only loosely
+      // agrees (a misread first name) plus a look-alike patient is not.
+      const exactName = norm(c.firstName) === first && norm(c.lastName) === last;
+      const twin = exactName ? '' : lookalike(extracted, c, candidates);
+      if (twin) return review(twin);
       return { decision: 'auto', reason: 'Name, date of birth and MRN match one patient.', candidates: 1, patient, second_identifier: 'mrn' };
     }
     return review('Name and date of birth match one patient, but the MRN on the document is different.');
@@ -264,6 +291,9 @@ export function decideMatch(extracted: ExtractedFields, candidates: Candidate[],
     const exactName = norm(c.firstName) === first && norm(c.lastName) === last;
     const phoneHit = c.phones.some((p) => digits10(p) === docPhone);
     if (exactName && phoneHit) {
+      // A household often shares a phone (twins, a parent and child), so a look-alike always blocks it.
+      const twin = lookalike(extracted, c, candidates);
+      if (twin) return review(twin);
       return { decision: 'auto', reason: 'Full name, date of birth and phone match one patient.', candidates: 1, patient, second_identifier: 'phone' };
     }
     if (!phoneHit) return review('Name and date of birth match one patient, but the phone on the document is different.');
@@ -346,10 +376,10 @@ export async function matchPatient(
   const rule = matchRule();
   const candidates = toCandidates(r);
   const decided = decideMatch(extracted, candidates, { rule });
-  if (decided.rule !== 'name_dob') return { ...decided, checked_at: stamp() };
-  // name_dob only: look wider before filing on name + DOB: same-DOB patients whose last name starts with
-  // the same two letters (twins, Beasley / Beesly), and patients with this last name at any DOB (the
-  // same name with a DOB one digit off).
+  if (decided.decision !== 'auto' && decided.rule !== 'name_dob') return { ...decided, checked_at: stamp() };
+  // Before any automatic decision, look wider: same-DOB patients whose last name starts with the same two
+  // letters (twins, a misread first name, Beasley / Beesly), and patients with this last name at any DOB
+  // (the same name with a DOB one digit off). decideMatch then sends look-alikes to staff.
   let wider = candidates;
   const wideSearches: Record<string, string>[] = [{ lastName: name.value.last.trim().slice(0, 2), dateOfBirth: dob.value }, { lastName: name.value.last.trim() }];
   for (const args of wideSearches) {
