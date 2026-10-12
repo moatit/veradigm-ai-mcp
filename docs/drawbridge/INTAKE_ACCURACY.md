@@ -205,7 +205,7 @@ On seed 2002, 124 of the 954 documents that should auto-file did not. 117 of the
 
 ## Next steps
 
-1. **Real de-identified IKI samples.** Collect 200–500 real faxes (labs, imaging, consults, Express Lab batches) on MOATiT infrastructure under the BAA, label them with the same truth schema, and run `eval:intake` on them. This is the go/no-go input for `INTAKE_FILING=review` and later `auto`.
+1. **Real IKI documents, in shadow mode.** Built on `drawbridge/fax-intake-shadow`: intake runs on MOATiT's IKI fax server under the BAA, files nothing, and takes its ground truth from where staff index each fax in Veradigm® EHR (staff filing observer) or from the Confirm panel. `npm run eval:shadow` gives the same safety number (wrong-patient auto-files) on real traffic. This is the go/no-go input for `INTAKE_FILING=review` and later `auto`. See `deploy/datacenter/README.md`.
 2. **Sender policy before `auto` mode.** Done for batch reports: `INTAKE_BATCH_SENDERS` (name or sending fax number) with the per-page check and split; `INTAKE_NO_AUTO_SENDERS` stays as an "always staff" list. Next: run the page bench on de-identified real Express Lab files, and a staff "split by hand" screen for the files that go to review.
 3. **Better OCR for small type on standard faxes.** Fine-tune Tesseract on fax fonts, or evaluate a stronger local engine (docTR, PaddleOCR) in the same container slot. Measure each with this harness; the target is standard-fax auto recall at or above 85%.
 4. **A fine-tuned or local model for field extraction** (a layout-aware model, or the local LLM already in the MOATiT Fax stack with constrained JSON output). `decideMatch` and the safety rules stay as the gate.

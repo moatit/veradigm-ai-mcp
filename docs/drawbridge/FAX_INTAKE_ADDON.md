@@ -82,13 +82,21 @@ The whole file goes to staff, with the reason on the item, when a page shows two
 
 **Bench** (`INTAKE_ACCURACY.md`, 1,000 fresh synthetic documents with per-page truth): wrong-patient pages filed **0** after (1 without the stopgap, the blind spot reproduced); batch-lab pages auto-filed rose from 2 of 485 to about 180, all to the right patient.
 
+## Shadow mode: real documents, nothing filed
+
+Before any filing on IKI's production, intake runs in **shadow mode** (`INTAKE_MODE=shadow`, branch `drawbridge/fax-intake-shadow`) on MOATiT's dedicated IKI fax server in MOATiT's data center: MOATiT Fax's `fax.received` webhook, the Express Lab folder and the archive of old faxes (both read-only). Every document is read, split and matched; what Drawbridge **would** have done is recorded, and nothing is filed (`file.ts` refuses whatever `INTAKE_FILING` says; only Veradigm® read actions can run). Patients come from the live read-only search once IKI's activation exists, or from an exported patient list for an early start (`INTAKE_ROSTER_CSV`).
+
+Ground truth comes mainly from watching staff: they keep indexing faxes from Veradigm® EHR's "(ready for indexing)" queue as today, and the **staff filing observer** tracks each queue document by DocumentID until it shows the patient and category staff chose. A Confirm panel on each document is the fallback. `npm run eval:shadow` reports the auto-file rate, precision, wrong-patient auto-files, category accuracy, agreement with staff, reasons for staff review and the busiest sender layouts, in counts only. Deployment, outbound limits (only the Veradigm® Unity host), backups and deletion: `deploy/datacenter/README.md`.
+
 ## Veradigm actions
 
 | Action | System | Use | Status |
 |---|---|---|---|
 | `GetDocumentType` | EHR | List document types | Verified Oct 9 |
 | `SearchPatients` (via `unity_search_patients`) | PM + EHR | Match patient | Verified Oct 9 |
-| `GetDocuments` | EHR | Confirm the filed document appears; avoid duplicates | Verified Oct 9 (read) |
+| `GetDocuments` | EHR | Confirm the filed document appears; avoid duplicates; shadow observer: a candidate's chart | Verified Oct 9 (read) |
+| `GetDocumentsByDocumentType` | EHR | Shadow observer: the "(ready for indexing)" queue and category listings (all patients, date window) | Verified read-only on the sandbox |
+| `GetDocumentImage` | EHR | Shadow observer: a queue document as PDF, to tell two similar faxes apart | Verified read-only on the sandbox |
 | `SaveScanDocument` | EHR | File the document (single call; 1 MB chunks over 2 MB) | **Verified Oct 11** (synthetic patients; incl. a 2.6 MB chunked file) |
 | `SaveTask` ("Review", WorkObjectID = document ID) | EHR | Provider review task linked to the document | **Verified Oct 11** |
 | `SavePatient` | PM | Create the synthetic test patients (test setup only; the EHR chart appears at once) | Verified Oct 11 |

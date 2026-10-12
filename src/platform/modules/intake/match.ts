@@ -1,6 +1,7 @@
 import type { PlatformDeps } from '../../registry';
 import { isToolFailure, toToolFailure } from '../../../unity/utils/tool-result';
 import type { Confidence, ExtractedFields } from './extract';
+import { patientSearch, rosterPath } from './roster';
 
 /**
  * Match a received document to one patient.
@@ -308,8 +309,9 @@ export function toCandidates(result: any): Candidate[] {
 }
 
 /**
- * Search Veradigm (PM + EHR) by name + DOB through the agent tool path, then decide.
- * A failed or malformed search returns decision 'error' with the error code.
+ * Search Veradigm (PM + EHR) by name + DOB through the agent tool path, then decide. With
+ * INTAKE_ROSTER_CSV set, the local patient list is searched instead (roster.ts). A failed or
+ * malformed search returns decision 'error' with the error code, never "no match".
  */
 export async function matchPatient(
   extracted: ExtractedFields,
@@ -323,15 +325,17 @@ export async function matchPatient(
     return { ...decideMatch(extracted, []), checked_at: stamp() };
   }
   const tool = 'unity_search_patients';
+  // INTAKE_ROSTER_CSV: the local patient list answers instead (same shape, same failures; roster.ts).
+  const local = !!rosterPath();
   let r: any;
   try {
-    r = await runTool(tool, { lastName: name.value.last, firstName: name.value.first, dateOfBirth: dob.value });
+    r = await patientSearch(runTool)(tool, { lastName: name.value.last, firstName: name.value.first, dateOfBirth: dob.value });
   } catch (e) {
     r = toToolFailure(e, tool);
   }
   const fail = (code: string): MatchResult => ({
     decision: 'error',
-    reason: 'The patient search in Veradigm® failed. Try again.',
+    reason: local ? 'The search in the local patient list failed. Check the list file, then try again.' : 'The patient search in Veradigm® failed. Try again.',
     candidates: 0,
     error_code: code,
     checked_at: stamp(),
@@ -349,7 +353,8 @@ export async function matchPatient(
   let wider = candidates;
   const wideSearches: Record<string, string>[] = [{ lastName: name.value.last.trim().slice(0, 2), dateOfBirth: dob.value }, { lastName: name.value.last.trim() }];
   for (const args of wideSearches) {
-    const wide = await neighbours(args, runTool);
+    // Same search path as above: the local patient list when INTAKE_ROSTER_CSV is set.
+    const wide = await neighbours(args, patientSearch(runTool));
     if (!wide.ok) return fail(wide.error_code);
     wider = mergeCandidates(wider, wide.candidates);
   }

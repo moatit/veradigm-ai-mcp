@@ -516,8 +516,27 @@ MRN: 771234                   COLL: 10/08/2026 07:10
   ndCalls.length = 0;
   assert.strictEqual((await matchPatient(lab, ndRun([]), () => NOW)).second_identifier, 'mrn');
   assert.strictEqual(ndCalls.length, 1, 'name_dob: no extra search when the MRN decides');
+  // The same rule on the local patient list (INTAKE_ROSTER_CSV): the wider searches go to the list too.
+  const noVeradigm = async () => {
+    throw new Error('Veradigm must not be called when the patient list is set');
+  };
+  const rosterCsv = (rows: string[]) => {
+    const f = path.join(TMP, `roster-nd-${rows.length}-${Math.random().toString(36).slice(2)}.csv`);
+    fs.writeFileSync(f, ['Last Name,First Name,DOB,MRN,Chart ID,Home Phone', 'Testpatient,Marigold,03/14/1961,482913,7001,(208) 555-0142', ...rows].join('\n'));
+    return f;
+  };
+  process.env.INTAKE_ROSTER_CSV = rosterCsv([]);
+  const rAuto = await matchPatient(nd, noVeradigm, () => NOW);
+  assert.deepStrictEqual([rAuto.decision, rAuto.rule], ['auto', 'name_dob'], 'patient list: name_dob files when nobody is similar');
+  process.env.INTAKE_ROSTER_CSV = rosterCsv(['Testpatient,Mark,03/14/1961,555001,7002,']);
+  assert.strictEqual((await matchPatient(nd, noVeradigm, () => NOW)).decision, 'review', 'patient list: a twin (first search could not see him) blocks name_dob');
+  process.env.INTAKE_ROSTER_CSV = rosterCsv(['Testpatient,Marigold,03/14/1967,555002,7003,']);
+  assert.strictEqual((await matchPatient(nd, noVeradigm, () => NOW)).decision, 'review', 'patient list: the same name with a DOB one digit off blocks name_dob');
+  process.env.INTAKE_ROSTER_CSV = path.join(TMP, 'no-such-roster.csv');
+  assert.strictEqual((await matchPatient(nd, noVeradigm, () => NOW)).decision, 'error', 'patient list unreadable: error');
+  delete process.env.INTAKE_ROSTER_CSV;
   delete process.env.INTAKE_MATCH_RULE;
-  ok(`optional name_dob rule (${ndTable.length} cases; off by default; never changes a default decision; wider searches for similar names at the same or a near DOB, failures are errors)`);
+  ok(`optional name_dob rule (${ndTable.length} cases; off by default; never changes a default decision; wider searches for similar names at the same or a near DOB, on Veradigm or the local patient list, failures are errors)`);
 
   // 7. Document types
   const typeRows = [
@@ -852,14 +871,14 @@ MRN: 771234                   COLL: 10/08/2026 07:10
   assert.strictEqual(r2.task_error, 'TASK_REJECTED');
   assert.strictEqual(pStore.get(big.id)!.status, 'filed', 'a failed task does not undo the filing');
 
-  // Send to indexing: "(ready for indexing)", status Ready for Indexing, no task
+  // Send to indexing: "(ready for indexing)", status Approved (SaveScanDocument refuses 1), no task
   const idx = pStore.addDocument({ source: 'upload', source_ref: '', name: 'idx.pdf', mime: 'application/pdf', data: Buffer.from('%PDF-1.4\nidx'), by: 't' }).item;
   pStore.update(idx.id, { status: 'needs_review', match: { ...ready.match!, decision: 'review' } });
   unityMode = 'ok';
   fcalls.length = 0;
   await filing.sendToIndexing(pStore.get(idx.id)!, 't', deps);
   assert.deepStrictEqual(fcalls.map((c) => [c.action, c.params.Parameter1]), [['SaveScanDocument', '(ready for indexing)']]);
-  assert.ok(/<docstatus>1<\/docstatus>/.test(fcalls[0].params.Parameter3));
+  assert.ok(/<docstatus>4<\/docstatus>/.test(fcalls[0].params.Parameter3), 'Veradigm refuses status 1; indexing uses Approved');
   assert.strictEqual(pStore.get(idx.id)!.status, 'sent_to_indexing');
 
   // Auto-filing gate (pipeline step 5)

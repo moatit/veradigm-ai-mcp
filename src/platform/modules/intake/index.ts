@@ -1,12 +1,28 @@
 import express, { Request, Response, Router } from 'express';
 import { PlatformModule } from '../../registry';
 import { APP_BASE, esc, fmtTime, page } from '../../shell';
-import { DocTypeCache, type DocType } from './doctypes';
+import { CsvDocTypes, DocTypeCache, FallbackDocTypes, type DocType, type DocTypeSource } from './doctypes';
 import type { Confidence, DocumentKind, Extracted } from './extract';
 import { fileToChart, filingStatus, IntakeFilingError, sendToIndexing, setFilingDeps, type FilingResult } from './file';
-import { startFolderWatcher } from './folder';
+import { startFolderWatcher, startWatchFolders } from './folder';
 import { MoatitFaxClient, setFaxRecordedHandler } from './moatit-fax';
+import { observeEnabled, StaffFilingObserver } from './observe';
+import { OcrClient } from './ocr';
 import { IntakePipeline } from './pipeline';
+import { rosterPath } from './roster';
+import { readOnlyRunTool, readOnlyUnity, shadowMode } from './shadow';
+import {
+  byIdOf,
+  confirmFilter,
+  filterByConfirmation,
+  mountConfirmRoutes,
+  SHADOW_MESSAGES,
+  shadowCell,
+  shadowPanel,
+  shadowQueueHeader,
+  type ConfirmFilter,
+  type ShadowPanelContext,
+} from './shadow-ui';
 import { ALLOWED_MIME, INTAKE_STATUSES, IntakeItem, IntakeStatus, intakeStore, sniffMime } from './store';
 
 export { mountFaxWebhook } from './moatit-fax';
@@ -18,6 +34,8 @@ export { mountFaxWebhook } from './moatit-fax';
  *  - Staff screens: /app/intake (queue), /app/intake/item/:id (fields, match, document type, actions)
  * Design and safety rules: docs/drawbridge/FAX_INTAKE_ADDON.md. Filing to the chart (file.ts) is off
  * unless INTAKE_FILING and INTAKE_SAVE_DOCUMENT_FORMAT_CONFIRMED allow it.
+ * Shadow mode (INTAKE_MODE=shadow, shadow.ts): no filing and read-only Veradigm® (patient search and
+ * categories only; optional local roster and category list), a Confirm panel for ground truth (shadow-ui.ts).
  */
 const LIST_MAX = 300;
 /**
@@ -77,6 +95,7 @@ const MESSAGES: Record<string, string> = {
   category: 'Category changed.',
   category_unknown: 'That category is not available in Veradigm® EHR.',
   filed_task_failed: 'Filed to the patient chart, but the review task could not be sent. Tell the provider.',
+  ...SHADOW_MESSAGES,
 };
 
 const pill = (cls: string, text: string) => `<span class="pill ${cls}">${esc(text)}</span>`;
@@ -92,8 +111,14 @@ function patientCell(i: IntakeItem): string {
   return '<span class="muted">—</span>';
 }
 
-export function queuePage(items: IntakeItem[], counts: Record<IntakeStatus, number>, status: IntakeStatus | ''): string {
+export function queuePage(
+  items: IntakeItem[],
+  counts: Record<IntakeStatus, number>,
+  status: IntakeStatus | '',
+  shadow?: { all: IntakeItem[]; filter: ConfirmFilter | '' }
+): string {
   const filing = filingStatus();
+  const byId = shadow ? byIdOf(shadow.all) : null;
   const tabs = `<form class="card row" method="get" action="${APP_BASE}/intake" style="align-items:flex-end">
 <label style="min-width:200px">Status<select name="status"><option value="">All (${esc(Object.values(counts).reduce((a, b) => a + b, 0))})</option>${INTAKE_STATUSES.map(
     (s) => `<option value="${s}"${s === status ? ' selected' : ''}>${esc(STATUS_LABEL[s])} (${esc(counts[s] || 0)})</option>`
@@ -105,7 +130,7 @@ export function queuePage(items: IntakeItem[], counts: Record<IntakeStatus, numb
 <div class="card"><div class="muted">Failed</div><div class="stat"${counts.failed ? ' style="color:var(--urgent)"' : ''}>${esc(counts.failed)}</div></div></div>`;
 
   const list = items.length
-    ? `<div class="card scroll"><table><thead><tr><th>Received</th><th>Source</th><th>Document</th><th>Patient</th><th>Status</th></tr></thead><tbody>${items
+    ? `<div class="card scroll"><table><thead><tr><th>Received</th><th>Source</th><th>Document</th><th>Patient</th><th>Status</th>${byId ? '<th>Shadow</th>' : ''}</tr></thead><tbody>${items
         .slice(0, LIST_MAX)
         .map((i) => {
           const kind = i.extracted ? KIND_LABEL[i.extracted.kind.value] : '';
@@ -114,7 +139,7 @@ export function queuePage(items: IntakeItem[], counts: Record<IntakeStatus, numb
 <td>${esc(kind) || '<span class="muted">—</span>'} ${flags}${i.extracted?.sender ? `<div class="muted" style="font-size:12px">${esc(i.extracted.sender.value)}</div>` : ''}${
             i.part ? `<div class="muted" style="font-size:12px">Part ${esc(i.part.index + 1)} of ${esc(i.part.of)} (${esc(pageList(i.part.pages))})</div>` : ''
           }</td>
-<td>${patientCell(i)}</td><td>${pill(STATUS_PILL[i.status], STATUS_LABEL[i.status])}</td></tr>`;
+<td>${patientCell(i)}</td><td>${pill(STATUS_PILL[i.status], STATUS_LABEL[i.status])}</td>${byId ? `<td>${shadowCell(i, byId)}</td>` : ''}</tr>`;
         })
         .join('')}</tbody></table>${items.length > LIST_MAX ? `<p class="muted" style="font-size:13px">Showing the latest ${LIST_MAX} of ${esc(items.length)}.</p>` : ''}</div>`
     : '<div class="card empty muted">No documents here.</div>';
@@ -145,7 +170,7 @@ document.getElementById('intake-upload').addEventListener('submit', function (ev
   return `<div class="row" style="margin:4px 0 8px"><h2 style="margin:0">Document intake</h2><span style="flex:1"></span>${
     filing.enabled ? pill('ok', `Filing: ${filing.mode}`) : pill('', 'Filing off')
   }</div>
-${summary}${tabs}${list}${upload}
+${shadow ? shadowQueueHeader(shadow.all, shadow.filter, status) : ''}${summary}${tabs}${list}${upload}
 <p class="muted" style="font-size:13px">Faxes from MOATiT Fax, files from the drop folder and uploads are read, matched to a patient by name and date of birth plus a second identifier, and queued here. ${esc(
     filing.enabled ? '' : filing.reason
   )}</p>`;
@@ -194,7 +219,13 @@ function familyCard(i: IntakeItem, fam: ItemFamily): string {
   return '';
 }
 
-export function itemPage(i: IntakeItem, message = '', typeOptions: { id: string; name: string }[] = [], family: ItemFamily = {}): string {
+export function itemPage(
+  i: IntakeItem,
+  message = '',
+  typeOptions: { id: string; name: string }[] = [],
+  family: ItemFamily = {},
+  shadowCtx?: ShadowPanelContext
+): string {
   const filing = filingStatus();
   const x = i.extracted;
   const m = i.match;
@@ -215,7 +246,7 @@ export function itemPage(i: IntakeItem, message = '', typeOptions: { id: string;
 ${i.ocr ? `<dt>Text</dt><dd>${i.ocr.used_text_layer ? 'From the PDF text layer' : `Read by Drawbridge OCR · ${esc(i.ocr.pages)} page(s) · confidence ${esc(Math.round(i.ocr.mean_confidence))}`}</dd>` : ''}
 ${i.duplicate_of ? `<dt>Duplicate</dt><dd>Same file as <a href="${APP_BASE}/intake/item/${encodeURIComponent(i.duplicate_of)}">an earlier document</a></dd>` : ''}
 ${i.note ? `<dt>Note</dt><dd>${esc(i.note)}</dd>` : ''}
-${i.filed ? `<dt>In the chart</dt><dd>Document ${esc(i.filed.document_id)} · ${esc(i.filed.document_type)} · ${esc(i.filed.doc_status === '4' ? 'approved' : i.filed.doc_status === '1' ? 'ready for indexing' : 'waiting for approval in Veradigm® EHR')}${i.filed.task_id ? ` · review task ${esc(i.filed.task_id)}` : ''} · ${esc(fmtTime(i.filed.at))} by ${esc(i.filed.by)}</dd>` : ''}
+${i.filed ? `<dt>In the chart</dt><dd>Document ${esc(i.filed.document_id)} · ${esc(i.filed.document_type)} · ${esc(i.filed.doc_status === '4' ? 'approved' : i.filed.document_type === '(ready for indexing)' ? 'ready for indexing' : 'waiting for approval in Veradigm® EHR')}${i.filed.task_id ? ` · review task ${esc(i.filed.task_id)}` : ''} · ${esc(fmtTime(i.filed.at))} by ${esc(i.filed.by)}</dd>` : ''}
 ${i.reviewed_by ? `<dt>Reviewed</dt><dd>${esc(i.reviewed_by)} · ${esc(fmtTime(i.reviewed_at || ''))}</dd>` : ''}
 </dl></div>`;
 
@@ -250,7 +281,7 @@ ${m.second_identifier ? `<dt>Second identifier</dt><dd>${esc(m.second_identifier
       ? `<strong>${esc(i.document_type.name)}</strong> <span class="muted" style="font-size:13px">${esc(TYPE_REASON[i.document_type.reason] || '')}</span>`
       : '<span class="muted">No suggestion yet.</span>'
   }${
-    typeOptions.length && !done
+    typeOptions.length && !done && !shadowCtx
       ? `<form method="post" action="${APP_BASE}/intake/item/${encodeURIComponent(i.id)}/category" class="row" style="margin-top:10px">
 <select name="type_id" aria-label="Chart category">${typeOptions
           .map((t) => `<option value="${esc(t.id)}"${t.id === i.document_type?.id ? ' selected' : ''}>${esc(t.name)}</option>`)
@@ -273,11 +304,15 @@ ${i.status === 'failed' ? actionButton(i.id, 'retry', 'Try again', true, '', tru
 
   return `<p><a href="${APP_BASE}/intake">← Document intake</a></p>${flash}
 <h2 style="margin-top:4px">Document</h2>${doc}${familyCard(i, family)}<h2>Read from the document</h2>${fields}<h2>Patient match</h2>${match}
-<h2>Chart category</h2>${type}<h2>Actions</h2>${actions}<h2>History</h2>${history}`;
+<h2>Chart category</h2>${type}${shadowCtx ? shadowPanel(i, shadowCtx) : ''}<h2>Actions</h2>${actions}<h2>History</h2>${history}`;
 }
 
 let stopWatcher: (() => void) | null = null;
-let docTypeCache: DocTypeCache | null = null;
+let stopWatchDirs: (() => void) | null = null;
+let stopObserver: (() => void) | null = null;
+let docTypeCache: DocTypeSource | null = null;
+/** Shadow mode: the read-only patient search for the Confirm panel. */
+let shadowRunTool: ((name: string, args: any) => Promise<any>) | null = null;
 
 export const intakeModule: PlatformModule = {
   name: 'intake',
@@ -294,19 +329,20 @@ export const intakeModule: PlatformModule = {
       try {
         const status = INTAKE_STATUSES.includes(req.query.status as IntakeStatus) ? (req.query.status as IntakeStatus) : '';
         const store = intakeStore();
+        if (shadowMode()) {
+          const all = store.list();
+          const filter = confirmFilter(req.query.confirm);
+          const items = filterByConfirmation(status ? all.filter((i) => i.status === status) : all, filter, byIdOf(all));
+          show(req, res, 'Document intake', queuePage(items, store.counts(), status, { all, filter }));
+          return;
+        }
         show(req, res, 'Document intake', queuePage(store.list(status || undefined), store.counts(), status));
       } catch {
         show(req, res, 'Document intake', '<div class="card">Document intake is unavailable right now.</div>', 500);
       }
     });
 
-    router.get('/item/:id', (req, res) => {
-      const item = intakeStore().get(req.params.id);
-      if (!item) {
-        show(req, res, 'Document intake', '<div class="card">Document not found.</div>', 404);
-        return;
-      }
-      const m = typeof req.query.m === 'string' && MESSAGES[req.query.m] ? req.query.m : '';
+    const renderItem = (req: Request, res: Response, item: IntakeItem, m: string, search?: ShadowPanelContext['search']) => {
       const options = async () => {
         try {
           return docTypeCache ? (await docTypeCache.list()).filter((t) => !t.archived).sort((a, b) => a.name.localeCompare(b.name)) : [];
@@ -319,8 +355,22 @@ export const intakeModule: PlatformModule = {
         parent: item.parent_id ? store.get(item.parent_id) : undefined,
         children: item.split ? item.split.children.map((c) => store.get(c)).filter((c): c is IntakeItem => !!c) : undefined,
       };
-      options().then((types) => show(req, res, 'Document', itemPage(item, m, types, family)));
+      options().then((types) => {
+        const ctx: ShadowPanelContext | undefined = shadowMode() ? { byId: (id) => store.get(id), categories: types.map((t) => t.name), search } : undefined;
+        show(req, res, 'Document', itemPage(item, m, types, family, ctx));
+      });
+    };
+
+    router.get('/item/:id', (req, res) => {
+      const item = intakeStore().get(req.params.id);
+      if (!item) {
+        show(req, res, 'Document intake', '<div class="card">Document not found.</div>', 404);
+        return;
+      }
+      renderItem(req, res, item, typeof req.query.m === 'string' && MESSAGES[req.query.m] ? req.query.m : '');
     });
+
+    mountConfirmRoutes(router, { store: intakeStore, categories: () => docTypeCache, runTool: () => shadowRunTool, render: (req, res, item, search) => renderItem(req, res, item, '', search) });
 
     router.post('/item/:id/category', express.urlencoded({ extended: false, limit: '4kb' }), async (req, res) => {
       const store = intakeStore();
@@ -331,6 +381,10 @@ export const intakeModule: PlatformModule = {
       }
       if (item.status === 'filed' || item.status === 'sent_to_indexing' || item.status === 'split') {
         back(res, item.id, item.status === 'split' ? 'NOT_READY' : 'ALREADY_FILED');
+        return;
+      }
+      if (shadowMode()) {
+        back(res, item.id, 'category_shadow'); // the suggestion is what is measured; staff answer in the Confirm panel
         return;
       }
       let types: DocType[] = [];
@@ -434,12 +488,28 @@ export const intakeModule: PlatformModule = {
   },
 
   start(deps) {
-    docTypeCache = new DocTypeCache(deps.unity);
-    intakePipeline.setDeps(deps, docTypeCache);
-    setFilingDeps({ unity: deps.unity, store: intakeStore });
+    if (shadowMode()) {
+      // Read-only Veradigm: the patient search and GetDocumentType only (INTAKE_CATEGORIES_CSV as the
+      // fallback, INTAKE_ROSTER_CSV instead of the search when set). No filing deps: nothing can be filed.
+      const csv = CsvDocTypes.fromEnv();
+      docTypeCache = new FallbackDocTypes(new DocTypeCache(readOnlyUnity(deps.unity) as any), csv);
+      shadowRunTool = readOnlyRunTool(deps.runTool);
+      intakePipeline.setDeps({ runTool: shadowRunTool }, docTypeCache);
+      setFilingDeps(null);
+      // Ground truth from staff's own filing in Veradigm EHR, read back later (observe.ts).
+      stopObserver?.();
+      stopObserver = observeEnabled() ? new StaffFilingObserver({ store: intakeStore, unity: deps.unity, runTool: deps.runTool, ocr: () => OcrClient.fromEnv() }).start() : null;
+      console.log(`[Intake] shadow mode: nothing is filed; patients from ${rosterPath() ? 'the local patient list' : 'the Veradigm search (read-only)'}; staff filing observer ${stopObserver ? 'on' : 'off'}`);
+    } else {
+      docTypeCache = new DocTypeCache(deps.unity);
+      intakePipeline.setDeps(deps, docTypeCache);
+      setFilingDeps({ unity: deps.unity, store: intakeStore });
+    }
     setFaxRecordedHandler((id) => intakePipeline.enqueue(id));
     stopWatcher?.();
     stopWatcher = startFolderWatcher(intakeStore, (id) => intakePipeline.enqueue(id));
+    stopWatchDirs?.();
+    stopWatchDirs = startWatchFolders(intakeStore, (id) => intakePipeline.enqueue(id));
     const resumed = intakePipeline.resumePending();
     if (resumed) console.log(`[Intake] resumed ${resumed} unfinished document(s)`);
     const days = Number(process.env.INTAKE_RETENTION_DAYS);
