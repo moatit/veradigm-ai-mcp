@@ -734,6 +734,7 @@ ${neverRows.length} documents; any page auto-filed: ${neverAuto.length} (to the 
 |---|---:|---:|
 ${[...new Set(neverRows.map((r) => neverWhy(r.t)))].sort().map((k) => { const v = neverRows.filter((r) => neverWhy(r.t) === k); return `| ${k} | ${v.length} | ${v.filter((r) => docOut.get(r)!.any_filed).length} |`; }).join('\n')}
 
+${neverAuto.length ? `Never-auto documents with a page auto-filed:\n\n${ex(neverAuto, (r) => `${neverWhy(r.t)}; ${r.filing!.info.seg}; ${r.match?.reason || r.decision}`)}\n` : ''}
 ### Should be filed, not filed (first ${examples})
 
 ${ex(paged.filter((r) => docOut.get(r)!.should && !docOut.get(r)!.all_right), (r) => `${docOut.get(r)!.cls}; ${r.filing!.info.seg}: ${r.filing!.info.seg === 'review' ? r.filing!.info.reason : r.match?.reason || r.decision}`)}

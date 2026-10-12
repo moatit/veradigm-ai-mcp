@@ -1,8 +1,91 @@
 # Fax / lab intake: accuracy on synthetic documents
 
-Status Oct 11, 2026, branch `drawbridge/fax-intake`. Offline test bench: no Veradigm call, no real patient data, and OCR runs in our own container.
+Status Oct 11, 2026, branches `drawbridge/fax-intake` and `drawbridge/fax-intake-accuracy` (newest section first). Offline test bench: no Veradigm call, no real patient data, and OCR runs in our own container.
 
-## Summary
+## Accuracy work: more auto-filing, still no wrong patient (Oct 11, branch `drawbridge/fax-intake-accuracy`)
+
+Goal: file more of the documents that belong to a known patient, with **0 wrong-patient filings**. Four changes, each measured on its own: a second OCR reading of the patient lines, field consensus and checks, sender templates, and an optional name + DOB rule (off by default; the clinic decides). **Everything here is synthetic** (invented patients, our own six layouts, our own fax degradation). Real faxes will read worse; the safety checks carry over better than the recall numbers.
+
+### Headline (held-out seed 6006, 3,000 fresh documents)
+
+Every document goes through what the pipeline does: page check and split, match, OCR gate. A document counts as filed when **every result page** went to a chart. "Fileable" documents are the ones the default rule should file completely (every page belongs to a roster patient whose name, DOB and a second identifier are printed and readable to a person). The seed was generated after the OCR variants were chosen on seed 5005; nothing was changed after looking at it.
+
+| Step (seed 6006) | Rule | Fileable-doc recall | Auto-filed (all docs) | **Wrong-patient pages** | Never-auto docs filed | Recall: text PDF | fine | standard | poor | Batch lab |
+|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| **Before** (base-branch code and OCR) | default | 84.3% (1,241/1,472) | 41.4% | **0** | 1 | 99.4% | 96.6% | 72.8% | 54.4% | 66.1% |
+| + field consensus and checks | default | 84.4% | 41.5% | **0** | 1 | 99.4% | 96.6% | 73.0% | 55.0% | 66.1% |
+| + sender template (extraction side) | default | 84.7% | 41.6% | **0** | 1 | 99.4% | 96.6% | 73.6% | 55.6% | 67.2% |
+| field consensus + OCR header pass | default | 87.4% | 42.9% | **0** | 0 | 99.4% | 98.6% | 77.4% | 61.4% | 67.2% |
+| **After** (all changes, default rule) | default | **87.7%** (1,291/1,472) | 43.0% | **0** | **0** | 99.4% | 98.6% | 78.0% | 62.6% | 68.6% |
+| After, with `INTAKE_MATCH_RULE=name_dob` | name_dob | 87.5% (1,582/1,808) | **52.7%** | **0** | **0** | 99.5% | 98.5% | 78.1% | 61.2% | 67.5% |
+
+- **Wrong-patient pages filed: 0** in every row, also page by page (4,264 result pages; no document or split part filed with another patient's page). Under name_dob as well.
+- The one "never-auto" document filed before is `D01104`: twins Daniel and Danielle Underwood share name prefix and DOB, so by the rules the document is ambiguous; OCR read "DANIELM", which matches only Daniel, and the MRN agreed. Right patient (the MRN's owner), but the "never choose between two patients" rule was side-stepped by an OCR artefact. After the changes the same fax reads "Patlent Name:", so it goes to staff; that is luck too. The quirk sits in the default decision table (`decideMatch`, unchanged here): a garbled first name that agrees with only one twin, plus that twin's MRN, files to that twin. Worth a look by whoever owns the default rule.
+- The whole-document match alone (no page check) would still auto-decide 5 multi-patient batches (6 before); the pipeline never files those because the page check runs first (above). Unchanged by this work.
+
+**By fax quality** (seed 6006, default rule, documents):
+
+| Quality | Docs | Should be filed | Filed right, before → after | Recall, before → after | Auto-filed (all docs), before → after |
+|---|---:|---:|---:|---:|---:|
+| text-layer PDF | 616 | 315 | 313 → 313 | 99.4% → 99.4% | 50.8% → 50.8% |
+| fine fax | 1,037 | 494 | 477 → 487 | 96.6% → 98.6% | 46.0% → 47.0% |
+| standard fax | 983 | 492 | 358 → 384 | 72.8% → 78.0% | 36.4% → 39.1% |
+| poor fax | 364 | 171 | 93 → 107 | 54.4% → 62.6% | 25.8% → 29.4% |
+
+**By layout** (should be filed: before → after filed right): reference lab 361 → 369 of 387; hospital lab 175 → 195 of 212; small clinic 197 → 201 of 219; imaging 185 → 192 of 202; consult letter 89 → 91 of 98; daily batch 234 → 243 of 354.
+
+**Field accuracy** (seed 6006, before → after): name 92.4% → 93.4%, DOB 93.7% → 96.0%, MRN 93.9% → 96.7%, phone 94.8% → 95.5%. Expected-auto documents not auto-matched (whole-document decision): 181 → 135 of 1,358; name or DOB unreadable 147 → 111, an MRN or phone digit misread 28 → 19.
+
+### Fileable and never-auto documents (seed 6006)
+
+| Class (from the truth only) | Docs | Default rule: filed right | name_dob: filed right | Wrong-patient pages |
+|---|---:|---:|---:|---:|
+| **Fileable** (name + DOB + a second identifier, readable to a person) | 1,472 | 1,291 (87.7%) | 1,291 (87.7%) | 0 |
+| **One identifier only** (exact name + DOB, nobody similar, no MRN or phone printed) | 336 | 0 (by design) | 291 (86.6%) | 0 |
+| **Should never auto-file** | 1,179 | 0 | 0 | 0 |
+| Mixed (a batch where some patients are fileable and others not) | 13 | 0 whole (some parts) | 0 whole | 0 |
+
+Never-auto documents, none of which had any page auto-filed under either rule: not in the roster 210, wrong MRN 152, the sender's own MRN (conflicts with ours) 132, true duplicates (same name and DOB) 115, DOB typo 41, outdated phone 47, several roster patients match (twins, prefix names) 47, blotted identifiers 4, multi-patient batches that can't be split safely 84, and 347 one-identifier documents that don't qualify even for name_dob (a weak "RE:"/"Name:" label, a similar name nearby, a first name that only starts the chart name).
+
+### What each change did
+
+**1. OCR header pass** (`deploy/ocr`). The lines that carry patient identifiers are read a second time when a word on them is weak (under 93) or a field fails a check (a DOB label without a valid calendar date after it, a label with nothing after it), and always for a sender template's header lines. Each line is cut out on its own (its words' boxes plus a white border, so neighbouring lines never leak in), enlarged 2x and read four ways: plain and smoothed with Debian's tessdata_fast model, at its own scale and enlarged with tessdata_best. The first pass and the four readings are merged by a confidence-weighted character vote (ROVER). A merge far from the first pass, or one that loses a valid date, is dropped. This is the change that moved the numbers: fileable recall +3.0 points on seed 6006, standard faxes +4.4, poor +6.4.
+
+**2. Field consensus and checks** (`extract.ts`). The name, DOB and MRN read most often across the document's pages win (ties keep the first read, as before), and `reads_agree` records any disagreement. "Bernard P, Colfax" (a middle initial's period read as a comma) is First M. Last. An MRN- or phone-like number in the patient block that wasn't read as the MRN or patient phone sets `unread_identifier`; an MRN-like one also stops the phone from standing in for the MRN (like an unreadable MRN label). That last check is a **tightening of the default rule**: on seed 5005 it cost 4 documents of recall and removed the only document filed although the rules said review (a wrong MRN OCR missed, then the phone matched). Alone, the consensus changed little on synthetic sets: most misreads are on documents where the patient appears once.
+
+**3. Sender templates** (`templates.ts`, `deploy/ocr/templates/`). See [Sender templates](FAX_INTAKE_ADDON.md#sender-templates). On the synthetic daily batch (`sawtooth-rapid-lab.json`): labels OCR mangles are read anyway ("PTt", "PT!", "PATLENT 1D!", "DOB:" with no space after it), "SCHMITT ALMA" without its comma is Schmitt, Alma, only the batch's two date formats are accepted, an MRN that isn't 5-8 digits is unreadable (never matched), and the OCR container always re-reads those lines with upper-case letters, digits and `: , . ' - / # ( )` only. Gain on seed 6006: batch-lab documents filed 234 → 243 of 354 with all changes (67.2% → 68.6% on top of the header pass), batch-lab pages filed 569 → 591 of 890 that should be. Honest reading: **the template is not what limits the batch lab**. Its misses are DOB and name digits/letters lost in 8.5 pt Courier at 98 dpi (OCR), and batches whose pages the rules send to staff (blotted lines, packed pages). The template mechanism is there for Express Lab's real layout, which we haven't seen.
+
+**4. Optional rule `INTAKE_MATCH_RULE=name_dob`** (`match.ts`, off by default). See [Optional rule: name + DOB](FAX_INTAKE_ADDON.md#optional-rule-name--dob). On seed 6006 it would raise the share of documents auto-filed from **43.0% to 52.7%** (+291 one-identifier documents: reference labs, imaging reports, batch-lab pages, hospital labs and small clinics that print no MRN or phone of ours; consult letters gain nothing because their patient line is "RE:"), with **0 wrong-patient pages** and no never-auto document filed. Recall on the documents it should file stays at 87.5%. What it can't see, and the bench doesn't contain: a document about someone who is **not** our patient but has exactly the name and DOB of one of ours, with no MRN on it.
+
+### OCR options (dev seed 5005, 900 standard and poor faxes re-read; other documents as before)
+
+All with the final extraction code, default rule, no template. Seconds per page are measured with ~20 jobs sharing 32 cores (other workloads were running); single-worker numbers below.
+
+| OCR | Fileable-doc recall | Standard | Poor | Wrong-patient pages | s/page (contended) | Image |
+|---|---:|---:|---:|---:|---:|---:|
+| Tesseract 5.5, tessdata_fast, first pass only (**before**) | 86.7% | 74.6% | 65.7% | 0 | 1.3 | 667 MB |
+| tessdata_best, first pass only | 84.1% | 67.5% | 64.2% | 0 | 3.1 | 695 MB |
+| fast + header pass v1 (crops with neighbours, plain vote) | 85.0% | 75.8% | 50.0% | 0 | n/m | |
+| best + header pass v1 | 82.5% | 67.2% | 53.0% | 0 | n/m | |
+| fast + header pass: plain, smooth, orig@best | 88.7% | 80.0% | 67.9% | 0 | 5.3 | 695 MB |
+| **fast + header pass: plain, smooth, orig@best, plain@best (chosen)** | **89.4%** | **81.5%** | **69.4%** | 0 | 6.5 | **695 MB** |
+| fast + header pass: 6 variants | 88.9% | 80.9% | 67.2% | 0 | 8.0 | 695 MB |
+| docTR (OnnxTR, onnxruntime CPU; same preprocessing) | 87.5% | 76.1% | 67.9% | 0 | 9.9 | 1.56 GB |
+| PaddleOCR 3 (PP-OCRv5 det + English rec, paddlepaddle CPU; same preprocessing) | 86.2% | 72.8% | 66.4% | 0 | 22.4 | 2.48 GB |
+
+- **Chosen: Tesseract with the header pass**, in the same container, CPU only, no network at run time (the best model is baked in, pinned by checksum). Image 695 MB (667 MB before).
+- **Speed, one worker, same 40 standard/poor faxes (73 pages): 1.27 → 2.98 s/page** (median document 1.5 → 4.0 s). Fine faxes trigger fewer re-reads; text-layer PDFs cost nothing extra. At `OCR_CONCURRENCY=2` that is about 40 standard-fax pages a minute, ample for a clinic's daily fax volume.
+- tessdata_best is worse than tessdata_fast as a first pass on these faxes, but it errs differently, which is what makes it useful as a voter.
+- The first header-pass version cropped lines with a margin that caught the neighbouring line ("Patient: Rirthdatar EVELYN 01/12/1Q7A INGRAM") and voted without weights; it hurt poor faxes badly. Tight crops, confidence weights and the sanity checks fixed that.
+- Neural engines: docTR was better than Tesseract's first pass but worse than the header pass, slower than it (9.9 vs 6.5 s/page under the same load) and more than twice the image. PaddleOCR was no better than the first pass, 3.4x slower than the header pass and 3.6x the image. CPU time per page on one core: docTR 7.2 s, PaddleOCR 18.9 s (its detector already capped at 1,600 px; uncapped about 70 s), against 2.98 s for the chosen option. Their models are not tuned for 98 dpi fax type either.
+
+### What still fails
+
+On seed 6006, 135 of 1,358 expected-auto documents (whole-document decision) were not auto-matched; 128 are standard or poor faxes. 111 have a name or DOB that OCR could not read (staff pick the patient), 19 an MRN or phone digit misread (staff confirm the candidate shown). Poor faxes still file 62.6% of the time, standard 78.0%, fine 98.6%, text PDFs 99.4%. **"Near 100%" holds only for emailed PDFs and fine faxes.** For standard and poor faxes the remaining lever is the image itself (MOATiT Fax receiving in fine mode where the sender supports it) or an OCR model trained on fax type; every miss goes to staff, never to a guess.
+
+Production note: faxes that arrive through MOATiT Fax come with MOATiT Fax's own OCR text, and the pipeline uses that text. The header pass and templates only help those faxes with `INTAKE_OCR_FAX=local` (opt-in): the fax image is then read by our container too and its text is used (MOATiT Fax's text is kept if our read fails).
+
+## Summary (scaffold → first accuracy pass, seed 2002)
 
 | | Before | After |
 |---|---:|---:|
@@ -179,7 +262,7 @@ The safety rules are unchanged: never auto-file on one identifier, never choose 
 - Lab units and "batch/test results" mark lab results. `*H`, `(C)`, `(A)` and a lone `A` column count as abnormal flags.
 - OCR settings were chosen on 452 standard and poor faxes: PSM 6, despeckle, blur and 300 dpi gave the best decisions. PSM 3/4, no blur and 400 dpi were slightly worse. Without despeckle, mean confidence fell under the gate on most noisy faxes.
 
-## What still fails, and why
+## What still failed after the first pass (seed 2002; see the newest section for today)
 
 On seed 2002, 124 of the 954 documents that should auto-file did not. 117 of them are standard or poor faxes:
 
@@ -207,7 +290,7 @@ On seed 2002, 124 of the 954 documents that should auto-file did not. 117 of the
 
 1. **Real IKI documents, in shadow mode.** Built on `drawbridge/fax-intake-shadow`: intake runs on MOATiT's IKI fax server under the BAA, files nothing, and takes its ground truth from where staff index each fax in Veradigm® EHR (staff filing observer) or from the Confirm panel. `npm run eval:shadow` gives the same safety number (wrong-patient auto-files) on real traffic. This is the go/no-go input for `INTAKE_FILING=review` and later `auto`. See `deploy/datacenter/README.md`.
 2. **Sender policy before `auto` mode.** Done for batch reports: `INTAKE_BATCH_SENDERS` (name or sending fax number) with the per-page check and split; `INTAKE_NO_AUTO_SENDERS` stays as an "always staff" list. Next: run the page bench on de-identified real Express Lab files, and a staff "split by hand" screen for the files that go to review.
-3. **Better OCR for small type on standard faxes.** Fine-tune Tesseract on fax fonts, or evaluate a stronger local engine (docTR, PaddleOCR) in the same container slot. Measure each with this harness; the target is standard-fax auto recall at or above 85%.
+3. **Better OCR for small type on standard faxes.** Done in part (Oct 11): the header pass lifted standard faxes from 72.8% to 78.0% and poor from 54.4% to 62.6% (seed 6006); docTR and PaddleOCR were measured and not chosen. Next: fine-tune Tesseract on fax fonts with real de-identified headers, and `INTAKE_OCR_FAX=local` in shadow mode to compare with MOATiT Fax's OCR on real traffic. The target stays standard-fax recall at or above 85%.
 4. **A fine-tuned or local model for field extraction** (a layout-aware model, or the local LLM already in the MOATiT Fax stack with constrained JSON output). `decideMatch` and the safety rules stay as the gate.
 5. **Ask labs to echo IKI's MRN** (client patient ID) on orders. MRN is the strongest second identifier, and consults and hospital labs often lack it.
 6. **Review-mode helpers.** When name or DOB can't be read but the MRN can, search by MRN and *suggest* the candidate to staff. This would be review only, never auto.
@@ -253,7 +336,11 @@ docker run --rm --network none -v "$PWD:/out" drawbridge-intake-synth generate -
 docker run --rm --network none -v "$PWD/set-s2002/docs:/in:ro" -v "$PWD/set-s2002/ocr:/out" drawbridge-intake-ocr batch /in /out --workers=8
 cd ../../../..
 npm run eval:intake -- --set deploy/local/intake/synth/set-s2002 --label after   # exit 1 if any wrong-patient auto-file
+npm run eval:intake -- --set <set> --label nd --rule name_dob                     # the optional rule
+npm run eval:intake -- --set <set> --label tpl --templates deploy/ocr/templates  # with sender templates
 ```
+
+The accuracy-work numbers: `--seed 5005 --docs 2000` (dev; OCR options were chosen on it) and `--seed 6006 --docs 3000` (held out), `--roster 300`. "Before" ran the base branch's `extract.ts`, `match.ts`, `pages.ts` and `ocr.ts` under the same harness on the same OCR text. OCR images were built under their own tags and run with `--network none`; the header-pass variants are environment knobs of the one image (`deploy/ocr/README.md`).
 
 On Windows Git Bash, prefix the `docker run` commands with `MSYS_NO_PATHCONV=1` and use `$(pwd -W)`.
 

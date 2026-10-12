@@ -26,7 +26,12 @@ Reading order:
        -> deskew (projection profile, +/-4 degrees)
        -> tesseract --oem 1 --psm $OCR_PSM -c preserve_interword_spaces=1
      Interword spaces are kept so "Patient Name: X      DOB: Y" stays two fields for the extractor.
-  mean_confidence is the mean Tesseract word confidence (0-100) over all pages.
+  3. Header pass (OCR_HEADER_PASS, on): the lines that carry patient identifiers are read again when
+     a word on them is weak or a field fails a check (no valid date after a DOB label, a label with
+     nothing after it), and always for a sender template's header lines: each line is cut out on its
+     own, enlarged 2x, read in several variants (OCR_HEADER_VARIANTS, incl. the tessdata_best model)
+     and the readings are merged by a confidence-weighted character vote. Only those lines change.
+  mean_confidence is the mean Tesseract word confidence (0-100) over all pages (first pass).
 
 Per page: `text` joins the pages with a form feed, as before. `page_texts` has one entry per page of
 the file ('' for a blank page) and `page_confidences` the mean word confidence of each page (100 for
@@ -60,8 +65,10 @@ PSM = os.environ.get("OCR_PSM", "6")
 TARGET_DPI = int(os.environ.get("OCR_TARGET_DPI", "300"))
 BLUR = os.environ.get("OCR_BLUR", "1") != "0"
 DESPECKLE = os.environ.get("OCR_DESPECKLE", "1") != "0"
-# Tesseract model: "best" (tessdata_best LSTM, baked into the image) or "fast" (Debian's tessdata_fast).
-MODEL = os.environ.get("OCR_MODEL", "best")
+# First-pass model: "fast" (Debian's tessdata_fast) or "best" (tessdata_best LSTM, baked into the image).
+# On the bench, best alone read standard faxes worse than fast but made different mistakes, so the
+# default reads pages with fast and lets best vote in the header pass.
+MODEL = os.environ.get("OCR_MODEL", "fast")
 MODEL_LANG = {"best": "eng_best", "fast": "eng"}
 # Second pass over the patient header lines (see header_pass): "1" on, "0" off.
 HEADER_PASS = os.environ.get("OCR_HEADER_PASS", "1") != "0"
@@ -70,7 +77,9 @@ HEADER_PASS = os.environ.get("OCR_HEADER_PASS", "1") != "0"
 HEADER_MIN_CONF = float(os.environ.get("OCR_HEADER_MIN_CONF", "93"))
 # Upscale of the second pass, relative to the 300 dpi first pass.
 HEADER_SCALE = float(os.environ.get("OCR_HEADER_SCALE", "2.0"))
-HEADER_VARIANTS = [v for v in os.environ.get("OCR_HEADER_VARIANTS", "plain,smooth,close,thick").split(",") if v]
+# Variants of the header pass: preprocessing name, optionally "@model" (plain, smooth, close, thick,
+# thin, lanczos, orig). Chosen on the bench (INTAKE_ACCURACY.md): more variants were slower, not better.
+HEADER_VARIANTS = [v for v in os.environ.get("OCR_HEADER_VARIANTS", "plain,smooth,orig@best,plain@best").split(",") if v]
 HEADER_MERGE = os.environ.get("OCR_HEADER_MERGE", "rover")  # rover | medoid
 # Sender templates (JSON, one per sender): /app/templates baked in, plus OCR_TEMPLATES_DIR if set.
 TEMPLATE_DIRS = [d for d in ("/app/templates", os.environ.get("OCR_TEMPLATES_DIR", "")) if d] if os.environ.get("OCR_TEMPLATES", "1") != "0" else []
@@ -664,8 +673,10 @@ def ocr_bytes(data: bytes) -> dict:
             texts.append(t)
             page_confs.append(page_mean(c))
             confs.extend(c)
-            for k in header:
+            for k in ("lines", "reread", "changed"):
                 header[k] += h.get(k, 0)
+            if h.get("template"):
+                header["template"] = h["template"]
 
         if kind == "pdf":
             src = os.path.join(work, "in.pdf")
