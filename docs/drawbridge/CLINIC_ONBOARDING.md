@@ -51,7 +51,13 @@ A Google Sheet with 15 questions, most answered from a dropdown, about 5 minutes
 | Reviewer / pool | `INTAKE_REVIEW_USER` |
 | Lab category and other category names | `INTAKE_CATEGORY_MAP` |
 | Batch senders | `INTAKE_BATCH_SENDERS` |
-| Senders or documents always to a person | `INTAKE_NO_AUTO_SENDERS` (plus document rules) |
+| Senders always to a person | `INTAKE_NO_AUTO_SENDERS` |
+| Documents always to a person (records requests, prior authorizations, refill requests, referrals) | `INTAKE_ALWAYS_PERSON` (unset = all four, `none` = off) |
+| Critical results: who is informed | `INTAKE_CRITICAL_NOTIFY` (unset = the review task's normal recipient). Always High priority with "CRITICAL" first and a phone call recorded as required; Drawbridge never calls |
+| Who reviews results (the ordering provider, or a reviewer / pool) | `INTAKE_TASK_TARGET=ordering_provider` or `review_user`; `INTAKE_REVIEW_USER` is the fallback |
+| Notify the provider of results for same-day appointments? | `INTAKE_SAME_DAY_NO_NOTIFY=on` when they don't (critical results always notify) |
 | Who checks uncertain documents | staff logins (`src/scripts/staff-user.ts`) |
 | Matching rule | `INTAKE_MATCH_RULE=name_dob` (standard) |
 | Shadow week | `INTAKE_MODE=shadow`, then `INTAKE_FILING=auto` after review |
+
+**Idaho Kidney Institute (answers of Oct 13, 2026):** `INTAKE_ALWAYS_PERSON=records_request,prior_auth,refill_request,referral`, `INTAKE_TASK_TARGET=ordering_provider`, `INTAKE_SAME_DAY_NO_NOTIFY=on`, `INTAKE_CATEGORY_MAP={"lab_result":"Lab Results"}`; `INTAKE_CRITICAL_NOTIFY` unset until the clinic names who gets critical results (then the ordering provider, or `INTAKE_REVIEW_USER`, gets them). What each does: [FAX_INTAKE_ADDON.md, Clinic rules](FAX_INTAKE_ADDON.md#clinic-rules-set-per-clinic).

@@ -46,6 +46,16 @@
  * Recall is counted on the documents the rule being run should file completely (fileable, plus
  * one_identifier under name_dob): every result page filed, to its own patient.
  *
+ * Clinic rules (notify.ts, IKI's setup answers Oct 13 2026):
+ *   --always-person <list|none>   INTAKE_ALWAYS_PERSON for the run (default unset: all four types). "After" holds
+ *                                 a document (or split part) of such a type for staff, as pipeline.ts does.
+ * The synthetic set holds no records requests, prior authorizations, refill requests or referrals, so every
+ * document the rule holds is a false positive. The report counts them, also with passing mentions of a
+ * referral, a refill and a prior auth number added to every document ("stress"); scores the critical flags
+ * against the truth; and reports how often an ordering provider is read and matched to a directory of the
+ * synthetic IKI providers (no per-document truth for the provider exists in the set). Same-day appointments
+ * need schedule data the set doesn't have (smoke-tested in smoke-intake-rules.ts).
+ *
  * Writes <set>/report[-label].md and <set>/summary[-label].json. The numbers that matter most are
  * wrong-patient pages filed and wrong-patient auto-files under "after". They must be 0. Exit code 1
  * when they are not. No network, no Veradigm call.
@@ -54,6 +64,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { extractFields, ExtractedFields } from '../platform/modules/intake/extract';
 import { matchPatient, matchRule, MatchDecision, MatchResult, MatchRule, normDob } from '../platform/modules/intake/match';
+import { alwaysPersonType, matchProvider, type EhrProvider } from '../platform/modules/intake/rules';
 import { ocrMinConfidence, ocrReviewReason } from '../platform/modules/intake/ocr';
 import { partOcr, segmentItem, splitPages } from '../platform/modules/intake/pages';
 
@@ -158,10 +169,14 @@ interface AfterInfo {
   seg: 'single' | 'split' | 'review' | 'ocr_failed';
   reason: string;
   groups: number[][];
+  /** Always-to-a-person types found on the document or its parts (INTAKE_ALWAYS_PERSON). */
+  always: string[];
 }
 
 interface Row {
   t: Truth;
+  /** Clinic rules on the whole document (see the harness header). */
+  rules?: { always: string; always_stress: string; critical: boolean; provider: '' | 'low' | 'read'; provider_user: string };
   decision: MatchDecision | 'ocr_failed';
   raw_decision?: MatchDecision;
   gated: boolean;
@@ -174,7 +189,7 @@ interface Row {
   filing?: { before: Filing; open: Filing; after: Filing; info: AfterInfo };
 }
 
-function args(): { set: string; label: string; examples: number; ocr: string; batchSender: string; rule: MatchRule; templates: string; third: boolean; searchSsn: boolean } {
+function args(): { set: string; label: string; examples: number; ocr: string; batchSender: string; rule: MatchRule; templates: string; third: boolean; searchSsn: boolean; alwaysPerson?: string } {
   const a = process.argv.slice(2);
   const get = (k: string) => {
     const i = a.indexOf(k);
@@ -195,6 +210,7 @@ function args(): { set: string; label: string; examples: number; ocr: string; ba
     templates: get('--templates') || '',
     third: get('--third') !== 'off',
     searchSsn: get('--search-ssn') !== 'off',
+    alwaysPerson: get('--always-person'),
   };
 }
 
@@ -232,10 +248,13 @@ async function afterFiling(
 ): Promise<{ filing: Filing; info: AfterInfo }> {
   const ocr = { engine: 'local' as const, pages: Number(meta.pages || 0), mean_confidence: Number(meta.mean_confidence ?? 0), used_text_layer: meta.used_text_layer === true, page_confidences: meta.page_confidences };
   const seg = segmentItem({ ocr }, text, x, NOW);
-  const info: AfterInfo = { seg: seg.decision, reason: seg.reason, groups: seg.patients.map((g) => g.pages) };
+  const info: AfterInfo = { seg: seg.decision, reason: seg.reason, groups: seg.patients.map((g) => g.pages), always: [] };
   if (seg.decision === 'review') return { filing: wholeFiling(n, ''), info };
   if (seg.decision === 'single') {
-    const auto = whole.decision === 'auto' && !ocrGated(whole.decision, meta, minConf);
+    // Clinic rule (pipeline.ts): a document type always given to a person is never auto-filed.
+    const person = alwaysPersonType(x);
+    if (person) info.always.push(person);
+    const auto = whole.decision === 'auto' && !ocrGated(whole.decision, meta, minConf) && !person;
     return { filing: wholeFiling(n, auto ? whole.patient!.chartPatientId : ''), info };
   }
   const texts = splitPages(text, seg.page_count);
@@ -246,7 +265,9 @@ async function afterFiling(
     if (!px.sender && x.sender) px.sender = x.sender;
     const m = await matchPatient(px, search, () => NOW);
     const po = partOcr(ocr, g.pages)!;
-    if (m.decision !== 'auto' || ocrGated(m.decision, { mean_confidence: po.mean_confidence, used_text_layer: po.used_text_layer }, minConf)) continue;
+    const person = alwaysPersonType(px);
+    if (person) info.always.push(person);
+    if (m.decision !== 'auto' || ocrGated(m.decision, { mean_confidence: po.mean_confidence, used_text_layer: po.used_text_layer }, minConf) || person) continue;
     filing.units++;
     for (const p of g.pages) if (p <= n) filing.pages[p - 1] = m.patient!.chartPatientId;
   }
@@ -451,8 +472,19 @@ function groupTable(title: string, groups: [string, Group][]): string {
   return [head, ...lines].join('\n');
 }
 
+/** The synthetic IKI providers (tools/intake-synth layouts.py PROVIDERS) as a Veradigm® EHR provider list. */
+const SYNTH_PROVIDERS: EhrProvider[] = ['Rowan Hale', 'Imani Castell', 'Teodor Quill', 'Priya Vanterpool', 'Mattias Brook', 'Lucinda Farr'].map((n, i) => {
+  const [first, last] = n.split(' ');
+  return { id: String(100 + i), user: `${last.toUpperCase()}.${first[0]}`, first, last };
+});
+/** Passing mentions added to every document for the always-to-a-person stress count. */
+const STRESS_LINES = '\nPrior auth #: 4471902\nComment: patient referred by Dr. Hale for CKD follow-up. Refill lisinopril per PCP.\nReason for referral on the requisition: CKD stage 3b.\n';
+
 async function main(): Promise<void> {
-  const { set, label, examples, ocr: ocrSub, batchSender, rule, templates, third, searchSsn } = args();
+  const { set, label, examples, ocr: ocrSub, batchSender, rule, templates, third, searchSsn, alwaysPerson } = args();
+  // Clinic rule INTAKE_ALWAYS_PERSON (notify.ts): unset = all four types, as in production.
+  if (alwaysPerson !== undefined) process.env.INTAKE_ALWAYS_PERSON = alwaysPerson;
+  else delete process.env.INTAKE_ALWAYS_PERSON;
   // Sender templates (templates.ts): off unless --templates names the directory (deploy/ocr/templates).
   if (templates) process.env.INTAKE_SENDER_TEMPLATES_DIR = path.resolve(templates);
   else delete process.env.INTAKE_SENDER_TEMPLATES_DIR;
@@ -515,6 +547,14 @@ async function main(): Promise<void> {
       wrong = !intended || match.patient?.chartPatientId !== intended.chart_patient_id;
     }
     const row: Row = { t, decision, raw_decision: match.decision, gated: gate, wrong_patient: wrong, fields: sc.ok, got: sc.got, want: sc.want, match, ocr: meta };
+    const op = xFull.ordering_provider;
+    row.rules = {
+      always: alwaysPersonType(xFull) || '',
+      always_stress: alwaysPersonType(extractFields(text + STRESS_LINES, NOW)) || '',
+      critical: xFull.abnormal.critical,
+      provider: !op ? '' : op.confidence === 'low' ? 'low' : 'read',
+      provider_user: op && op.confidence !== 'low' ? matchProvider(op.value, SYNTH_PROVIDERS).provider?.user || '' : '',
+    };
     if (t.page_truth) {
       const n = t.page_truth.length;
       const chart = decision === 'auto' ? match.patient!.chartPatientId : '';
@@ -833,6 +873,45 @@ Address printed on ${addrPrinted.length} documents (${addrPrinted.filter((x) => 
 **Full SSNs:** ${fullSsnDocs} documents print a full (fictional) SSN; extracted SSN values longer than 4 digits: **${tooLong}** (required: 0). Reports and rows carry no SSN digits.
 `;
 
+  // ── Clinic rules: always to a person (false positives), critical flags, ordering provider ──
+  const ruled = rows.filter((r) => r.rules);
+  const countBy = (rs: Row[], key: (r: Row) => string) => {
+    const m = new Map<string, number>();
+    for (const r of rs) m.set(key(r), (m.get(key(r)) || 0) + 1);
+    return [...m.entries()].sort((a, b) => b[1] - a[1]);
+  };
+  const heldAlways = paged.filter((r) => r.filing!.info.always.length);
+  const heldAlwaysFileable = heldAlways.filter((r) => docOut.get(r)?.should);
+  const flaggedWhole = ruled.filter((r) => r.rules!.always);
+  const flaggedStress = ruled.filter((r) => r.rules!.always_stress);
+  const critTruth = ruled.filter((r) => r.t.abnormal.critical);
+  const critRead = ruled.filter((r) => r.rules!.critical);
+  const critHit = critTruth.filter((r) => r.rules!.critical);
+  const critMissed = critTruth.filter((r) => !r.rules!.critical);
+  const critFalse = critRead.filter((r) => !r.t.abnormal.critical);
+  const providerLayouts = [...new Set(ruled.map((r) => r.t.layout))].sort();
+  const provLine = (rs: Row[], k: string) =>
+    `| ${k} | ${rs.length} | ${rs.filter((r) => r.rules!.provider === 'read').length} (${pct(rs.filter((r) => r.rules!.provider === 'read').length, rs.length)}) | ${rs.filter((r) => r.rules!.provider === 'low').length} | ${rs.filter((r) => r.rules!.provider_user).length} (${pct(rs.filter((r) => r.rules!.provider_user).length, rs.length)}) |`;
+  const rulesSection = `## Clinic rules (notify.ts; INTAKE_ALWAYS_PERSON ${process.env.INTAKE_ALWAYS_PERSON === undefined ? 'unset: all four types' : `= ${process.env.INTAKE_ALWAYS_PERSON || '(empty)'}`})
+
+**Always to a person.** The set holds no records requests, prior authorizations, refill requests or referrals: every document held is a false positive.
+- Whole documents read as one of those types: **${flaggedWhole.length}** of ${ruled.length}${flaggedWhole.length ? ` (${countBy(flaggedWhole, (r) => `${r.rules!.always} in ${r.t.layout}`).map(([k, v]) => `${k}: ${v}`).join(', ')})` : ''}.
+- Documents (or split parts) held for staff by the rule in "after": ${heldAlways.length}; of them should be filed: **${heldAlwaysFileable.length}** (the recall cost).
+- Stress, every document with "Prior auth #: ...", "referred by Dr. ... Refill lisinopril per PCP." and "Reason for referral ...: CKD" added: **${flaggedStress.length}** of ${ruled.length} held${flaggedStress.length ? ` (${countBy(flaggedStress, (r) => `${r.rules!.always_stress} in ${r.t.layout}, kind ${r.t.kind}`).map(([k, v]) => `${k}: ${v}`).join(', ')})` : ''}.
+${flaggedWhole.length ? `\n${ex(flaggedWhole, (r) => `${r.rules!.always}`)}\n` : ''}${flaggedStress.length ? `\nStress examples:\n\n${ex(flaggedStress, (r) => `${r.rules!.always_stress} (kind ${r.t.kind})`)}\n` : ''}
+**Critical flags** (the lab's own HH/LL, (C), CRITICAL/PANIC; the truth marks a document critical when the generator printed one):
+${critTruth.length} critical documents, read critical ${critHit.length} (${pct(critHit.length, critTruth.length)}), **missed ${critMissed.length}**; read critical although not: ${critFalse.length} (a High-priority task too many, never a missed one).
+${critMissed.length ? `\nMissed:\n\n${ex(critMissed, (r) => `markers ${JSON.stringify(r.t.abnormal.markers)}`)}\n` : ''}
+**Ordering provider** (directory: the six synthetic IKI providers; "matched" = exactly one provider with a user name, else the task goes to INTAKE_REVIEW_USER):
+
+| Layout | Docs | Read | Two different (not used) | Matched |
+|---|---:|---:|---:|---:|
+${providerLayouts.map((l) => provLine(ruled.filter((r) => r.t.layout === l), l)).join('\n')}
+${provLine(ruled, '**all**')}
+
+Same-day appointments: not on the bench (no schedule data); see smoke-intake-rules.ts.
+`;
+
   const fieldMisses = FIELDS.map((f) => {
     const miss = rows.filter((r) => !r.fields[f]);
     return `### ${f}: ${miss.length} wrong\n\n${ex(miss, (r) => `want \`${r.want[f] || '(none)'}\`, got \`${r.got[f] || '(none)'}\``)}`;
@@ -885,6 +964,20 @@ Address printed on ${addrPrinted.length} documents (${addrPrinted.filter((x) => 
           never_auto_any_page: neverAuto.length,
         }
       : null,
+    clinic_rules: {
+      always_person_setting: process.env.INTAKE_ALWAYS_PERSON ?? null,
+      always_person_whole_docs: flaggedWhole.length,
+      always_person_held_after: heldAlways.length,
+      always_person_held_fileable: heldAlwaysFileable.length,
+      always_person_stress: flaggedStress.length,
+      critical_truth: critTruth.length,
+      critical_read: critHit.length,
+      critical_missed: critMissed.length,
+      critical_false: critFalse.length,
+      provider_read: ruled.filter((r) => r.rules!.provider === 'read').length,
+      provider_two_different: ruled.filter((r) => r.rules!.provider === 'low').length,
+      provider_matched: ruled.filter((r) => r.rules!.provider_user).length,
+    },
     third_identifier: {
       by_printed: Object.fromEntries(
         thirdGroups.map(([k, v]) => [
@@ -929,6 +1022,7 @@ ${
 ${wrong.length ? `### Wrong-patient auto-files\n\n${ex(wrong, (r) => `intended ${r.t.intended_patient}, filed to chart ${r.match?.patient?.chartPatientId} (${r.match?.reason})`)}\n` : ''}
 ${unexpectedAuto.length ? `### Auto-filed to the right patient although "${'auto'}" was not expected\n\n${ex(unexpectedAuto, (r) => `expected ${r.t.expected_decision}; ${r.match?.reason} (document MRN \`${r.want.mrn || '-'}\` read as \`${r.got.mrn || '-'}\`, phone \`${r.want.phone || '-'}\` read as \`${r.got.phone || '-'}\`)`)}\n` : ''}
 ${docsSection}
+${rulesSection}
 ${thirdSection}
 ${pagesSection}
 ## Overall (whole-document match)
@@ -1015,6 +1109,9 @@ ${fieldMisses}
   }
   console.log(`third identifier (${third ? 'checked' : 'off'}${searchSsn ? '' : ', no SSN from search'}): ${thirdGroups.map(([k, v]) => { const g = paged.length ? docStats(v) : null; return `${k.replace(/^\w+ /, '').split(' (')[0]} ${v.length} docs, filed right ${g ? `${g.filed_right}/${g.should_file}` : '-'}, wrong pages ${g ? g.wrong_pages : '-'}, staff for conflict ${v.filter((r) => conflictReason(r.match)).length}`; }).join('; ')}`);
   console.log(`third-id reads: SSN-4 ${ssnPrinted.filter((x) => x.ssn_right).length}/${ssnPrinted.length} right (${ssnPrinted.filter((x) => x.ssn_wrong).length} wrong), address ${addrPrinted.filter((x) => x.addr_right).length}/${addrPrinted.length} right (${addrPrinted.filter((x) => x.addr_wrong).length} wrong); full SSNs printed ${fullSsnDocs}, extracted SSN values longer than 4 digits ${tooLong}`);
+  console.log(
+    `clinic rules: always-to-a-person whole docs ${flaggedWhole.length}, held after ${heldAlways.length} (fileable ${heldAlwaysFileable.length}), stress ${flaggedStress.length}; critical read ${critHit.length}/${critTruth.length} (missed ${critMissed.length}, false ${critFalse.length}); ordering provider read ${ruled.filter((r) => r.rules!.provider === 'read').length}, matched ${ruled.filter((r) => r.rules!.provider_user).length} of ${ruled.length}`
+  );
   console.log(`report: ${path.join(set, `report${suffix}.md`)}`);
   if (paged.length ? totals.after.wrong || totals.after.wrong_units : wrong.length) process.exitCode = 1;
   if (tooLong) process.exitCode = 1;

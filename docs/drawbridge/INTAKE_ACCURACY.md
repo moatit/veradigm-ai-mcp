@@ -1,6 +1,51 @@
 # Fax / lab intake: accuracy on synthetic documents
 
-Status Oct 11, 2026, branches `drawbridge/fax-intake`, `drawbridge/fax-intake-accuracy` and `drawbridge/fax-intake-thirdid` (newest section first). Offline test bench: no Veradigm call, no real patient data, and OCR runs in our own container.
+Status Oct 13, 2026, branches `drawbridge/fax-intake`, `drawbridge/fax-intake-accuracy`, `drawbridge/fax-intake-thirdid` and `drawbridge/fax-intake-iki-rules` (newest section first). Offline test bench: no Veradigm call, no real patient data, and OCR runs in our own container.
+
+## Clinic rules for IKI (Oct 13, branch `drawbridge/fax-intake-iki-rules`)
+
+IKI's setup answers as settings ([Clinic rules](FAX_INTAKE_ADDON.md#clinic-rules-set-per-clinic)): records requests, prior authorizations, refill requests and referrals always to a person; critical results as a High-priority "CRITICAL" task with a phone call required; the review task to the ordering provider; no task for results collected on an appointment day. Same OCR text as the third-identifier section (held-out seed 9009, 3,000 documents, 4,402 result pages); "before" is the base branch's code on it, "after" this branch with `INTAKE_ALWAYS_PERSON` at its default (all four types).
+
+| Seed 9009 | Rule | Fileable recall | Auto-filed (whole doc) | **Wrong-patient pages** | Never-auto docs with a page filed |
+|---|---|---:|---:|---:|---:|
+| before | `name_dob` | 86.9% (1,495/1,721) | 50.0% | **0** | 4 |
+| after | `name_dob` | 86.9% (1,495/1,721) | 50.0% | **0** | 4 |
+| before | `two_identifiers` | 86.8% (1,351/1,557) | 45.2% | **0** | 4 |
+| after | `two_identifiers` | 86.8% (1,351/1,557) | 45.2% | **0** | 4 |
+
+Filing is unchanged: the set holds no records requests, prior authorizations, refill requests or referrals, and no document was held by the new rule.
+
+**Always to a person: false positives.** Every document the rule holds on this set would be a false positive. Whole documents held: **0** of 3,000 (seed 8008, the development set: 0 of 3,000). Stress test: every document with three passing mentions added ("Prior auth #: 4471902", "patient referred by Dr. Hale for CKD follow-up. Refill lisinopril per PCP.", "Reason for referral on the requisition: CKD stage 3b."): **0** held on 9009 and on 8008. The first version took the existing document kind `referral` as a referral and held **938** of 3,000 under stress (607 daily batches, 171 consult letters, 150 imaging reports): a "Reason for referral" line outweighs a short lab panel in that classifier. Referrals are now read like the other request types, from a title, subject line or ticked box, or a letter that refers the patient itself. The last 4 held were consult letters whose "Thank you for referring" OCR read as "Thank you tor referring"; that phrasing no longer counts. Both fixes were made looking at seed 9009, so its stress number is not a clean held-out figure; seed 8008 was run once after them. Detection itself (true requests found) is covered by the smoke tests, since the generator makes no such documents yet.
+
+**Critical flags** (the truth marks a document critical when the generator printed HH/LL or a critical line):
+
+| | Seed 9009: critical docs read critical | missed | read critical, not critical | Seed 8008: read critical | missed | false |
+|---|---:|---:|---:|---:|---:|---:|
+| before | 93 of 148 | **55** | 21 | 77 of 114 | **37** | 32 |
+| after | 144 of 148 | **4** | 14 | 113 of 114 | **1** | 26 |
+
+Before this branch, more than a third of critical results were read as routine: the daily batch writes the flag against the value ("41LL"), which the flag pattern missed, and small-clinic "*HH" flags came through OCR as "“HH". The lab's policy line read with OCR errors ("Critical valuos aro telephonod ...") was a false alarm. After: the 4 missed (9009) are daily-batch lines OCR mangled (a potassium read as "6,914H"); the 14 false alarms are mostly "(H)" read as "(HH)" on poor hospital-lab faxes, a High-priority task too many, never a missed one. Abnormal-flag field accuracy 97.0% → 99.0%. The FN/FP lists of seed 9009 were looked at for these fixes; seed 8008 confirms them.
+
+**Ordering provider** (seed 9009; directory: the six synthetic IKI providers as Veradigm® EHR users; the set records no per-document provider, so this is the routing rate, not its accuracy):
+
+| Layout | Docs | Provider read | Two different (not used) | Matched to one user |
+|---|---:|---:|---:|---:|
+| reference lab | 619 | 95.8% | 8 | 94.0% |
+| hospital lab | 468 | 95.9% | 6 | 91.7% |
+| imaging | 444 | 89.6% | 8 | 88.7% |
+| consult letter | 421 | 72.0% | 76 | 70.5% |
+| small clinic | 405 | 69.1% | 94 | 68.1% |
+| daily batch | 643 | 26.9% | 0 | 26.4% |
+| **all** | 3,000 | 73.2% | 192 | **71.6%** |
+
+The rest go to `INTAKE_REVIEW_USER`. The daily batch prints no ordering provider (the 27% come from cover sheets' "Attn:"), so Express Lab results will mostly go to the review user until its real layout is known. "Two different" are documents whose cover sheet is addressed to one provider and whose letter or "Please forward to" names another: not used, by design. Reads not matched are OCR misreads ("Castall", "Vantorpool"); a last name one letter off is accepted only with the exact first name and nobody else close. On real traffic the provider list comes from `GetProviders`, whose row fields (the user name) have not been seen on the sandbox yet.
+
+**Same-day appointments:** not measurable here (the set has no schedule); smoke-tested against a fake `GetScheduleByPatientID`.
+
+```
+npm run eval:intake -- --set deploy/local/intake/synth/set-s9009 --label iki-nd --rule name_dob   # --always-person none to switch the rule off
+```
+The report's "Clinic rules" section has the counts above.
 
 ## Third identifier: SSN last 4 and address (Oct 11, branch `drawbridge/fax-intake-thirdid`)
 

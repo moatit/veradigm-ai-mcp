@@ -6,6 +6,7 @@ import type { Confidence, DocumentKind, Extracted } from './extract';
 import { fileToChart, filingStatus, IntakeFilingError, sendToIndexing, setFilingDeps, type FilingResult } from './file';
 import { startFolderWatcher, startWatchFolders } from './folder';
 import { MoatitFaxClient, setFaxRecordedHandler } from './moatit-fax';
+import { ALWAYS_PERSON_LABEL, alwaysPersonType, RECIPIENT_SOURCE_LABEL } from './rules';
 import { observeEnabled, StaffFilingObserver } from './observe';
 import { OcrClient } from './ocr';
 import { IntakePipeline } from './pipeline';
@@ -36,6 +37,8 @@ export { mountFaxWebhook } from './moatit-fax';
  * unless INTAKE_FILING and INTAKE_SAVE_DOCUMENT_FORMAT_CONFIRMED allow it.
  * Shadow mode (INTAKE_MODE=shadow, shadow.ts): no filing and read-only Veradigm® (patient search and
  * categories only; optional local roster and category list), a Confirm panel for ground truth (shadow-ui.ts).
+ * Clinic rules (notify.ts) show on the item: documents always reviewed by staff, critical results (a phone
+ * call is required; Drawbridge never calls), who got the review task and why, or why none was sent.
  */
 const LIST_MAX = 300;
 /**
@@ -84,6 +87,14 @@ const SOURCE_LABEL = { moatit_fax: 'MOATiT Fax', folder: 'Drop folder', upload: 
 const DECISION_LABEL = { auto: 'Two identifiers match', review: 'Check the patient', none: 'No match', ambiguous: 'More than one patient', error: 'Search failed' } as const;
 const DECISION_PILL = { auto: 'ok', review: 'warn', none: 'warn', ambiguous: 'urgent', error: 'urgent' } as const;
 const ID_LABEL: Record<string, string> = { mrn: 'MRN', phone: 'Phone', ssn4: 'SSN last 4', address: 'Address' };
+const TASK_ERROR_LABEL: Record<string, string> = {
+  NO_RECIPIENT: 'no one is set up to receive it',
+  TASK_REJECTED: 'Veradigm® EHR refused it',
+  TASK_UNCERTAIN: 'Veradigm® EHR did not answer',
+  NO_TASK_ID: 'Veradigm® EHR returned no task number',
+};
+/** A critical result filed without a review task, back with staff until someone has told the provider. */
+const criticalUntold = (i: IntakeItem) => !!i.filed?.document_id && !!i.notify?.critical && !i.notify.task_id && !i.notify.handled_by;
 const MESSAGES: Record<string, string> = {
   reviewed: 'Marked as reviewed.',
   retry: 'Queued to read again.',
@@ -96,6 +107,8 @@ const MESSAGES: Record<string, string> = {
   category: 'Category changed.',
   category_unknown: 'That category is not available in Veradigm® EHR.',
   filed_task_failed: 'Filed to the patient chart, but the review task could not be sent. Tell the provider.',
+  filed_critical_no_task: 'CRITICAL result filed to the patient chart, but no review task was created. Tell the provider now: a phone call is required.',
+  notified: 'Recorded that the provider was told.',
   ...SHADOW_MESSAGES,
 };
 
@@ -135,9 +148,10 @@ export function queuePage(
         .slice(0, LIST_MAX)
         .map((i) => {
           const kind = i.extracted ? KIND_LABEL[i.extracted.kind.value] : '';
-          const flags = i.extracted?.abnormal.critical ? pill('urgent', 'critical') : i.extracted?.abnormal.flagged ? pill('warn', 'abnormal') : '';
+          const flags = i.extracted?.abnormal.critical ? pill('urgent', 'critical: call required') : i.extracted?.abnormal.flagged ? pill('warn', 'abnormal') : '';
+          const person = alwaysPersonType(i.extracted);
           return `<tr><td><a href="${APP_BASE}/intake/item/${encodeURIComponent(i.id)}">${esc(fmtTime(i.received_at))}</a></td><td>${esc(SOURCE_LABEL[i.source])}</td>
-<td>${esc(kind) || '<span class="muted">—</span>'} ${flags}${i.extracted?.sender ? `<div class="muted" style="font-size:12px">${esc(i.extracted.sender.value)}</div>` : ''}${
+<td>${esc(kind) || '<span class="muted">—</span>'} ${flags}${person ? ` ${pill('warn', `${ALWAYS_PERSON_LABEL[person]}: staff`)}` : ''}${i.extracted?.sender ? `<div class="muted" style="font-size:12px">${esc(i.extracted.sender.value)}</div>` : ''}${
             i.part ? `<div class="muted" style="font-size:12px">Part ${esc(i.part.index + 1)} of ${esc(i.part.of)} (${esc(pageList(i.part.pages))})</div>` : ''
           }</td>
 <td>${patientCell(i)}</td><td>${pill(STATUS_PILL[i.status], STATUS_LABEL[i.status])}</td>${byId ? `<td>${shadowCell(i, byId)}</td>` : ''}</tr>`;
@@ -231,7 +245,8 @@ export function itemPage(
   const x = i.extracted;
   const m = i.match;
   const split = i.status === 'split';
-  const done = i.status === 'filed' || i.status === 'sent_to_indexing' || split;
+  // A critical result filed without a review task is back with staff (needs_review) but stays filed.
+  const done = i.status === 'filed' || i.status === 'sent_to_indexing' || split || !!i.filed?.document_id;
   const canFile = filing.enabled && !done && !!m?.patient?.chartPatientId && (m.decision === 'auto' || !!i.reviewed_by);
   const canIndex = filing.enabled && !done && !!m?.patient?.chartPatientId;
   const doneWhy = split ? 'Split by patient: file each part.' : 'Already filed.';
@@ -262,6 +277,8 @@ ${x.ssn_last4 || x.ssn_unreadable ? `<dt>SSN last 4</dt><dd>${x.ssn_last4 ? fiel
 ${x.address || x.address_unreadable ? `<dt>Patient address</dt><dd>${x.address ? field(x.address, (v) => [v.line1, [v.city, [v.state, v.zip].filter(Boolean).join(' ')].filter(Boolean).join(', ')].filter(Boolean).join(', ')) : '<span class="muted">printed, could not be read</span>'}</dd>` : ''}
 <dt>Sender</dt><dd>${field(x.sender)}</dd>
 <dt>Collected / service date</dt><dd>${field(x.collection_date)}</dd>
+<dt>Ordering provider</dt><dd>${field(x.ordering_provider, (v) => v.full)}</dd>
+${alwaysPersonType(x) ? `<dt>Always to staff</dt><dd>${pill('warn', ALWAYS_PERSON_LABEL[alwaysPersonType(x)!])} <span class="muted" style="font-size:13px">clinic rule: never filed automatically</span></dd>` : ''}
 <dt>Abnormal flags</dt><dd>${
         x.abnormal.flagged
           ? `${x.abnormal.critical ? pill('urgent', 'critical') : pill('warn', 'abnormal')} <span class="muted" style="font-size:13px">${esc(x.abnormal.markers.join(', '))}${x.abnormal.flagged_lines ? ` · ${esc(x.abnormal.flagged_lines)} flagged result line(s)` : ''}</span>`
@@ -293,11 +310,14 @@ ${m.third_identifier ? `<dt>Third identifier</dt><dd>${esc(ID_LABEL[m.third_iden
       : ''
   }</div>`;
 
+  const notify = notifyCard(i);
+
   const actions = `<div class="card"><div class="row">
 ${actionButton(i.id, 'file-to-chart', 'File to chart', canFile, fileWhy)}
 ${actionButton(i.id, 'send-to-indexing', 'Send to indexing', canIndex, indexWhy, true)}
 ${actionButton(i.id, 'reviewed', i.reviewed_by ? 'Reviewed ✓' : 'Mark reviewed', !i.reviewed_by && !done, i.reviewed_by ? 'Already reviewed.' : doneWhy, true)}
 ${i.status === 'failed' ? actionButton(i.id, 'retry', 'Try again', true, '', true) : ''}
+${criticalUntold(i) ? actionButton(i.id, 'notified', 'Provider was told', true, '') : ''}
 </div>${filing.enabled ? '' : `<p class="muted" style="font-size:13px;margin-bottom:0">${esc(filing.reason)}</p>`}
 <p class="muted" style="font-size:13px;margin-bottom:0">Mark reviewed records that you checked the original and the patient. Nothing is written to the Veradigm® EHR chart from this screen until filing is turned on.</p></div>`;
 
@@ -308,7 +328,41 @@ ${i.status === 'failed' ? actionButton(i.id, 'retry', 'Try again', true, '', tru
 
   return `<p><a href="${APP_BASE}/intake">← Document intake</a></p>${flash}
 <h2 style="margin-top:4px">Document</h2>${doc}${familyCard(i, family)}<h2>Read from the document</h2>${fields}<h2>Patient match</h2>${match}
-<h2>Chart category</h2>${type}${shadowCtx ? shadowPanel(i, shadowCtx) : ''}<h2>Actions</h2>${actions}<h2>History</h2>${history}`;
+<h2>Chart category</h2>${type}${notify}${shadowCtx ? shadowPanel(i, shadowCtx) : ''}<h2>Actions</h2>${actions}<h2>History</h2>${history}`;
+}
+
+/** Critical result and review task (notify.ts): shown once the document is critical or filed. */
+function notifyCard(i: IntakeItem): string {
+  const n = i.notify;
+  if (!n && !i.filed) return '';
+  const rows: string[] = [];
+  if (n?.critical) {
+    rows.push(
+      `<dt>Critical result</dt><dd>${pill('urgent', 'CRITICAL')} A phone call is required. Drawbridge does not place calls.${
+        n.handled_by ? ` <span class="muted" style="font-size:13px">Provider told (recorded by ${esc(n.handled_by)}, ${esc(fmtTime(n.handled_at || ''))}).</span>` : ''
+      }</dd>`
+    );
+  }
+  if (i.filed && i.filed.document_type !== '(ready for indexing)') {
+    const to = n?.recipient ? `${esc(n.recipient)}${n.recipient_source ? ` <span class="muted" style="font-size:13px">(${esc(RECIPIENT_SOURCE_LABEL[n.recipient_source])})</span>` : ''}` : '';
+    const task = n?.task_id
+      ? `Task ${esc(n.task_id)} to ${to}${n.priority ? `, ${esc(n.priority)} priority` : ''}`
+      : n?.skipped === 'same_day_appointment'
+        ? `Not sent: ${esc(n.same_day?.note || 'same-day appointment')}`
+        : n?.task_error
+          ? `${pill(n.critical ? 'urgent' : 'warn', 'not sent')} ${esc(TASK_ERROR_LABEL[n.task_error] || n.task_error)}${to ? ` (to ${to})` : ''}`
+          : i.filed.task_id
+            ? `Task ${esc(i.filed.task_id)}`
+            : '<span class="muted">none</span>';
+    rows.push(`<dt>Review task</dt><dd>${task}</dd>`);
+    if (n?.same_day && !n.skipped) rows.push(`<dt>Same-day check</dt><dd>${esc(n.same_day.note)}</dd>`);
+  }
+  if (n?.ordering_provider && (n.ordering_provider.name || n.ordering_provider.note)) {
+    rows.push(
+      `<dt>Ordering provider</dt><dd>${esc(n.ordering_provider.name || '—')}${n.ordering_provider.user ? ` → ${esc(n.ordering_provider.user)}` : ''} <span class="muted" style="font-size:13px">${esc(n.ordering_provider.note)}</span></dd>`
+    );
+  }
+  return rows.length ? `<h2>Review task</h2><div class="card"><dl>${rows.join('\n')}</dl></div>` : '';
 }
 
 let stopWatcher: (() => void) | null = null;
@@ -383,7 +437,7 @@ export const intakeModule: PlatformModule = {
         res.status(404).send('Not found');
         return;
       }
-      if (item.status === 'filed' || item.status === 'sent_to_indexing' || item.status === 'split') {
+      if (item.status === 'filed' || item.status === 'sent_to_indexing' || item.status === 'split' || item.filed?.document_id) {
         back(res, item.id, item.status === 'split' ? 'NOT_READY' : 'ALREADY_FILED');
         return;
       }
@@ -437,7 +491,8 @@ export const intakeModule: PlatformModule = {
         back(res, item.id, code);
         return;
       }
-      back(res, item.id, r.task_error ? 'filed_task_failed' : 'filed');
+      const after = intakeStore().get(item.id);
+      back(res, item.id, after && criticalUntold(after) ? 'filed_critical_no_task' : r.task_error ? 'filed_task_failed' : 'filed');
     };
     router.post('/item/:id/file-to-chart', filingAction(fileToChart));
     router.post('/item/:id/send-to-indexing', filingAction(sendToIndexing));
@@ -451,6 +506,25 @@ export const intakeModule: PlatformModule = {
       }
       if (!item.reviewed_by) store.update(item.id, { reviewed_by: user(req), reviewed_at: new Date().toISOString() }, 'marked reviewed', user(req));
       back(res, item.id, 'reviewed');
+    });
+
+    // A critical result filed without a review task: staff record that they told the provider; it is then filed.
+    router.post('/item/:id/notified', (req, res) => {
+      const store = intakeStore();
+      const item = store.get(req.params.id);
+      if (!item) {
+        res.status(404).send('Not found');
+        return;
+      }
+      if (criticalUntold(item)) {
+        store.update(
+          item.id,
+          { status: 'filed', note: undefined, notify: { ...item.notify!, handled_by: user(req), handled_at: new Date().toISOString() } },
+          'staff recorded that the provider was told of the critical result',
+          user(req)
+        );
+      }
+      back(res, item.id, 'notified');
     });
 
     router.post('/item/:id/retry', (req, res) => {
