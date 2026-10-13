@@ -100,6 +100,23 @@ export interface ExtractedFields {
   address_unreadable?: boolean;
   /** Sender template used to read the fields (templates.ts). */
   template?: string;
+  /**
+   * A request that always goes to a person (rules.ts INTAKE_ALWAYS_PERSON): a medical records request, a prior
+   * authorization, a medication refill request or a referral. Absent for ordinary results and letters.
+   */
+  request?: Extracted<RequestKind>;
+  /** The provider who ordered the test or study ("Ordering Provider:", "Ordered by:", "Physician:"). */
+  ordering_provider?: Extracted<ProviderName>;
+}
+
+export type RequestKind = 'records_request' | 'prior_auth' | 'refill_request' | 'referral';
+
+export interface ProviderName {
+  /** First name or initial; '' when only the last name is printed ("Dr. Hale"). */
+  first: string;
+  last: string;
+  /** As read, without "Dr." and credentials. */
+  full: string;
 }
 
 export interface PatientAddress {
@@ -679,7 +696,7 @@ const usableConf = (c?: Confidence) => c === 'high' || c === 'medium';
 // ── Patients on the document ─────────────────────────────────────────────────
 
 /** True when the edit distance between a and b is at most k. */
-function within(a: string, b: string, k: number): boolean {
+export function within(a: string, b: string, k: number): boolean {
   if (Math.abs(a.length - b.length) > k) return false;
   let prev = Array.from({ length: b.length + 1 }, (_, j) => j);
   for (let i = 1; i <= a.length; i++) {
@@ -767,10 +784,16 @@ const KIND_TERMS: Record<Exclude<DocumentKind, 'other'>, [RegExp, number][]> = {
   ],
 };
 
+/** How much the text looks like each kind (the sum of the weights of KIND_TERMS found). */
+export function kindScores(text: string): Record<Exclude<DocumentKind, 'other'>, number> {
+  const out = {} as Record<Exclude<DocumentKind, 'other'>, number>;
+  for (const kind of Object.keys(KIND_TERMS) as Exclude<DocumentKind, 'other'>[]) out[kind] = KIND_TERMS[kind].reduce((n, [re, w]) => n + (re.test(text) ? w : 0), 0);
+  return out;
+}
+
 export function classifyKind(text: string): Extracted<DocumentKind> {
-  const scores = (Object.keys(KIND_TERMS) as Exclude<DocumentKind, 'other'>[])
-    .map((kind) => ({ kind, score: KIND_TERMS[kind].reduce((n, [re, w]) => n + (re.test(text) ? w : 0), 0) }))
-    .sort((a, b) => b.score - a.score);
+  const all = kindScores(text);
+  const scores = (Object.keys(all) as Exclude<DocumentKind, 'other'>[]).map((kind) => ({ kind, score: all[kind] })).sort((a, b) => b.score - a.score);
   const [top, next] = scores;
   if (top.score < 2 || top.score === next.score) return { value: 'other', confidence: 'low' };
   return { value: top.kind, confidence: top.score >= 4 && top.score - next.score >= 2 ? 'high' : 'medium' };
@@ -822,17 +845,201 @@ export function classifySubtype(text: string, kind: DocumentKind): Extracted<Doc
   return undefined;
 }
 
+// ── Requests that always go to a person ──────────────────────────────────────
+
+/**
+ * Records requests, prior authorizations, refill requests and referrals (rules.ts INTAKE_ALWAYS_PERSON).
+ *   title     names the request: tested on subject lines ("RE:", "Subject:") and ticked boxes, and on the
+ *             heading lines unless `heading` is given
+ *   heading   a stricter test for heading lines (referral: the line is the title, "NEPHROLOGY REFERRAL FORM",
+ *             not "Reason for referral: CKD" or "Referral #: 123")
+ *   evidence  words such forms carry
+ *   body      what names it in the text for the 'medium' reading (default: title)
+ */
+/** The sender refers the patient: "I am referring ...", "I would like to refer ...", "Please accept this referral". */
+const REFERRING_NOW = /\bI(?:\s+am|'m)\s+referring\b|\bI\s+(?:would\s+like|wish|want)\s+to\s+refer\b|\bplease\s+accept\s+this\s+referral\b/i;
+const REQUEST_TERMS: Record<RequestKind, { title: RegExp; heading?: RegExp; evidence: RegExp[]; body?: RegExp }> = {
+  records_request: {
+    title:
+      /\b(?:medical\s+|health\s+|patient\s+)?records?\s+request\b|\brequest\s+for\s+(?:copies\s+of\s+)?(?:the\s+)?(?:medical\s+|health\s+|patient\s+)?(?:records|information)\b|\brelease\s+of\s+(?:medical\s+|health\s+|protected\s+health\s+)?(?:records|information)\b|\bauthori[sz]ation\s+(?:to|for)\s+(?:the\s+)?(?:release|disclos\w*|use\s+and\s+disclos\w*)\b|\bROI\s+request\b/i,
+    evidence: [/\bdates?\s+of\s+service\b/i, /\bdate\s+range\b/i, /\bcop(?:y|ies)\s+of\b/i, /\b(?:progress|office|clinic)\s+notes\b/i, /\bHIPAA\b/i, /\bsubpoena\b/i, /\battorney\b/i, /\bsignature\b/i, /\bdisclos\w+/i],
+  },
+  prior_auth: {
+    title: /\bprior\s*[-\s]?auth(?:ori[sz]ation)?\b|\bpre-?\s?auth(?:ori[sz]ation)?\b|\bpre-?\s?certification\b|\bprecert\b|\bcoverage\s+determination\b/i,
+    evidence: [/\bmember\s+(?:ID|#|number|no)\b/i, /\bNDC\b/i, /\bCPT\b/i, /\bICD-?10\b/i, /\bformulary\b/i, /\bpayer\b/i, /\b(?:approved|denied)\b/i, /\bdetermination\b/i, /\brequested\s+(?:service|medication|drug|procedure)\b/i],
+  },
+  refill_request: {
+    title:
+      /\b(?:medication|prescription|rx)\s+(?:refill|renewal)\b|\brefill\s+(?:request|authori[sz]ation)\b|\brequest\s+for\s+(?:a\s+)?(?:refill|renewal)\b|\brenewal\s+request\b/i,
+    evidence: [/\bpharmacy\b/i, /\bNDC\b/i, /\bSig\s*[:;]/i, /\b(?:qty|quantity)\b/i, /\brefills?\s*(?:remaining|requested|left|authorized)?\s*[:;#]/i, /\blast\s+fill(?:ed)?\b/i, /\bdispense\b/i, /\bDEA\b/i],
+  },
+  referral: {
+    title: /\breferral\b|\brequest\s+for\s+consultation\b|\bconsultation\s+request\b/i,
+    heading: /^\W{0,3}(?:[A-Za-z]+\s+){0,2}(?:referral(?:\s+(?:form|request|order|letter))?|request\s+for\s+consultation|consultation\s+request)\W*$/i,
+    evidence: [
+      /\breason\s+for\s+referral\b/i, /\breferred\s+to\b/i, REFERRING_NOW,
+      /\bplease\s+(?:see|evaluate|schedule)\b/i, /\b(?:for|requesting)\s+(?:an?\s+)?(?:evaluation|consultation)\b/i,
+      /\breferral\s+(?:date|reason|type|status|number|#)/i, /\b(?:requested|referring)\s+(?:specialty|specialist|provider|physician)\b/i,
+    ],
+    // Untitled: only a letter that refers the patient itself. A consult reply quotes "Reason for referral" and
+    // thanks for "referring Ms. ..." (as OCR reads it, "Thank you tor referring": seen on the bench).
+    body: REFERRING_NOW,
+  },
+};
+/** A line that says what the fax is about ("RE:", "Subject:", "Request type:"), anywhere in the document. */
+const SUBJECT_LINE = /^\W{0,3}(?:RE|Regarding|Subject|Request(?:\s+type)?|Document\s+type|Reason\s+for\s+(?:fax|request))\s*[:;]/i;
+/** A ticked box and its text up to the next box ("[X] Prior authorization", "(x) Refill request"). */
+const TICKED = /[[(]\s*[xX✓✔]\s*[\])]\s*([^[(]*)/g;
+/** An empty box and its text: a choice not made ("[ ] Prior authorization"). */
+const UNTICKED = /[[(]\s*[\])]\s*[^[(]*/g;
+
+/**
+ * Whether the document is a records request, a prior authorization, a refill request or a referral.
+ *
+ *   high    the request is named as the document's title (the first 12 lines of a page), on a subject line
+ *           ("RE: Prior authorization request") or in a ticked box. A report (its text scores 4 or more as a
+ *           lab result, imaging report or consult letter: units, reference ranges, impression, "Thank you for
+ *           referring") also needs two of the request's own words (member ID, NDC, pharmacy, dates of service,
+ *           reason for referral, ...): a result whose header says "Prior auth #" is still a result.
+ *   medium  named anywhere else, with three of its own words, in a document that is no report.
+ * A result that mentions a referral or a refill in passing ("referred by Dr. Hale", "Reason for referral: CKD",
+ * "refill lisinopril per PCP") is none of these. Measured on the bench with such lines added to every document.
+ */
+export function classifyRequest(text: string): Extracted<RequestKind> | undefined {
+  const clean = text.replace(/\r/g, '');
+  // Choices not made on a form ("[ ] Refill request") say nothing about the document.
+  const lines = clean.replace(/\f/g, '\n').split('\n').map((l) => l.replace(UNTICKED, ' '));
+  const heading = clean.split('\f').flatMap((p) => p.split('\n').filter((l) => l.trim()).slice(0, 12)).map((l) => l.replace(UNTICKED, ' '));
+  const named = [...lines.filter((l) => SUBJECT_LINE.test(l)), ...lines.flatMap((l) => [...l.matchAll(TICKED)].map((m) => m[1]))];
+  const body = lines.join('\n');
+  const k = kindScores(body);
+  const report = Math.max(k.lab_result, k.imaging, k.consult) >= 4;
+  for (const kind of Object.keys(REQUEST_TERMS) as RequestKind[]) {
+    const { title, heading: strict, evidence, body: inBody } = REQUEST_TERMS[kind];
+    const titled = named.some((l) => title.test(l)) || heading.some((l) => (strict || title).test(l));
+    const words = evidence.filter((re) => re.test(body)).length;
+    if (titled && (!report || words >= 2)) return { value: kind, confidence: 'high' };
+    if (!report && words >= 3 && (inBody || title).test(body)) return { value: kind, confidence: 'medium' };
+  }
+  return undefined;
+}
+
+// ── Ordering provider ────────────────────────────────────────────────────────
+
+/** Credentials after a provider's name ("Rowan Hale, MD", "R. Hale PA-C"). */
+const CREDENTIALS = /,?\s+(?:M\.?D|D\.?O|NP|FNP(?:-[BC])?|ANP|APRN|PA(?:-C)?|PhD|DNP|RN|CNM|MBBS|FACP|FASN|FACS)\b\.?/gi;
+/** Words that show a value is a place, a team or a phrase, not a person. */
+const NOT_A_PROVIDER = new Set(
+  'unknown none n/a na on file see below above clinic office staff institute kidney practice laboratory lab group center hospital department client nurse team pool provider physician doctor medical records per policy signature'.split(' ')
+);
+
+/** "Dr. Rowan Hale, MD", "HALE, ROWAN", "R. Hale" → name parts; a lone last name only when `single`. */
+export function parseProvider(raw: string, single = false): ProviderName | null {
+  // "Dr." as fax OCR reads it: "Or," / "0r." (seen on the bench).
+  const DR = /^(?:Dr|Doctor)\b\.?\s*|^[O0]r[.,]\s*/i;
+  const dr = DR.test(raw.replace(/^\W+/, ''));
+  const s = raw
+    .replace(/\([^)]*\)?/g, ' ')
+    .replace(/\b(?:NPI|UPIN)\b.*$/i, ' ')
+    .replace(/[;|].*$/, ' ')
+    .split(/\s+(?:at|of|from|for|with|on)\s+/i)[0]
+    .replace(/^\W+/, '')
+    .replace(DR, '')
+    .replace(CREDENTIALS, ' ')
+    .replace(/\s+/g, ' ')
+    .replace(/[^A-Za-z.]+$/, '')
+    // ", MD" as OCR reads it: ", MID", ", MO", ", MP", ", MI>".
+    .replace(/,\s*(?:M[A-Z]{1,2}|D[O0])\.?$/, '')
+    .replace(/[^A-Za-z.]+$/, '')
+    .replace(/\s*,\s*/, ', ')
+    .trim();
+  if (!s || s.length > 50 || /\d/.test(s) || ORG_WORD.test(s)) return null;
+  const comma = s.match(/^([^,]+),\s*(.+)$/);
+  const tokens = (comma ? `${comma[1]} ${comma[2]}` : s).split(' ');
+  if (!tokens.length || tokens.length > 4 || !tokens.every((t) => NAME_TOKEN.test(t))) return null;
+  if (tokens.some((t) => NOT_A_PROVIDER.has(t.toLowerCase().replace(/\.$/, '')) || NOT_A_NAME.has(t.toLowerCase().replace(/\.$/, '')))) return null;
+  let first = '';
+  let last = '';
+  let middle: string[] = [];
+  if (comma) {
+    last = comma[1].trim();
+    const rest = comma[2].trim().split(' ');
+    first = rest[0];
+    middle = rest.slice(1);
+  } else if (tokens.length === 1) {
+    if (!single && !dr) return null;
+    last = tokens[0];
+  } else {
+    let k = tokens.length - 1;
+    while (k > 1 && PARTICLES.has(tokens[k - 1].toLowerCase())) k--;
+    first = tokens[0];
+    last = tokens.slice(k).join(' ');
+    middle = tokens.slice(1, k);
+  }
+  first = titleCase(first.replace(/\.$/, ''));
+  last = titleCase(last.replace(/\.$/, ''));
+  if (last.length < 2 || /^[A-Za-z]$/.test(last)) return null;
+  return { first, last, full: [first, ...middle.map(titleCase), last].filter(Boolean).join(' ') };
+}
+
+/** Where the label must sit: a line start or a column, not the middle of a sentence. */
+const AT_COLUMN = String.raw`(?:^|\s{2,}|\t|\|\s*)\W{0,3}`;
+const ROLE = String.raw`(?:\s+(?:Provider|Physician|Doctor|Clinician|Practitioner|MD|Dr))?`;
+/** Provider labels, best first: [label, confidence, tier]. Only the best tier found is used. */
+const PROVIDER_LABELS: [RegExp, Confidence, number][] = [
+  [new RegExp(`${AT_COLUMN}(?:Ordering|Ordered\\s+by|Order(?:ed|ing)?\\s+(?:Provider|Physician|Doctor|MD))${ROLE}\\b`, 'i'), 'high', 0],
+  [new RegExp(`${AT_COLUMN}(?:Requesting|Requested\\s+by)${ROLE}\\b`, 'i'), 'high', 0],
+  [new RegExp(`${AT_COLUMN}(?:Referring|Attending)${ROLE}\\s*[:;.,!]`, 'i'), 'medium', 1],
+  [new RegExp(`${AT_COLUMN}(?:Physician|Provider|Doctor|Clinician)\\s*[:;!]`, 'i'), 'medium', 1],
+  [new RegExp(`${AT_COLUMN}Attn\\.?\\s*[:;.,!]|\\bforward\\s+to\\b|^\\W{0,3}Dear\\s+(?=Dr\\b)`, 'i'), 'medium', 2],
+];
+
+/**
+ * The ordering provider: an "Ordering/Ordered by/Requesting" label ('high'); "Referring", "Attending",
+ * "Physician:", "Provider:" ('medium'); else a cover sheet's "Attn: Dr. ...", "Please forward to Dr. ..."
+ * or a letter's "Dear Dr. ..." ('medium'). Interpreting, performing and signing doctors (radiologist,
+ * lab director, "Reviewed by", "Electronically signed by") are never read. Two different people under the
+ * best label found make it 'low' (shown, never used to route a task).
+ */
+function extractOrderingProvider(lines: string[]): Extracted<ProviderName> | undefined {
+  const reads: { p: ProviderName; confidence: Confidence; tier: number }[] = [];
+  for (const [label, confidence, tier] of PROVIDER_LABELS) {
+    for (const v of labeledAll(lines, label)) {
+      const p = parseProvider(v.value, tier === 0);
+      if (p) reads.push({ p, confidence, tier });
+    }
+  }
+  if (!reads.length) return undefined;
+  const best = Math.min(...reads.map((r) => r.tier));
+  const tier = reads.filter((r) => r.tier === best);
+  const lastKey = (p: ProviderName) => p.last.toLowerCase().replace(/[^a-z]/g, '');
+  const pick = tier.find((r) => r.p.first) || tier[0];
+  const agree = tier.every((r) => lastKey(r.p) === lastKey(pick.p) && (!r.p.first || !pick.p.first || r.p.first[0].toLowerCase() === pick.p.first[0].toLowerCase()));
+  return { value: pick.p, confidence: agree ? pick.confidence : 'low' };
+}
+
 // ── Abnormal flags ───────────────────────────────────────────────────────────
 
-/** A value followed by a lab flag: "2.1  H  0.6-1.3", "2.1H", "142 (L)", "6.8 *HH". */
-const FLAG_RE = /\d(?:\s+|\s*\*|(?=[HL]\b))\(?(HH|LL|H|L)\)?(?=\s|$)/;
+/**
+ * A value followed by a lab flag: "2.1  H  0.6-1.3", "2.1H", "41LL", "142 (L)", "6.8 *HH". (Until Oct 13 an
+ * HH/LL written against the value, "41LL" in the daily batch, was missed: a critical value read as none.)
+ */
+const FLAG_RE = /\d(?:\s+|\s*\*|(?=(?:HH|LL|H|L)\b))\(?(HH|LL|H|L)\)?(?=\s|$)/;
 const ABNORMAL_RE = /\babnormal\b/i;
 const NOT_ABNORMAL_RE = /\b(?:no|not|non-?)\s*abnormal|abnormal\s*(?:flag|range|indicator)s?\b|\bnormal\/abnormal\b/i;
 const CRITICAL_RE = /\b(?:critical|panic)\b/i;
+/**
+ * "critical" that is not a result: a critical access hospital or critical care unit, the lab's policy line
+ * ("Critical values are telephoned ...", also as OCR reads it: "Critical valuos aro telephonod", "values.are",
+ * "values ate"), "Critical values: none".
+ */
 const NOT_CRITICAL_RE =
-  /\bcritical\s+access\b|\bno\s+critical\b|\bcritical\s+(?:range|values?\s+policy)\b|\bcritical\s+(?:values?|results?)\s+(?:are|is|will\s+be)\b/i;
-/** Other flag styles: "7.9 %  *H", "6.8 (C)" (critical), "Moderate (A)" or a lone "A" flag column. */
-const STAR_FLAG_RE = /(?:^|\s)\*(HH|LL|H|L)(?=\s|$)/;
+  /\bcritical\s+(?:access|care)\b|\bno\s+critical\b|\bcritical\s+(?:range|val\w{0,4}\s+policy)\b|\bcritical\s+(?:val\w{0,4}|results?)\s+(?:are|is|will\s+be)\b|\bcritical\s+val\w{0,4}[\s.,]+\S{2,3}\s+t\w{1,4}ph\w*n\w*|\bcritical\s+(?:val\w{0,4}|results?)\s*[:;]\s*(?:none|n\/?a)\b/i;
+/**
+ * Other flag styles: "7.9 %  *H" (also with the star read as a quote: "“HH", "\"HH ="), "6.8 (C)" (critical),
+ * "Moderate (A)" or a lone "A" flag column.
+ */
+const STAR_FLAG_RE = /(?:^|\s)[*"“”]\s?(HH|LL|H|L)(?=[\s:;=,]|$)/;
 const PAREN_FLAG_RE = /\S\s*\((C|A)\)(?=\s|$)/;
 const A_COLUMN_RE = /\S\s{2,}(A)(?=\s{2,}|\s*$)/;
 
@@ -927,5 +1134,10 @@ export function extractFields(
   if (sender) out.sender = sender;
   const collected = extractCollectionDate(lines, now);
   if (collected) out.collection_date = collected;
+  // Clinic rules (notify.ts): requests that always go to a person, and who ordered the test.
+  const request = classifyRequest(clean);
+  if (request) out.request = request;
+  const ordering = extractOrderingProvider(lines);
+  if (ordering) out.ordering_provider = ordering;
   return out;
 }
