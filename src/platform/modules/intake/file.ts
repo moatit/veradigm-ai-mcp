@@ -2,6 +2,7 @@ import fs from 'fs';
 import type { UnityService } from '../../../unity/services/unity.service';
 import { UnityActions } from '../../../unity/config/unity-endpoints';
 import { pick, unityRows } from '../../../unity/utils/unity-rows';
+import { planReviewTask, RECIPIENT_SOURCE_LABEL, type NotifyPlan, type NotifyRecord, type ProviderSource } from './notify';
 import { shadowMode } from './shadow';
 import type { IntakeItem, IntakeStore } from './store';
 
@@ -20,6 +21,7 @@ import type { IntakeItem, IntakeStore } from './store';
  *                     Files over 2 MB go in 1 MB chunks (verified with a 2.6 MB file).
  *   SaveTask          Parameter1 "Review" + Parameter3 = the scanned document ID links a review task to
  *                     the document (shows as task type "Scanned Document"). One task per document.
+ *                     Priority "Medium" was verified; "High" (critical results) has not been sent yet.
  *
  * Switches (all must allow it):
  *   INTAKE_MODE                             shadow: filing is impossible, whatever the switches below say
@@ -27,6 +29,12 @@ import type { IntakeItem, IntakeStore } from './store';
  *   INTAKE_SAVE_DOCUMENT_FORMAT_CONFIRMED   true once the format above is verified for this environment
  *   INTAKE_DOC_STATUS                       submitted (default: staff approve in Veradigm EHR) | approved
  *   INTAKE_REVIEW_USER                      Veradigm EHR user name that gets the review task (unset: no task)
+ *   INTAKE_TASK_TARGET, INTAKE_CRITICAL_NOTIFY, INTAKE_SAME_DAY_NO_NOTIFY
+ *                                           who gets the task, critical results, same-day appointments (notify.ts)
+ *
+ * Critical results: the task is High priority with "CRITICAL" first in the subject and the item records that a
+ * phone call is required. When no task could be created for one (no recipient, Veradigm® refused or didn't
+ * answer, no task ID back), the filed item goes back to staff (needs_review) with that reason.
  *
  * Duplicate guard: an attempt is recorded on the item before the write. If Veradigm never answered
  * (timeout, network), the item is left FILING_UNCERTAIN and is not retried automatically: staff check
@@ -187,6 +195,8 @@ export interface FilingDeps {
   unity: UnityLike;
   store: () => IntakeStore;
   now?: () => Date;
+  /** Veradigm® EHR providers for INTAKE_TASK_TARGET=ordering_provider (default: GetProviders, cached). */
+  providers?: ProviderSource;
 }
 
 let configured: FilingDeps | null = null;
@@ -232,20 +242,18 @@ async function saveScanDocument(unity: UnityLike, chartId: string, docType: stri
   throw new Rejected('empty file');
 }
 
-/** Review task for the provider, linked to the scanned document. Returns the task ID, or '' when no reviewer is set. */
-async function saveReviewTask(unity: UnityLike, chartId: string, documentId: string, title: string): Promise<string> {
-  const reviewer = String(process.env.INTAKE_REVIEW_USER || '').trim();
-  if (!reviewer) return '';
-  const subject = xmlText(`New outside document for review: ${title}`.slice(0, 200));
+/** Review task linked to the scanned document, to the plan's recipient (notify.ts). Returns the task ID ('' when none came back). */
+async function saveReviewTask(unity: UnityLike, chartId: string, documentId: string, title: string, plan: NotifyPlan): Promise<string> {
+  const subject = xmlText(`${plan.subjectPrefix}New outside document for review: ${title}`.slice(0, 200));
   const row = await call(
     unity,
     UnityActions.Task.SAVE_TASK,
     {
       Parameter1: 'Review',
-      Parameter2: reviewer,
+      Parameter2: plan.recipient,
       Parameter3: documentId,
-      Parameter4: 'New outside document for review',
-      Parameter5: `<taskdata><taskpriority>Medium</taskpriority><subject>${subject}</subject><sourceprovider></sourceprovider></taskdata>`,
+      Parameter4: plan.comment,
+      Parameter5: `<taskdata><taskpriority>${plan.priority}</taskpriority><subject>${subject}</subject><sourceprovider></sourceprovider></taskdata>`,
     },
     chartId
   );
@@ -313,20 +321,64 @@ async function file(item: IntakeItem, target: 'chart' | 'indexing', by: string, 
   );
 
   const result: FilingResult = { success: true, item_id: current.id, document_id: documentId };
-  if (target === 'chart') {
+  if (target === 'chart') await notifyAfterFiling(store, current.id, chartId, documentId, title, by, deps, result);
+  return result;
+}
+
+/**
+ * The review task of a document just filed (clinic rules: notify.ts), recorded on the item. A critical result
+ * without a task goes back to staff: it is filed, but someone must tell the provider (a phone call is required).
+ */
+async function notifyAfterFiling(
+  store: IntakeStore,
+  id: string,
+  chartId: string,
+  documentId: string,
+  title: string,
+  by: string,
+  deps: FilingDeps,
+  result: FilingResult
+): Promise<void> {
+  const plan = await planReviewTask(store.get(id)!, { unity: deps.unity, providers: deps.providers });
+  const rec: NotifyRecord = { ...plan.record };
+  const what = `${rec.critical ? 'CRITICAL ' : ''}review task`;
+  if (rec.skipped) {
+    store.update(id, { notify: rec }, `no review task: same-day appointment on ${rec.same_day?.date || 'the collection date'}`, by);
+  } else if (!plan.recipient) {
+    rec.task_error = 'NO_RECIPIENT';
+    store.update(id, { notify: rec }, `no ${what}: no recipient set`, by);
+  } else {
     try {
-      const taskId = await saveReviewTask(deps.unity, chartId, documentId, title);
+      const taskId = await saveReviewTask(deps.unity, chartId, documentId, title, plan);
       if (taskId) {
         result.task_id = taskId;
-        store.update(current.id, { filed: { ...store.get(current.id)!.filed!, task_id: taskId } }, `review task ${taskId} sent`, by);
+        rec.task_id = taskId;
+        const to = `${plan.recipient}${rec.recipient_source ? `, ${RECIPIENT_SOURCE_LABEL[rec.recipient_source]}` : ''}`;
+        store.update(id, { notify: rec, filed: { ...store.get(id)!.filed!, task_id: taskId } }, `${what} ${taskId} sent to ${to} (${plan.priority})`, by);
+      } else {
+        rec.task_error = 'NO_TASK_ID';
+        store.update(id, { notify: rec }, `${what}: Veradigm® EHR returned no task ID`, by);
       }
     } catch (e: any) {
       result.task_error = e instanceof Rejected ? 'TASK_REJECTED' : 'TASK_UNCERTAIN';
-      store.update(current.id, {}, `review task not sent (${result.task_error})`, by);
-      console.error(`[Intake] review task failed for ${current.id}: ${result.task_error}`);
+      rec.task_error = result.task_error;
+      store.update(id, { notify: rec }, `${what} not sent (${result.task_error})`, by);
+      console.error(`[Intake] review task failed for ${id}: ${result.task_error}`);
     }
   }
-  return result;
+  if (rec.critical && !rec.task_id) {
+    result.task_error = result.task_error || rec.task_error || 'NO_TASK';
+    store.update(
+      id,
+      {
+        status: 'needs_review',
+        note: `CRITICAL result filed to the chart (document ${documentId}), but no review task was created (${rec.task_error}). Tell the provider now: a phone call is required.`,
+      },
+      'critical result without a review task: back to staff',
+      by
+    );
+    console.error(`[Intake] critical result ${id} filed without a review task (${rec.task_error})`);
+  }
 }
 
 /** File the original document to the matched patient's Veradigm® EHR chart and send the review task. */

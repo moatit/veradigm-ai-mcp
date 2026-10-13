@@ -4,6 +4,7 @@ import * as path from 'path';
 import { redactSsn, type ExtractedFields } from './extract';
 import type { MatchResult } from './match';
 import type { DocTypeSuggestion } from './doctypes';
+import type { NotifyRecord } from './rules';
 import type { GroundTruth, ShadowDecision, StaffObservation } from './shadow';
 
 /**
@@ -72,6 +73,11 @@ export interface IntakeItem {
   filing?: { target: 'chart' | 'indexing'; started_at: string; finished_at?: string };
   /** What was written to the Veradigm® EHR chart. */
   filed?: { document_id: string; document_type: string; doc_status: string; task_id?: string; at: string; by: string };
+  /**
+   * Clinic rules around the review task (rules.ts): a critical result (phone call required), who the task went
+   * to and why, or why none was sent (same-day appointment, no recipient, Veradigm® refused it).
+   */
+  notify?: NotifyRecord;
   /** Times processing waited for MOATiT Fax OCR. */
   ocr_waits?: number;
   /** Set when Drawbridge's own OCR container (ocr.ts) read the file. page_confidences: one per page. */

@@ -138,6 +138,7 @@ export const REASON_LABEL: Record<string, string> = {
   duplicate: 'Same file as an earlier document',
   pages_unchecked: 'Batch sender: pages not checked',
   sender_staff_only: 'Sender set to staff review',
+  always_person: 'Document type always reviewed by staff (records request, prior authorization, refill, referral)',
   pages_two_on_page: 'Pages: a page shows two patients',
   pages_no_identifier: 'Pages: a page without a readable identifier',
   pages_near_identical: 'Pages: two almost-identical patients',
@@ -182,6 +183,7 @@ export function pagesReasonCode(reason: string): string {
 
 /** itemAutoFileBlocker() text (pipeline.ts) → code. */
 export function blockerCode(blocker: string): string {
+  if (/always reviewed by staff/.test(blocker)) return 'always_person';
   if (/document type/.test(blocker)) return 'no_category';
   if (/same file/.test(blocker)) return 'duplicate';
   if (/pages|batch sender/.test(blocker)) return 'pages_unchecked';

@@ -5,6 +5,7 @@ import { fileToChart, filingMode, filingStatus, IntakeFilingError } from './file
 import { extractFields } from './extract';
 import { matchPatient } from './match';
 import { FaxApiError, isOcrPending, MoatitFaxClient } from './moatit-fax';
+import { alwaysPersonReason, criticalFallbackRecipient, isCritical } from './rules';
 import { OcrClient, OcrError, ocrReviewReason } from './ocr';
 import { isListedSender, partOcr, segmentItem, splitPages, type PageSegmentation } from './pages';
 import { shadowDecision, shadowMode, shadowSummary } from './shadow';
@@ -32,8 +33,11 @@ export { partOcr, segmentItem, splitEnabled } from './pages';
  * 5. Suggest a Veradigm® EHR document type (doctypes.ts).
  * 6. Auto-file (file.ts) only when INTAKE_FILING=auto, filing is enabled, the match is 'auto', the
  *    chart category is not the "(ready for indexing)" fallback, the page check passed (always
- *    required for batch senders), the file is not a duplicate, and the sender is not in
- *    INTAKE_NO_AUTO_SENDERS. Everything else waits for staff.
+ *    required for batch senders), the file is not a duplicate, the sender is not in
+ *    INTAKE_NO_AUTO_SENDERS, the document is not a type the clinic always gives to a person
+ *    (INTAKE_ALWAYS_PERSON: records requests, prior authorizations, refill requests, referrals;
+ *    those go to needs_review with that reason, whatever the match), and a critical result has
+ *    someone set up to get its review task (notify.ts). Everything else waits for staff.
  *    Shadow mode (INTAKE_MODE=shadow, shadow.ts): this step never runs. The decision it would have
  *    made is recorded on the item instead (`shadow`), for every finished item and split parent.
  *
@@ -142,7 +146,9 @@ export class IntakePipeline {
     const parent = item.parent_id ? store.get(item.parent_id) : undefined;
     // A part keeps its parent's sender when its own pages don't name one (display, sender lists).
     if (!extracted.sender && parent?.extracted?.sender) extracted.sender = parent.extracted.sender;
-    item = store.update(id, { status: 'read', extracted, error_code: undefined }, 'read');
+    // A critical result is marked as soon as it is read: whatever happens next, staff see a call is required.
+    const critical = isCritical({ extracted }) ? { notify: { ...item.notify, critical: true, call_required: true } } : {};
+    item = store.update(id, { status: 'read', extracted, error_code: undefined, ...critical }, 'read');
 
     const deps = this.opts.deps;
     if (!deps) return; // resumed once the module starts
@@ -180,12 +186,17 @@ export class IntakePipeline {
 
     // Low-confidence OCR text is never auto-matched (the candidate is still shown to staff), and
     // neither is a file whose pages could not be checked (the page check's reason is shown).
+    // Documents the clinic always gives to a person (INTAKE_ALWAYS_PERSON) go to staff whatever the
+    // match, with that reason first ("Prior authorization: always reviewed by staff.").
     const ocrGate = match.decision === 'auto' && item.ocr ? ocrReviewReason(item.ocr) : null;
-    const auto = match.decision === 'auto' && !ocrGate && !pageGate;
-    const why = pageGate ? 'page check' : ocrGate ? 'low OCR confidence' : match.decision;
+    const person = alwaysPersonReason(extracted);
+    const auto = match.decision === 'auto' && !ocrGate && !pageGate && !person;
+    const why = person ? 'always to staff' : pageGate ? 'page check' : ocrGate ? 'low OCR confidence' : match.decision;
+    const other = pageGate || ocrGate || (match.decision === 'auto' ? '' : match.reason);
+    const note = person ? `${person}.${other ? ` ${other}` : ''}` : other;
     store.update(
       id,
-      { status: auto ? 'matched' : 'needs_review', match, document_type: documentType, note: auto ? undefined : pageGate || ocrGate || match.reason },
+      { status: auto ? 'matched' : 'needs_review', match, document_type: documentType, note: auto ? undefined : note },
       `${auto ? 'matched' : `needs review: ${why}`}${typeNote}`,
       AUTO
     );
@@ -413,12 +424,18 @@ export function localOcrForFaxes(): boolean {
 export function autoFileBlocker(item: IntakeItem): string {
   if (filingMode() !== 'auto') return 'filing mode is not auto';
   if (!filingStatus().enabled) return 'filing disabled';
-  return itemAutoFileBlocker(item);
+  const own = itemAutoFileBlocker(item);
+  if (own) return own;
+  // A critical result is never filed silently: someone must be set up to get its task (notify.ts).
+  if (isCritical(item) && !criticalFallbackRecipient()) return 'critical result, and no one is set up to receive its review task';
+  return '';
 }
 
 /** The item's own reasons to wait for staff, whatever the filing switches say (also shadow mode's "would it auto-file"). */
 export function itemAutoFileBlocker(item: IntakeItem): string {
   if (item.status === 'split') return 'split into one document per patient';
+  const person = alwaysPersonReason(item.extracted);
+  if (person) return person;
   if (item.match?.decision !== 'auto') return 'not auto-matched';
   if (!item.document_type || item.document_type.reason === 'fallback') return 'no specific document type';
   if (item.duplicate_of) return 'same file as an earlier document';
