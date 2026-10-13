@@ -21,7 +21,10 @@ import type { IntakeItem, IntakeStore } from './store';
  *                     Files over 2 MB go in 1 MB chunks (verified with a 2.6 MB file).
  *   SaveTask          Parameter1 "Review" + Parameter3 = the scanned document ID links a review task to
  *                     the document (shows as task type "Scanned Document"). One task per document.
- *                     Priority "Medium" was verified; "High" (critical results) has not been sent yet.
+ *                     Priority "Medium" and "High" verified (Oct 13, read back with GetTaskList: TaskPriority
+ *                     "RoutineNA" and "UrgentNA"). Parameter2 may be another provider's user name (e.g. the
+ *                     ordering provider's, from GetProviders UserName): accepted with a task ID, but that
+ *                     task is not readable by our own user (GetTask: "no rights"; not in our GetTaskList).
  *
  * Switches (all must allow it):
  *   INTAKE_MODE                             shadow: filing is impossible, whatever the switches below say

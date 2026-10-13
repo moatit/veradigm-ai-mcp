@@ -2,7 +2,7 @@
 
 **Goal:** lab results, imaging reports, consult letters and other documents that outside offices fax or email are read, matched to the right patient and **filed straight into the patient's Veradigm® EHR chart**, so front-desk staff no longer index them by hand. A provider review task goes out for each filed result.
 
-Status (Oct 11, 2026): **working end to end on the Veradigm sandbox** with synthetic patients (branch `drawbridge/fax-intake`). A dropped fax is read by local OCR, matched, filed with `SaveScanDocument` and gets a linked provider review task. Live run: 40 synthetic faxes, 11 auto-filed, all 11 to the right patient and read back from the chart; the other 29 went to staff review as designed. Offline accuracy on 4,000 synthetic documents: `INTAKE_ACCURACY.md`. Filing stays off by default (`INTAKE_FILING=off`).
+Status (Oct 11, 2026): **working end to end on the Veradigm sandbox** with synthetic patients (branch `drawbridge/fax-intake`). A dropped fax is read by local OCR, matched, filed with `SaveScanDocument` and gets a linked provider review task. Live run: 40 synthetic faxes, 11 auto-filed, all 11 to the right patient and read back from the chart; the other 29 went to staff review as designed. Offline accuracy on 4,000 synthetic documents: `INTAKE_ACCURACY.md`. Filing stays off by default (`INTAKE_FILING=off`). Oct 13: IKI's clinic rules tested end to end on the sandbox, scenario by scenario, with read-back: [IKI_RULES_SANDBOX_TEST.md](IKI_RULES_SANDBOX_TEST.md).
 
 ## Why it's possible
 
@@ -146,9 +146,10 @@ Ground truth comes mainly from watching staff: they keep indexing faxes from Ver
 | `GetDocumentsByDocumentType` | EHR | Shadow observer: the "(ready for indexing)" queue and category listings (all patients, date window) | Verified read-only on the sandbox |
 | `GetDocumentImage` | EHR | Shadow observer: a queue document as PDF, to tell two similar faxes apart | Verified read-only on the sandbox |
 | `SaveScanDocument` | EHR | File the document (single call; 1 MB chunks over 2 MB) | **Verified Oct 11** (synthetic patients; incl. a 2.6 MB chunked file) |
-| `SaveTask` ("Review", WorkObjectID = document ID) | EHR | Provider review task linked to the document | **Verified Oct 11** (priority Medium; High, for critical results, not sent yet) |
-| `GetProviders` | EHR | Ordering provider → Veradigm® EHR user name for the review task (`INTAKE_TASK_TARGET=ordering_provider`) | In the EHR reference and `verify:sandbox`; row fields (user name) not seen yet, read through aliases |
-| `GetScheduleByPatientID` | PM | Same-day appointment check (`INTAKE_SAME_DAY_NO_NOTIFY`) | Verified Oct 9 (read; the phone agent's appointment lookup) |
+| `SaveTask` ("Review", WorkObjectID = document ID) | EHR | Provider review task linked to the document | **Verified Oct 11** (Medium); **Oct 13**: High (read back as TaskPriority "UrgentNA"; Medium is "RoutineNA"), "CRITICAL:" subject, and tasks to two sandbox providers' user names (accepted with a task ID; not readable by our own user) |
+| `GetProviders` | EHR | Ordering provider → Veradigm® EHR user name for the review task (`INTAKE_TASK_TARGET=ordering_provider`) | **Verified read-only Oct 13**: rows under `getprovidersinfo` with `FirstName`, `LastName`, `UserName` (the task target), `EntryCode`, `ProviderInactive`, `UserInactive` ([IKI_RULES_SANDBOX_TEST.md](IKI_RULES_SANDBOX_TEST.md)) |
+| `GetScheduleByPatientID` | PM | Same-day appointment check (`INTAKE_SAME_DAY_NO_NOTIFY`) | Verified Oct 9 (read); same-day decisions checked read-only on the sandbox Oct 13 (statuses S, C, A, X) |
+| `GetTask`, `GetTaskList` | EHR | Test read-back of review tasks (not used by the app) | Verified read-only Oct 13: only tasks addressed to our own user are visible |
 | `SavePatient` | PM | Create the synthetic test patients (test setup only; the EHR chart appears at once) | Verified Oct 11 |
 
 **Certification:** `SaveScanDocument` and `SaveTask` must be in the Unity action list submitted for certification (adding it later forces recertification). See `VERADIGM_APPROVAL_GUIDE.md`.
