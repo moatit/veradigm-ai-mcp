@@ -1012,7 +1012,8 @@ MRN: 771234                   COLL: 10/08/2026 07:10
   assert.strictEqual(chunks.reduce((a, c) => a + Buffer.from(c.params.Data, 'base64').length, 0), bigData.length);
   assert.ok(/<docstatus>4<\/docstatus>/.test(chunks[0].params.Parameter3));
   assert.strictEqual(r2.task_error, 'TASK_REJECTED');
-  assert.strictEqual(pStore.get(big.id)!.status, 'filed', 'a failed task does not undo the filing');
+  // The LAB text is a critical result: filed, but without its task it goes back to staff (smoke-intake-rules.ts).
+  assert.deepStrictEqual([pStore.get(big.id)!.status, pStore.get(big.id)!.filed?.document_id], ['needs_review', r2.document_id], 'a failed task does not undo the filing');
 
   // Send to indexing: "(ready for indexing)", status Approved (SaveScanDocument refuses 1), no task
   const idx = pStore.addDocument({ source: 'upload', source_ref: '', name: 'idx.pdf', mime: 'application/pdf', data: Buffer.from('%PDF-1.4\nidx'), by: 't' }).item;
