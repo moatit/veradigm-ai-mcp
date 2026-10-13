@@ -589,8 +589,27 @@ async function neighbours(
   return { ok: true, candidates: toCandidates(r) };
 }
 
-function mergeCandidates(a: Candidate[], b: Candidate[]): Candidate[] {
-  const key = (c: Candidate) => c.chartPatientId || c.patientId || `${norm(c.firstName)}|${norm(c.lastName)}|${normDob(c.dateOfBirth)}`;
-  const seen = new Set(a.map(key));
-  return [...a, ...b.filter((c) => !seen.has(key(c)))];
+/**
+ * The same person is the same candidate when either Veradigm® ID agrees: EHR chart ID with chart ID, or PM
+ * patient ID with PM ID (never across the two). A wider search may return a patient as a PM-only row (no chart
+ * ID) that the first search returned with both IDs (sandbox Oct 13, 2026: "Br" + DOB); keying the first by
+ * chart ID and the second by PM ID made one patient look like two ("2 patients match"). Rows without any ID
+ * compare by name + DOB.
+ */
+export function mergeCandidates(a: Candidate[], b: Candidate[]): Candidate[] {
+  const charts = new Set(a.map((c) => c.chartPatientId).filter(Boolean));
+  const pms = new Set(a.map((c) => c.patientId).filter(Boolean));
+  const named = new Set(a.filter((c) => !c.chartPatientId && !c.patientId).map((c) => `${norm(c.firstName)}|${norm(c.lastName)}|${normDob(c.dateOfBirth)}`));
+  const out = [...a];
+  for (const c of b) {
+    const same = c.chartPatientId || c.patientId
+      ? (!!c.chartPatientId && charts.has(c.chartPatientId)) || (!!c.patientId && pms.has(c.patientId))
+      : named.has(`${norm(c.firstName)}|${norm(c.lastName)}|${normDob(c.dateOfBirth)}`);
+    if (same) continue;
+    out.push(c);
+    if (c.chartPatientId) charts.add(c.chartPatientId);
+    if (c.patientId) pms.add(c.patientId);
+    if (!c.chartPatientId && !c.patientId) named.add(`${norm(c.firstName)}|${norm(c.lastName)}|${normDob(c.dateOfBirth)}`);
+  }
+  return out;
 }

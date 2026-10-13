@@ -514,6 +514,12 @@ MRN: 771234                   COLL: 10/08/2026 07:10
   ndCalls.length = 0;
   const ndAuto = await matchPatient(nd, ndRun([cand()]), () => NOW);
   assert.deepStrictEqual([ndAuto.decision, ndAuto.rule, ndCalls[1], ndCalls[2]], ['auto', 'name_dob', { lastName: 'Te', dateOfBirth: '03/14/1961' }, { lastName: 'Testpatient' }], 'name_dob: wider searches (same DOB; this last name at any DOB) before filing');
+  // Sandbox Oct 13, 2026: the same-DOB search returned our patient as a PM-only row (no chart ID); merged by PM ID it is one patient.
+  const pmOnly = await matchPatient(nd, ndRun([cand({ chartPatientId: '' })]), () => NOW);
+  assert.deepStrictEqual([pmOnly.decision, pmOnly.patient?.chartPatientId], ['auto', '7001'], `name_dob: a PM-only row of the same patient (same PM ID) is not a second patient (${pmOnly.reason})`);
+  assert.strictEqual((await matchPatient(nd, ndRun([], [cand({ patientId: '', chartPatientId: '7001' })]), () => NOW)).decision, 'auto', 'name_dob: an EHR-only row of the same patient (same chart ID) is not a second patient');
+  assert.notStrictEqual((await matchPatient(nd, ndRun([cand({ patientId: '9005', chartPatientId: '' })]), () => NOW)).decision, 'auto', 'name_dob: another PM ID with the same name and DOB is a second patient');
+  assert.notStrictEqual((await matchPatient(nd, ndRun([cand({ patientId: '', chartPatientId: '7005' })]), () => NOW)).decision, 'auto', 'name_dob: another chart ID with the same name and DOB is a second patient');
   assert.strictEqual((await matchPatient(nd, ndRun([cand()], [cand({ patientId: '9004', chartPatientId: '7004', dateOfBirth: '03/14/1981', mrn: '3' })]), () => NOW)).decision, 'review', 'name_dob: the same name with a DOB one digit off, found by the name search');
   assert.strictEqual((await matchPatient(nd, ndRun([cand(), { ...twin, phone: { home: '2085550142' } }]), () => NOW)).decision, 'review', 'name_dob: the wider search finds a twin the first search could not');
   const ndFail = await matchPatient(nd, ndRun(new Error('down')), () => NOW);
