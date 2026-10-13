@@ -152,10 +152,14 @@ export interface EhrProvider {
 const truthy = (v: string) => /^(1|y|yes|true)$/i.test(v.trim());
 
 /**
- * GetProviders rows → providers. Field names are read through aliases: the action is in Veradigm's EHR
- * reference and in verify:sandbox, but its row fields have not been seen on the sandbox yet. Only a field
- * that is a login (UserName and its spellings) is used as the task target; a provider code (EntryCode) is not.
- * Inactive providers are left out.
+ * GetProviders rows → providers. Seen on the sandbox (read-only, Oct 13, 2026; 1,345 rows under
+ * "getprovidersinfo"): FirstName, LastName (sometimes with a leading space), Middle, UserName (every row; the
+ * login SaveTask's target user takes), EntryCode (the provider's code), ProviderInactive (Y/N), UserInactive
+ * (blank on the sandbox), UserType, Profession, PrimSpecialty, referral (Y/N), npi, address fields. Other
+ * spellings are still read through aliases. Only a login (UserName) is used as the task target; a provider
+ * code (EntryCode) is not. Inactive providers (ProviderInactive = Y) are left out; a provider whose login is
+ * inactive (UserInactive = Y) is kept with no user name, so it can still be matched (and stop a guess between
+ * two providers) but is never sent a task.
  */
 export function parseProviders(data: unknown): EhrProvider[] {
   return unityRows(data)
@@ -170,12 +174,13 @@ export function parseProviders(data: unknown): EhrProvider[] {
         if (comma) [last, first] = [comma[1], comma[2]];
         else if (parts.length >= 2) [first, last] = [parts[0], parts[parts.length - 1]];
       }
+      const loginInactive = truthy(pick(r, 'UserInactive', 'UserIsInactive'));
       return {
         id: pick(r, 'ProviderID', 'ProviderId', 'ID', 'EntryCode', 'Code'),
-        user: pick(r, 'UserName', 'Username', 'User_Name', 'LoginName', 'UserLogin', 'EHRUserName'),
+        user: loginInactive ? '' : pick(r, 'UserName', 'Username', 'User_Name', 'LoginName', 'UserLogin', 'EHRUserName'),
         first: String(first || '').trim(),
         last: String(last || '').trim(),
-        inactive: truthy(pick(r, 'Inactive', 'IsInactive')) || /^(n|no|false|0)$/i.test(pick(r, 'Active', 'IsActive')),
+        inactive: truthy(pick(r, 'ProviderInactive', 'Inactive', 'IsInactive')) || /^(n|no|false|0)$/i.test(pick(r, 'Active', 'IsActive')),
       };
     })
     .filter((p) => p.last && !p.inactive)

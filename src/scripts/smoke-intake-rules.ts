@@ -224,6 +224,10 @@ async function main(): Promise<void> {
     { ProviderID: '104', FirstName: 'Imani', LastName: 'Castell', UserName: 'CASTELL.I' },
     { ProviderID: '105', FirstName: 'Noel', LastName: 'Nouser' },
     { ProviderID: '106', FirstName: 'Old', LastName: 'Gone', UserName: 'GONE.O', Inactive: 'Y' },
+    // Veradigm® EHR's own row shape (sandbox GetProviders, Oct 13, 2026): EntryCode, ProviderInactive, UserInactive.
+    { EntryCode: '107', FirstName: 'Past', LastName: ' Retired', UserName: 'RETIRED.P', ProviderInactive: 'Y', UserInactive: '', referral: 'N' },
+    { EntryCode: '108', FirstName: 'Locked', LastName: 'Out', UserName: 'OUT.L', ProviderInactive: 'N', UserInactive: 'Y', referral: 'N' },
+    { EntryCode: '109', FirstName: 'Sable', LastName: ' Ingram', Middle: '', UserName: 'INGRAM.S', ProviderInactive: 'N', UserInactive: '', referral: 'Y' },
   ] }];
   const unity: any = {
     async executeAction(action: string, params: any, pid: string, target: string) {
@@ -404,7 +408,10 @@ async function main(): Promise<void> {
   assert.strictEqual(parseProvider('Dr. Anh Van Der Berg, MD')?.last, 'Van Der Berg');
 
   const dirList = notify.parseProviders(providerRows);
-  assert.deepStrictEqual(dirList.map((p) => p.user), ['EXAMPLE.E', 'HALE.R', 'HALE.J', 'CASTELL.I', ''], 'inactive providers dropped; a row without a user name kept (it can be matched, never sent to)');
+  assert.deepStrictEqual(dirList.map((p) => p.user), ['EXAMPLE.E', 'HALE.R', 'HALE.J', 'CASTELL.I', '', '', 'INGRAM.S'], 'inactive providers dropped (Inactive, ProviderInactive); a row without a user name or with an inactive login kept (it can be matched, never sent to)');
+  assert.deepStrictEqual(dirList.slice(5).map((p) => [p.id, p.first, p.last]), [['108', 'Locked', 'Out'], ['109', 'Sable', 'Ingram']], 'EntryCode as the ID, names trimmed');
+  assert.strictEqual(notify.matchProvider({ first: 'Locked', last: 'Out', full: 'Locked Out' }, dirList).provider, undefined, 'inactive login: no task');
+  assert.strictEqual(notify.matchProvider({ first: 'Sable', last: 'Ingram', full: 'Sable Ingram' }, dirList).provider?.user, 'INGRAM.S');
   assert.deepStrictEqual(notify.parseProviders([{ ProviderName: 'Castell, Imani', UserName: 'IC' }, { Name: 'Rowan Q Hale', Username: 'RH' }]).map((p) => [p.first, p.last, p.user]), [['Imani', 'Castell', 'IC'], ['Rowan', 'Hale', 'RH']]);
   const mp = (first: string, last: string) => notify.matchProvider({ first, last, full: `${first} ${last}` }, dirList);
   assert.strictEqual(mp('Rowan', 'Hale').provider?.user, 'HALE.R');
