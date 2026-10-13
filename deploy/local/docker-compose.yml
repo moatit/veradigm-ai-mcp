@@ -64,6 +64,8 @@ services:
       - drawbridge-data:/app/data
       # Document intake drop folder (PHI; git-ignored): put files in ./intake/inbox
       - ./intake:/app/intake
+      # Named staff logins (npm run staff:user); used when .env sets DRAWBRIDGE_USERS_FILE=/run/drawbridge/drawbridge-users
+      - ./secrets:/run/drawbridge:ro
     restart: unless-stopped
     networks: [drawbridge]
 
