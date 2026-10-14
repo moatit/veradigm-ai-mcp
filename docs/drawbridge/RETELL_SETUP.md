@@ -32,6 +32,20 @@ docker exec drawbridge-dev-unity-1 node -e "fetch('http://localhost:3001/tools')
 
 Paste `retell-prompts/unity-healthcare-agent.md` as the agent prompt.
 
+## Retell API (current endpoints only)
+
+Use `deploy/local/retell/retell_api.py` (versions, publish, phone-numbers, llms, calls) instead of ad-hoc curl. Retell retired the legacy endpoints and warned us on Oct 12, 2026 after one-off demo scripts used them:
+
+| Retired | Use |
+|---|---|
+| `POST /publish-agent/{id}`, `POST /publish-chat-agent/{id}` | `POST /publish-agent-version/{id}` with `{"version": N}` |
+| `GET /get-agent-versions/{id}`, `GET /get-chat-agent-versions/{id}` | `GET /list-agent-versions/{id}` (paged) |
+| `POST /v2/list-calls` | `POST /v3/list-calls` (paged, up to 1,000 per page, `include_total`; no transcripts, GET the call for those) |
+| `GET /list-phone-numbers`, `/list-retell-llms`, `/list-conversation-flows`, ... | `GET /v2/list-...` (paged) |
+| `analysis_*_prompt` agent fields | `system-presets` entries in `post_call_analysis_data` (both agents already use them) |
+
+Paged responses are `{ items, has_more, pagination_key }`, not a bare array. Drawbridge's own code uses only `POST /v2/create-phone-call` (outreach dialer), which is current.
+
 ## Staff app
 
 `https://drawbridge.moatit.dev/app`. The login is `DRAWBRIDGE_USERNAME` / `DRAWBRIDGE_PASSWORD` in `deploy/local/.env`.
