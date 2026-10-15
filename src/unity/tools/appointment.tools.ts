@@ -252,7 +252,6 @@ export class UnityAppointmentTools {
       const appointmentXml = this.buildAppointmentXml(args);
 
       console.error(`[Unity Appointment] Saving appointment for patient ${args.patientId}`);
-      console.error(`[Unity Appointment] Date: ${args.appointmentDate} Time: ${args.appointmentTime}`);
 
       // Execute SaveAppointment action
       // Parameter1: Appointment XML

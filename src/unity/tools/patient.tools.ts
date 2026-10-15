@@ -172,9 +172,7 @@ export class UnityPatientTools {
         throw UnityErrorHandler.createValidationError("Last name is required");
       }
 
-      console.error(
-        `[Unity Patient] Saving patient: ${args.firstName} ${args.lastName}`,
-      );
+      console.error(`[Unity Patient] Saving new patient`); // never the name
 
       // Build patient XML for Unity SavePatient action
       const patientXml = this.buildPatientXml(args);
@@ -475,7 +473,7 @@ export class UnityPatientTools {
         throw UnityErrorHandler.createValidationError("MRN is required");
       }
 
-      console.error(`[Unity Patient] Getting patient by MRN: ${args.mrn}`);
+      console.error(`[Unity Patient] Getting patient by MRN`); // never the MRN
 
       const response = await this.unityService.executeAction<any>(
         UnityActions.Patient.GET_PATIENT_BY_MRN,
@@ -513,9 +511,7 @@ export class UnityPatientTools {
             (p) => String(p.mrn || "").trim() === normalizedMrn,
           );
           if (match) {
-            console.error(
-              `[Unity Patient] Using search result for MRN ${args.mrn}`,
-            );
+            console.error(`[Unity Patient] Using search result for the MRN`);
             patient = match;
           }
         } catch (searchErr) {

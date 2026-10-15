@@ -125,8 +125,8 @@ export class UnityService {
           Data: params.Data || '' // Required field - must be present
         };
 
-        console.error(`[Unity Service] Executing action: ${action}`);
-        console.error(`[Unity Service] Target: ${targetSystem}, PatientID: ${patientId || 'N/A'}`);
+        // Action and target only: patient IDs, names and parameters stay out of stdout (the audit log has the ID).
+        console.error(`[Unity Service] Executing action: ${action} (${targetSystem})`);
 
         // Execute the request. Reads get one retry when Veradigm's gateway blips (502/503/504, reset);
         // writes (Save*/Set*) never retry here, so a slow success can't be sent twice.
