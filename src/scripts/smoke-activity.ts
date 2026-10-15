@@ -46,7 +46,7 @@ async function main(): Promise<void> {
   }
   const lines = text.trim().split('\n').map((l) => JSON.parse(l));
   assert.strictEqual(lines.length, 3);
-  const keys = ['ts', 'server', 'call_id', 'tool', 'patient_id', 'success', 'error_code', 'latency_ms', 'channel'];
+  const keys = ['ts', 'server', 'kind', 'call_id', 'tool', 'patient_id', 'success', 'error_code', 'latency_ms', 'channel', 'prev', 'hash'];
   for (const l of lines) assert.deepStrictEqual(Object.keys(l).sort(), [...keys].sort());
   assert.strictEqual(lines[0].patient_id, '56500');
   assert.strictEqual(lines[0].latency_ms, 413);
@@ -65,6 +65,68 @@ async function main(): Promise<void> {
   assert.doesNotThrow(() => audit.auditToolCall({ server: 'unity', tool: undefined as any, success: true, latencyMs: NaN }));
   await audit.flushAudit();
   ok('audit write never throws into the request path');
+
+  // 2b. Tamper evidence: hash chain per server, verified per day file
+  const v1 = await audit.verifyAuditDay(day);
+  assert.ok(v1.ok, JSON.stringify(v1.errors));
+  assert.deepStrictEqual([v1.lines, v1.chained, v1.unchained], [3, 3, 0]);
+  assert.strictEqual(lines[0].prev, audit.genesisHash(day, 'unity'));
+  assert.strictEqual(lines[1].prev, audit.genesisHash(day, 'fhir'), 'fhir has its own chain in the shared file');
+  assert.strictEqual(lines[2].prev, lines[0].hash, 'unity line 2 chains to unity line 1');
+  const raw = text.trim().split('\n');
+  const copy = (rows: string[]) => {
+    const f = path.join(TMP, 'tamper', `${day}.jsonl`);
+    fs.mkdirSync(path.dirname(f), { recursive: true });
+    fs.writeFileSync(f, rows.join('\n') + '\n');
+    return audit.verifyAuditDay(f);
+  };
+  assert.ok((await copy(raw)).ok, 'an untouched copy verifies');
+  const edited = [...raw];
+  edited[0] = edited[0].replace('"success":true', '"success":false');
+  assert.ok(/edited/.test((await copy(edited)).errors[0]?.reason || ''), 'edited line detected');
+  assert.ok((await copy([raw[0], raw[1]])).ok, 'dropping the last lines is not detectable by the chain alone (documented)');
+  assert.ok(/chain broken/.test((await copy([raw[1], raw[2]])).errors[0]?.reason || ''), 'deleted line detected');
+  assert.ok(!(await copy([raw[2], raw[1], raw[0]])).ok, 'reordered lines detected');
+  assert.ok(!(await copy([raw[0], '{"ts":"x","server":"unity","tool":"y"}', raw[1], raw[2]])).ok, 'inserted unchained line detected');
+  const legacy = await copy(['{"ts":"2026-10-15T00:00:00Z","server":"unity","tool":"old"}', ...raw]);
+  assert.ok(legacy.ok && legacy.unchained === 1, 'lines written before the chain existed are counted, not failed');
+  assert.ok(!(await audit.verifyAuditDay('1999-01-01')).ok, 'missing file fails');
+  // A restart picks the chain up from the file
+  const before = fs.readFileSync(file, 'utf8').trim().split('\n').length;
+  audit.auditToolCall({ server: 'unity', tool: 'unity_get_patient', args: { patientId: '1' }, success: true, latencyMs: 1 });
+  await audit.flushAudit();
+  assert.strictEqual(fs.readFileSync(file, 'utf8').trim().split('\n').length, before + 1);
+  assert.ok((await audit.verifyAuditDay(day)).ok);
+  ok('audit hash chain: per-server SHA-256 chain verifies; edited, deleted, reordered and inserted lines are caught');
+
+  // 2c. Direct Veradigm actions from modules are audited (kind "action")
+  const { auditedUnity } = await import('../platform/audited-unity');
+  const fakeUnity: any = {
+    executeAction: async (action: string, _p: any, pid: string) => {
+      if (action === 'GetDocumentImage') throw Object.assign(new Error('x'), { code: 'TIMEOUT_ERROR' });
+      return action === 'SaveTask' ? { success: false, error: 'Magic Error' } : { success: true, data: [{ pid }] };
+    },
+    async helper(this: any) {
+      return this.executeAction('GetProviders', {}, '', 'EHR');
+    },
+  };
+  const view = auditedUnity(fakeUnity, 'intake');
+  await view.executeAction('SaveScanDocument', { Data: 'BASE64PDF' }, '56500', 'EHR');
+  await view.executeAction('SaveTask', { Parameter1: 'Lab review for Zelda' }, '56500', 'EHR');
+  await assert.rejects(view.executeAction('GetDocumentImage', {}, '', 'EHR'));
+  await view.helper();
+  await audit.flushAudit();
+  const actionLines = fs.readFileSync(file, 'utf8').trim().split('\n').map((l) => JSON.parse(l)).filter((l) => l.kind === 'action');
+  assert.deepStrictEqual(actionLines.map((l) => [l.tool, l.patient_id, l.success, l.error_code, l.channel]), [
+    ['SaveScanDocument', '56500', true, '', 'intake'],
+    ['SaveTask', '56500', false, 'UNITY_ERROR', 'intake'],
+    ['GetDocumentImage', '', false, 'TIMEOUT_ERROR', 'intake'],
+    ['GetProviders', '', true, '', 'intake'],
+  ]);
+  const all = fs.readFileSync(file, 'utf8');
+  assert.ok(!all.includes('BASE64PDF') && !all.includes('Zelda'), 'action parameters never stored');
+  assert.ok((await audit.verifyAuditDay(day)).ok);
+  ok('module Veradigm actions (SaveScanDocument, SaveTask, reads) audited with action, patient ID, outcome, latency');
 
   // 3. Metrics math
   const mk = (tool: string, latency: number, success = true): any => ({ ts: '', server: 'unity', call_id: '', tool, patient_id: '', success, error_code: '', latency_ms: latency, channel: '' });

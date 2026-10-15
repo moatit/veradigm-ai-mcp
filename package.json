@@ -35,6 +35,7 @@
     "eval:shadow": "ts-node src/scripts/eval-shadow.ts",
     "intake:import": "ts-node src/scripts/intake-import.ts",
     "staff:user": "ts-node src/scripts/staff-user.ts",
+    "audit:verify": "ts-node src/scripts/audit-verify.ts",
     "server:shadow": "ts-node src/platform/shadow-server.ts"
   },
   "keywords": [

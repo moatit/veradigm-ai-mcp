@@ -1,6 +1,7 @@
 import { createHash, timingSafeEqual } from 'crypto';
 import express, { Express, NextFunction, Request, Response } from 'express';
-import { platformModules, PlatformDeps } from './registry';
+import { auditedUnity } from './audited-unity';
+import { platformModules, PlatformDeps, PlatformModule } from './registry';
 import { APP_BASE, esc, navItems, page, registerNav, requireLogin, shellRouter } from './shell';
 import { errorSummary } from '../utils/safe-log';
 
@@ -45,6 +46,9 @@ export function mountPlatform(app: Express, deps: PlatformDeps): void {
 
   app.use(APP_BASE, shellRouter());
 
+  // Each module gets a Veradigm view that audits its direct actions (channel = module name).
+  const depsFor = new Map<PlatformModule, PlatformDeps>(modules.map((m) => [m, { ...deps, unity: auditedUnity(deps.unity, m.name) }]));
+
   app.get(APP_BASE, requireLogin, (req, res) => {
     const cards = navItems()
       .filter((n) => n.path)
@@ -65,10 +69,10 @@ export function mountPlatform(app: Express, deps: PlatformDeps): void {
 
   for (const m of modules) {
     if (m.appRouter && m.nav) {
-      app.use(`${APP_BASE}${m.nav.path}`, requireLogin, express.urlencoded({ extended: false }), m.appRouter(deps));
+      app.use(`${APP_BASE}${m.nav.path}`, requireLogin, express.urlencoded({ extended: false }), m.appRouter(depsFor.get(m)!));
     }
     if (m.apiRouter) {
-      app.use(`/api/${m.name}`, requireToolKey, express.json(), m.apiRouter(deps));
+      app.use(`/api/${m.name}`, requireToolKey, express.json(), m.apiRouter(depsFor.get(m)!));
     }
   }
 
@@ -77,7 +81,7 @@ export function mountPlatform(app: Express, deps: PlatformDeps): void {
 
   for (const m of modules) {
     try {
-      m.start?.(deps);
+      m.start?.(depsFor.get(m)!);
     } catch (e) {
       console.error(`[Drawbridge] module ${m.name} failed to start: ${errorSummary(e)}`);
     }

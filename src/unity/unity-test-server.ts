@@ -29,6 +29,7 @@ import { loadPlatformModules } from "../platform/modules";
 import { moduleForTool, platformTools, platformWriteTools, ToolContext } from "../platform/registry";
 import { mountPlatform, requireToolKey } from "../platform/app";
 import { auditToolCall } from "../platform/audit";
+import { auditedUnity } from "../platform/audited-unity";
 import { mountRetellWebhook } from "../platform/modules/activity";
 import { mountFaxWebhook } from "../platform/modules/intake";
 
@@ -44,7 +45,7 @@ const clinicalTools = new UnityClinicalTools(unityService);
 const billingTools = new UnityBillingTools(unityService);
 const taskTools = new UnityTaskTools(unityService);
 // Veradigm-required admin actions: GetServerInfo at start (cached), LastLogs after Veradigm-side errors.
-const diagnostics = new UnityDiagnostics({ unity: unityService, targets: configuredTargets });
+const diagnostics = new UnityDiagnostics({ unity: auditedUnity(unityService, "diagnostics"), targets: configuredTargets });
 unityService.onServerError((action, target, code) => diagnostics.onServerError(action, target, code));
 setUnityDiagnostics(diagnostics);
 loadPlatformModules();

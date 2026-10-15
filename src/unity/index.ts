@@ -9,6 +9,7 @@ import {
 import { unityConfig } from "./config/environment";
 import { configuredTargets, UnityAuthService } from "./services/unity-auth.service";
 import { setUnityDiagnostics, UnityDiagnostics } from "./services/unity-diagnostics";
+import { auditedUnity } from "../platform/audited-unity";
 import { UnityService } from "./services/unity.service";
 import { UnityAppointmentTools } from "./tools/appointment.tools";
 import { UnityPatientTools } from "./tools/patient.tools";
@@ -57,7 +58,7 @@ class VeradigmUnityMCPServer {
     this.authService = new UnityAuthService();
     this.unityService = new UnityService(this.authService);
     // Veradigm-required admin actions: GetServerInfo at start, LastLogs after Veradigm-side errors.
-    this.diagnostics = new UnityDiagnostics({ unity: this.unityService, targets: configuredTargets });
+    this.diagnostics = new UnityDiagnostics({ unity: auditedUnity(this.unityService, "diagnostics"), targets: configuredTargets });
     this.unityService.onServerError((action, target, code) => this.diagnostics.onServerError(action, target, code));
     setUnityDiagnostics(this.diagnostics);
 
