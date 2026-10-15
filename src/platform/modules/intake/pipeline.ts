@@ -10,6 +10,7 @@ import { OcrClient, OcrError, ocrReviewReason } from './ocr';
 import { isListedSender, partOcr, segmentItem, splitPages, type PageSegmentation } from './pages';
 import { shadowDecision, shadowMode, shadowSummary } from './shadow';
 import { IntakeItem, IntakeStore } from './store';
+import { envSeconds } from '../../clinic';
 
 export { partOcr, segmentItem, splitEnabled } from './pages';
 
@@ -17,7 +18,7 @@ export { partOcr, segmentItem, splitEnabled } from './pages';
  * Intake processing: received → read → split | matched | needs_review | failed.
  *
  * 1. Fax items: fetch the job (OCR text, sender) and the original from MOATiT Fax. While OCR is
- *    still running the item waits (re-checked every OCR_WAIT_MS, at most OCR_MAX_WAITS times).
+ *    still running the item waits (re-checked every INTAKE_OCR_WAIT_SEC, at most OCR_MAX_WAITS times).
  * 2. Read: the text layer / MOATiT Fax OCR; when there is none, Drawbridge's own OCR container
  *    (ocr.ts, INTAKE_OCR_URL). An OCR failure leaves the item 'failed' with an OCR_* code (staff
  *    can retry); OCR text below INTAKE_OCR_MIN_CONFIDENCE is never auto-matched. With
@@ -45,7 +46,8 @@ export { partOcr, segmentItem, splitEnabled } from './pages';
  * Without platform deps (before the module starts) items stop at 'read' and are resumed at start.
  * Logs carry item IDs and error codes only.
  */
-export const OCR_WAIT_MS = 60_000;
+/** Wait between OCR checks: INTAKE_OCR_WAIT_SEC (default 60, at least 5). */
+export const ocrWaitMs = (): number => envSeconds('INTAKE_OCR_WAIT_SEC', 60, 5) * 1000;
 export const OCR_MAX_WAITS = 5;
 
 export interface PipelineOptions {
@@ -384,7 +386,7 @@ export class IntakePipeline {
             store.update(item.id, { ocr_waits: waits }, 'OCR not finished; continuing without text');
           } else {
             store.update(item.id, { ocr_waits: waits }, 'waiting for OCR');
-            this.later(() => this.enqueue(item.id), OCR_WAIT_MS);
+            this.later(() => this.enqueue(item.id), ocrWaitMs());
             return false;
           }
         } else if (job.text.trim()) {

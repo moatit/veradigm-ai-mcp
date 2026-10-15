@@ -2,6 +2,7 @@ import axios from 'axios';
 import { outreachJobs } from './store';
 import { MAX_ATTEMPTS, OutreachJob } from './types';
 import { clinicParts, clinicTz, spokenDate, spokenTime, toE164 } from './util';
+import { clinicLabel } from '../../clinic';
 
 /**
  * Outbound calls through Retell (POST /v2/create-phone-call).
@@ -18,7 +19,7 @@ import { clinicParts, clinicTz, spokenDate, spokenTime, toE164 } from './util';
  * chart data.
  */
 export const RETELL_CREATE_CALL_URL = 'https://api.retellai.com/v2/create-phone-call';
-export const CLINIC_NAME = 'Idaho Kidney Institute';
+
 const QUIET_START = 9; // 09:00
 const QUIET_END = 19; // 19:00
 const MAX_PER_RUN = 25;
@@ -57,7 +58,7 @@ export function dynamicVariables(job: OutreachJob): Record<string, string> {
     appointment_time: job.appointment ? spokenTime(job.appointment.time) : '',
     provider_name: job.appointment?.provider || '',
     outreach_type: job.type,
-    clinic_name: CLINIC_NAME,
+    clinic_name: clinicLabel(), // CLINIC_NAME (no client name in code)
   };
 }
 

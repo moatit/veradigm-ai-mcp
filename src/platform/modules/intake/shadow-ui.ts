@@ -98,10 +98,10 @@ const patientText = (p?: { name: string; dateOfBirth: string; mrn?: string }) =>
 function truthText(t: GroundTruth): string {
   const who = `<span class="muted" style="font-size:13px"> · ${esc(t.by)} · ${esc(fmtTime(t.at))}${t.accepted ? ' · accepted as predicted' : ''}</span>`;
   if (t.outcome === 'patient') return `${patientText(t.patient)}${t.category ? ` · ${esc(t.category)}` : ''}${who}`;
-  if (t.outcome === 'not_iki') return `Not an IKI patient${who}`;
+  if (t.outcome === 'not_iki') return `Not a clinic patient${who}`;
   if (t.outcome === 'unreadable') return `Unreadable${who}`;
   const parts = (t.parts || [])
-    .map((p) => `<li>${esc(pageText(p.pages))}: ${p.patient ? patientText(p.patient) : 'not an IKI patient'}${p.category ? ` · ${esc(p.category)}` : ''}</li>`)
+    .map((p) => `<li>${esc(pageText(p.pages))}: ${p.patient ? patientText(p.patient) : 'not a clinic patient'}${p.category ? ` · ${esc(p.category)}` : ''}</li>`)
     .join('');
   return `Several patients${who}${parts ? `<ul>${parts}</ul>` : ''}`;
 }
@@ -196,9 +196,9 @@ ${accept ? `<div class="row">${accept}<span class="muted" style="font-size:13px"
 <form method="post" action="${action}/find" class="row" style="align-items:flex-end"><label style="flex:1;min-width:220px">Find the right patient<input name="q" value="${esc(s?.q || '')}" maxlength="80" placeholder="Last name, first name, DOB or MRN" autocomplete="off"></label><button class="secondary">Search the patient list</button></form>
 ${results}
 <hr style="border:0;border-top:1px solid var(--line);margin:12px 0">
-<div class="row">${button('not_iki', 'Not an IKI patient', true)}${button('unreadable', 'Unreadable', true)}${t ? button('clear', 'Remove confirmation', true) : ''}</div>
+<div class="row">${button('not_iki', 'Not a clinic patient', true)}${button('unreadable', 'Unreadable', true)}${t ? button('clear', 'Remove confirmation', true) : ''}</div>
 <details style="margin-top:12px"${isSplit ? ' open' : ''}><summary><strong>Several patients</strong> <span class="muted" style="font-size:13px">which pages belong to whom${i.page_count ? ` (${esc(i.page_count)} page(s))` : ''}</span></summary>
-<form method="post" action="${action}/confirm" style="margin-top:8px"><input type="hidden" name="action" value="several"><div class="scroll"><table><thead><tr><th>Pages</th><th>Patient (MRN${rosterPath() ? ' or chart ID' : ''}; "none" = not an IKI patient)</th><th>Category</th></tr></thead><tbody>${severalRows}</tbody></table></div>
+<form method="post" action="${action}/confirm" style="margin-top:8px"><input type="hidden" name="action" value="several"><div class="scroll"><table><thead><tr><th>Pages</th><th>Patient (MRN${rosterPath() ? ' or chart ID' : ''}; "none" = not a clinic patient)</th><th>Category</th></tr></thead><tbody>${severalRows}</tbody></table></div>
 <button>Save: several patients</button></form></details></div>`;
 
   return `<h2>Shadow mode</h2>${summary}<h2>Confirm</h2>${confirm}`;
@@ -350,7 +350,7 @@ export function mountConfirmRoutes(router: Router, deps: ConfirmDeps): void {
     };
 
     if (act === 'clear') return save(undefined, 'confirmation removed');
-    if (act === 'not_iki') return save({ at, by, outcome: 'not_iki' }, 'confirmed: not an IKI patient');
+    if (act === 'not_iki') return save({ at, by, outcome: 'not_iki' }, 'confirmed: not a clinic patient');
     if (act === 'unreadable') return save({ at, by, outcome: 'unreadable' }, 'confirmed: unreadable');
     if (act === 'accept') {
       if (item.shadow?.would === 'split' && item.split) {

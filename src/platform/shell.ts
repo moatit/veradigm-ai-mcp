@@ -1,6 +1,7 @@
 import { createHmac, randomBytes, scryptSync, timingSafeEqual } from 'crypto';
 import * as fs from 'fs';
 import express, { NextFunction, Request, Response, Router } from 'express';
+import { clinicLabel } from './clinic';
 import { LoginThrottle, loginWindowMs, passwordProblem, SessionRevocations, totpMatch } from './staff-auth';
 
 /**
@@ -16,6 +17,7 @@ import { LoginThrottle, loginWindowMs, passwordProblem, SessionRevocations, totp
  *   DRAWBRIDGE_IDLE_MINUTES                      session ends after this long without a request (default 15, sliding);
  *                                                the absolute limit stays 12 hours from sign-in
  *   CLINIC_TIMEZONE                              display timezone (default America/Boise)
+ *   CLINIC_NAME                                  practice name in the header (clinic.ts; "Drawbridge" when unset)
  * Brute-force lockout, password policy, TOTP and revocation: staff-auth.ts. Every page is served with a
  * Content-Security-Policy that allows no inline script (page behaviour lives in /app/assets/drawbridge.js).
  */
@@ -306,7 +308,7 @@ export function page(title: string, body: string, opts: { user?: string | null; 
     : '';
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${esc(title)}</title><style>${CSS}</style><script src="${APP_BASE}/assets/drawbridge.js" defer></script></head><body>
-<header>${MARK}<h1>Drawbridge</h1><span class="muted" style="font-size:13px">VeradigmAI · Idaho Kidney Institute</span><span class="sp"></span>${who}</header>
+<header>${MARK}<h1>Drawbridge</h1><span class="muted" style="font-size:13px">VeradigmAI · ${esc(clinicLabel())}</span><span class="sp"></span>${who}</header>
 ${tabs}<main>${body}</main></body></html>`;
 }
 

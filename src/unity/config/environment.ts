@@ -57,6 +57,18 @@ function getUnityEnvironmentConfig(): UnityEnvironmentConfig {
     }
   }
 
+  // Production never falls back to the Veradigm sandbox: the endpoint and both Ubiquity IDs are per client.
+  if (nodeEnv === "production") {
+    const missing = ["UNITY_UBIQUITY_ENDPOINT", "UNITY_UBIQUITY_ID_PM", "UNITY_UBIQUITY_ID_EHR"].filter(
+      (k) => !String(process.env[k] || "").trim()
+    );
+    if (missing.length) {
+      throw new Error(
+        `NODE_ENV=production: set ${missing.join(", ")} (no sandbox defaults in production)`
+      );
+    }
+  }
+
   return {
     nodeEnv,
 
@@ -74,7 +86,7 @@ function getUnityEnvironmentConfig(): UnityEnvironmentConfig {
     pmUsername: process.env.UNITY_PM_USERNAME || (process.env.UNITY_PM_SHARE_EHR_LOGIN === 'true' ? process.env.UNITY_EHR_USERNAME! : ''),
     pmPassword: process.env.UNITY_PM_PASSWORD || (process.env.UNITY_PM_SHARE_EHR_LOGIN === 'true' ? process.env.UNITY_EHR_PASSWORD! : ''),
 
-    // Unity Endpoints - Default to sandbox Ubiquity endpoint
+    // Unity Endpoints - sandbox defaults outside production only (checked above)
     ubiquityEndpoint:
       process.env.UNITY_UBIQUITY_ENDPOINT ||
       "https://ubiquityunity.azurewebsites.net/UnityService.svc",

@@ -200,6 +200,10 @@ function args(): { set: string; label: string; examples: number; ocr: string; ba
     console.error('usage: npm run eval:intake -- --set <dir> [--label name] [--ocr subdir] [--examples N]');
     process.exit(2);
   }
+  if (!process.env.CLINIC_NAME && !process.env.INTAKE_PRACTICE_NAME) {
+    // No clinic name in code any more: without it the receiving practice can be read as the sender.
+    console.error('note: set CLINIC_NAME (the practice the set was addressed to) for sender accuracy');
+  }
   return {
     set: path.resolve(set),
     label: get('--label') || '',

@@ -93,7 +93,7 @@ export interface IntakeItem {
   part?: { index: number; of: number; pages: number[] };
   /** Shadow mode (INTAKE_MODE=shadow): what Drawbridge would have done. Nothing is filed. */
   shadow?: ShadowDecision;
-  /** Shadow mode: what staff confirmed (patient and category, or not an IKI patient / unreadable / several). */
+  /** Shadow mode: what staff confirmed (patient and category, or not a clinic patient / unreadable / several). */
   truth?: GroundTruth;
   /** Shadow mode: where staff were seen to file it in Veradigm® EHR (observe.ts, read-only). */
   observed?: StaffObservation;
