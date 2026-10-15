@@ -28,6 +28,7 @@
     "smoke:huddle": "ts-node src/scripts/smoke-huddle.ts",
     "smoke:activity": "ts-node src/scripts/smoke-activity.ts",
     "smoke:unity-auth": "ts-node src/scripts/smoke-unity-auth.ts",
+    "smoke:endpoints": "ts-node src/scripts/smoke-endpoints.ts",
     "smoke:intake": "ts-node src/scripts/smoke-intake.ts && ts-node src/scripts/smoke-intake-shadow.ts && ts-node src/scripts/smoke-intake-rules.ts",
     "smoke:intake-rules": "ts-node src/scripts/smoke-intake-rules.ts",
     "smoke:intake-shadow": "ts-node src/scripts/smoke-intake-shadow.ts",

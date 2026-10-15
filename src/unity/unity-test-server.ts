@@ -7,7 +7,6 @@
  * Port: 3001
  */
 
-import cors from "cors";
 import express, { NextFunction, Request, Response } from "express";
 // Load env first so adminLogger gets ADMIN_PORTAL_URL and ADMIN_API_KEY
 import { adminLogger } from "../middleware/admin-logger";
@@ -28,6 +27,7 @@ import { currentMode } from "./oncall/call-mode";
 import { loadPlatformModules } from "../platform/modules";
 import { moduleForTool, platformTools, platformWriteTools, ToolContext } from "../platform/registry";
 import { mountPlatform, requireToolKey } from "../platform/app";
+import { corsFromEnv } from "../platform/cors";
 import { auditToolCall } from "../platform/audit";
 import { auditedUnity } from "../platform/audited-unity";
 import { mountRetellWebhook } from "../platform/modules/activity";
@@ -55,8 +55,9 @@ mountRetellWebhook(app);
 // MOATiT Fax deliveries (document intake): HMAC over the raw body, so also before express.json().
 mountFaxWebhook(app);
 
-// Middleware
-app.use(cors());
+// Middleware: CORS only for origins in DRAWBRIDGE_CORS_ORIGINS (default none: same origin only)
+app.disable("x-powered-by");
+app.use(corsFromEnv());
 app.use(express.json());
 
 // Request logging
@@ -67,20 +68,16 @@ app.use((req: Request, res: Response, next: NextFunction) => {
   next();
 });
 
-// Health check endpoint
+// Health check endpoint: open, so it says nothing about the Veradigm endpoint, app name or environment
 app.get("/health", (req: Request, res: Response) => {
   res.json({
     status: "healthy",
-    server: "unity-mcp",
-    environment: unityConfig.nodeEnv,
-    unityEndpoint: unityConfig.ubiquityEndpoint,
-    appName: unityConfig.appName,
     timestamp: new Date().toISOString(),
   });
 });
 
 // List all tools
-app.get("/tools", (req: Request, res: Response) => {
+app.get("/tools", requireToolKey, (req: Request, res: Response) => {
   res.json({ tools: getToolDefinitions() });
 });
 

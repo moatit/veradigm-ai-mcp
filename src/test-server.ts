@@ -1,6 +1,5 @@
 #!/usr/bin/env node
 
-import cors from "cors";
 import express from "express";
 import { config } from "./config/environment";
 import {
@@ -20,21 +19,16 @@ import { ErrorHandler } from "./utils/error-handler";
 import { failureText, toVoiceSummary } from "./utils/response-formatter";
 import { markRedacted } from "./utils/redaction";
 import { requireToolKey } from "./platform/app";
+import { corsFromEnv } from "./platform/cors";
 import { auditToolCall } from "./platform/audit";
 import { DISABLED_FHIR_TOOLS, disabledToolMessage } from "./config/disabled-tools";
 import { errorSummary } from "./utils/safe-log";
 
 const app = express();
 
-// Enable CORS for Retell AI and other external services
-app.use(
-  cors({
-    origin: "*",
-    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With"],
-    credentials: false,
-  }),
-);
+// CORS only for origins in DRAWBRIDGE_CORS_ORIGINS (default none: same origin only). Retell calls server to server.
+app.disable("x-powered-by");
+app.use(corsFromEnv());
 
 app.use(express.json());
 
@@ -50,6 +44,10 @@ app.use((req, res, next) => {
   };
   next();
 });
+
+// Every route that lists tools, returns patient data or acts on it needs the tool key (fails closed when unset).
+// Only /health stays open.
+app.use(["/mcp", "/tools", "/test", "/api"], requireToolKey);
 
 // Initialize services (same as index.ts)
 const authService = new AuthService();
@@ -127,11 +125,10 @@ async function runFhirTool(name: string, args: any): Promise<any> {
 }
 
 // Health check endpoint
+// Open, so it says nothing about the Veradigm endpoint or environment.
 app.get("/health", (req, res) => {
   res.json({
     status: "healthy",
-    environment: config.nodeEnv,
-    fhirBaseUrl: config.fhirBaseUrl,
     timestamp: new Date().toISOString(),
   });
 });

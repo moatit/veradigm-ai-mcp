@@ -13,19 +13,19 @@ function safeEqual(a: string, b: string): boolean {
 }
 
 /**
- * Shared-secret check for machine endpoints (Retell tool calls, webhooks, schedulers).
- * Set DRAWBRIDGE_TOOL_KEY and send it as `x-drawbridge-key` (Retell: custom function header).
- * When unset, requests are allowed but a warning is logged once — fine on localhost only.
+ * Shared-secret check for machine endpoints (Retell tool calls, webhooks, schedulers, test and
+ * diagnostics routes). Set DRAWBRIDGE_TOOL_KEY and send it as `x-drawbridge-key` (Retell: custom
+ * function header). Fails closed: when the key is unset every such request gets 503 "not configured".
  */
 let warned = false;
 export function requireToolKey(req: Request, res: Response, next: NextFunction): void {
   const key = process.env.DRAWBRIDGE_TOOL_KEY;
   if (!key) {
     if (!warned) {
-      console.warn('[Drawbridge] DRAWBRIDGE_TOOL_KEY is not set: tool endpoints are open. Set it before exposing a public URL.');
+      console.warn('[Drawbridge] DRAWBRIDGE_TOOL_KEY is not set: tool endpoints refuse every request (503) until it is.');
       warned = true;
     }
-    next();
+    res.status(503).json({ error: 'not configured' });
     return;
   }
   const given = String(req.headers['x-drawbridge-key'] || '');
