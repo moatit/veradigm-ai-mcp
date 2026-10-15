@@ -97,17 +97,26 @@ export const UnityActions = {
     GET_APPOINTMENTS: action('GET_APPOINTMENTS', 'GetScheduleByPatientID'),
     GET_APPOINTMENT_BY_ID: action('GET_APPOINTMENT_BY_ID', 'GetAppointmentById'),
     SAVE_APPOINTMENT: action('SAVE_APPOINTMENT', 'SaveAppointment'),
-    // Cancellation is a status change: SetAppointmentStatus(appointmentId, 'X', reason) (Kanhaiya, main 0a4e3c4; not yet run on the sandbox).
+    // Cancellation is a status change (Veradigm PM SetAppointmentStatus spec): Parameter1 appointment ID,
+    // Parameter2 status letter (X), Parameter4 update time HHMM, Parameter6 cancellation reason ID.
     CANCEL_APPOINTMENT: action('CANCEL_APPOINTMENT', 'SetAppointmentStatus'),
     SET_APPOINTMENT_STATUS: action('SET_APPOINTMENT_STATUS', 'SetAppointmentStatus'),
     // Sandbox Oct 9: GetAvailableSchedule(resource ABBREVIATION, start, end) returns one row per day with
     // 5-minute bitmaps (see decodeAvailability). GetOpenSlots is not licensed; a numeric resource ID returns 0 rows.
     GET_OPEN_SLOTS: action('GET_OPEN_SLOTS', 'GetAvailableSchedule'),
     GET_CANCELLATION_REASONS: action('GET_CANCELLATION_REASONS', 'GetAppointmentCancellationReasons'),
+    // SetAppointmentStatus Parameter5 (confirmation result ID) for unity_confirm_appointment.
+    GET_CONFIRMATION_RESULTS: action('GET_CONFIRMATION_RESULTS', 'GetAppointmentConfirmationResults'),
     GET_APPOINTMENT_TYPES: action('GET_APPOINTMENT_TYPES', 'GetAppointmentTypes'),
     GET_APPOINTMENTS_BY_CHANGE: action('GET_APPOINTMENTS_BY_CHANGE', 'GetAppointmentsByChangeDTTM'),
     GET_RECALLS: action('GET_RECALLS', 'GetRecalls'),
-    GET_RESOURCES: action('GET_RESOURCES', 'GetResources')
+    GET_RESOURCES: action('GET_RESOURCES', 'GetResources'),
+    // SaveAppointment needs <schedulingLocation>/<schedulingDepartment> abbreviations plus their IDs
+    // (Veradigm PM SaveAppointment spec, 10/13/2026). GetAvailableSchedule rows carry the IDs; these
+    // lookups (cached 1 h) map ID <-> abbreviation. Sandbox Oct 15: both return rows with
+    // Scheduling_Location_ID / Scheduling_Department_ID and Abbreviation.
+    GET_SCHEDULING_LOCATIONS: action('GET_SCHEDULING_LOCATIONS', 'GetSchedulingLocations'),
+    GET_SCHEDULING_DEPARTMENTS: action('GET_SCHEDULING_DEPARTMENTS', 'GetSchedulingDepartments')
   },
 
   // Billing Actions (Veradigm PM)

@@ -204,6 +204,9 @@ async function unityChecks(A: typeof UnityActionsT): Promise<void> {
   await unityCheck('PM reads', A.Scheduling.GET_RESOURCES, A.Scheduling.GET_RESOURCES, {}, '', 'PM', 'P0');
   await unityCheck('PM reads', A.Scheduling.GET_CANCELLATION_REASONS, A.Scheduling.GET_CANCELLATION_REASONS, {}, '', 'PM', 'P0');
   await unityCheck('PM reads', A.Scheduling.GET_APPOINTMENT_TYPES, A.Scheduling.GET_APPOINTMENT_TYPES, {}, '', 'PM', 'P1');
+  await unityCheck('PM reads', A.Scheduling.GET_SCHEDULING_LOCATIONS, A.Scheduling.GET_SCHEDULING_LOCATIONS, {}, '', 'PM', 'P1');
+  await unityCheck('PM reads', A.Scheduling.GET_SCHEDULING_DEPARTMENTS, A.Scheduling.GET_SCHEDULING_DEPARTMENTS, {}, '', 'PM', 'P1');
+  await unityCheck('PM reads', A.Scheduling.GET_CONFIRMATION_RESULTS, A.Scheduling.GET_CONFIRMATION_RESULTS, {}, '', 'PM', 'P1');
   if (APPT_ID) {
     await unityCheck('PM reads', `${A.Scheduling.GET_APPOINTMENT_BY_ID} ${APPT_ID}`, A.Scheduling.GET_APPOINTMENT_BY_ID, { Parameter1: APPT_ID }, U_PID, 'PM', 'P1');
   } else {
