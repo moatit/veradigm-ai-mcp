@@ -3,6 +3,7 @@ import NodeCache from "node-cache";
 import { randomUUID, sign } from "crypto";
 import { readFileSync } from "fs";
 import { config } from "../config/environment";
+import { errorSummary } from "../utils/safe-log";
 
 export interface TokenResponse {
   access_token: string;
@@ -112,7 +113,8 @@ export class AuthService {
 
       return response.data;
     } catch (error) {
-      console.error("Authentication failed:", error);
+      // Never the axios error itself: its request body holds the client secret or signed assertion.
+      console.error(`Authentication failed: ${errorSummary(error)}`);
       if (axios.isAxiosError(error)) {
         const authError = error.response?.data as AuthError;
         throw new Error(
@@ -132,7 +134,7 @@ export class AuthService {
       await this.getAccessToken();
       console.log("[Auth] Token cache warmed up successfully");
     } catch (error) {
-      console.error("[Auth] Failed to pre-warm token cache:", error);
+      console.error(`[Auth] Failed to pre-warm token cache: ${errorSummary(error)}`);
     }
   }
 

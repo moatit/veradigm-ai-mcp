@@ -2,6 +2,7 @@ import { createHash, timingSafeEqual } from 'crypto';
 import express, { Express, NextFunction, Request, Response } from 'express';
 import { platformModules, PlatformDeps } from './registry';
 import { APP_BASE, esc, navItems, page, registerNav, requireLogin, shellRouter } from './shell';
+import { errorSummary } from '../utils/safe-log';
 
 /** Constant-time compare of two secrets of any length. */
 function safeEqual(a: string, b: string): boolean {
@@ -78,7 +79,7 @@ export function mountPlatform(app: Express, deps: PlatformDeps): void {
     try {
       m.start?.(deps);
     } catch (e) {
-      console.error(`[Drawbridge] module ${m.name} failed to start:`, e);
+      console.error(`[Drawbridge] module ${m.name} failed to start: ${errorSummary(e)}`);
     }
   }
 }

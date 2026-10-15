@@ -2,6 +2,7 @@ import { Tool } from "@modelcontextprotocol/sdk/types.js";
 import { UnityActions, UnityTargetSystem } from "../config/unity-endpoints";
 import { UnityService } from "../services/unity.service";
 import { UnityErrorHandler, UnityMCPError } from "../utils/error-handler";
+import { errorSummary } from "../../utils/safe-log";
 
 /**
  * Patient Demographics Data Structure
@@ -519,8 +520,7 @@ export class UnityPatientTools {
           }
         } catch (searchErr) {
           console.error(
-            `[Unity Patient] Fallback search by MRN failed:`,
-            searchErr,
+            `[Unity Patient] Fallback search by MRN failed: ${errorSummary(searchErr)}`,
           );
         }
       }

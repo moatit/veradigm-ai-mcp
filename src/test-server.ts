@@ -22,6 +22,7 @@ import { markRedacted } from "./utils/redaction";
 import { requireToolKey } from "./platform/app";
 import { auditToolCall } from "./platform/audit";
 import { DISABLED_FHIR_TOOLS, disabledToolMessage } from "./config/disabled-tools";
+import { errorSummary } from "./utils/safe-log";
 
 const app = express();
 
@@ -591,7 +592,7 @@ app.post("/test/search-patient", async (req, res) => {
     const result = await patientTools.searchPatient({ name, birthDate });
     res.json(result);
   } catch (error: any) {
-    console.error("Error in patient search:", error);
+    console.error(`Error in patient search: ${errorSummary(error)}`);
     res
       .status(500)
       .json({ error: "Failed to search patients", details: error.message });
@@ -605,7 +606,7 @@ app.post("/test/patient-details", async (req, res) => {
     const result = await patientTools.getPatientDetails({ patientId });
     res.json(result);
   } catch (error: any) {
-    console.error("Error getting patient details:", error);
+    console.error(`Error getting patient details: ${errorSummary(error)}`);
     res
       .status(500)
       .json({ error: "Failed to get patient details", details: error.message });
@@ -623,7 +624,7 @@ app.get("/test/auth", async (req, res) => {
       timestamp: new Date().toISOString(),
     });
   } catch (error: any) {
-    console.error("Error testing authentication:", error);
+    console.error(`Error testing authentication: ${errorSummary(error)}`);
     res.status(500).json({
       error: "Authentication failed",
       details: error.message,

@@ -16,6 +16,7 @@ import { UnityBillingTools } from "./tools/billing.tools";
 import { UnityTaskTools } from "./tools/task.tools";
 import { toToolFailure } from "./utils/tool-result";
 import { UnityErrorHandler } from "./utils/error-handler";
+import { errorSummary } from "../utils/safe-log";
 
 /**
  * Veradigm Unity MCP Server
@@ -187,7 +188,7 @@ class VeradigmUnityMCPServer {
         await this.unityService.cleanup();
         console.error("[Unity MCP] Cleanup completed");
       } catch (error) {
-        console.error("[Unity MCP] Cleanup error:", error);
+        console.error(`[Unity MCP] Cleanup error: ${errorSummary(error)}`);
       }
       process.exit(0);
     };
@@ -225,6 +226,6 @@ class VeradigmUnityMCPServer {
 // Start the server
 const server = new VeradigmUnityMCPServer();
 server.start().catch((error) => {
-  console.error("Failed to start Unity MCP server:", error);
+  console.error(`Failed to start Unity MCP server: ${errorSummary(error)}`);
   process.exit(1);
 });

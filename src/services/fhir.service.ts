@@ -77,14 +77,9 @@ export class FHIRService {
     } catch (error) {
       // Log detailed error for debugging
       if (axios.isAxiosError(error) && error.response) {
+        // Status only: the query params are patient search terms and the response can hold chart data.
         console.error(
           `FHIR Search Error [${resourceType}]: Status ${error.response.status}`
-        );
-        console.error(`URL: ${error.config?.url}`);
-        console.error(`Params:`, error.config?.params);
-        console.error(
-          `Response:`,
-          JSON.stringify(error.response.data, null, 2)
         );
       }
       throw this.handleFHIRError(error);
@@ -273,7 +268,6 @@ export class FHIRService {
         const status = error.response.status;
         const data = error.response.data;
         console.error(`FHIR POST Error [${resourceType}]: Status ${status}`);
-        console.error(`Response: ${JSON.stringify(data, null, 2)}`);
 
         // Check if it's a 404 on POST - means create operation not supported
         if (status === 404) {

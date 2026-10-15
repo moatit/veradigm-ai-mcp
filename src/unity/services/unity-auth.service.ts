@@ -2,6 +2,7 @@ import axios, { AxiosResponse } from 'axios';
 import NodeCache from 'node-cache';
 import { unityConfig } from '../config/environment';
 import { getUbiquityId, unityEndpoints, UnityActions, UnityTargetSystem } from '../config/unity-endpoints';
+import { errorSummary } from '../../utils/safe-log';
 
 /**
  * Unity Security Token Response
@@ -56,13 +57,7 @@ export function isTokenRejection(message: unknown): boolean {
  * itself: its config carries the request body (service password, EHR/PM user password, token).
  */
 export function authErrorSummary(error: unknown): string {
-  const e = error as any;
-  const status = e?.response?.status ? `HTTP ${e.response.status}` : '';
-  const code = typeof e?.code === 'string' ? e.code : '';
-  const data = e?.response?.data;
-  const raw = (data && (data.Error || data.error)) || e?.message || String(error ?? '');
-  const msg = String(raw).replace(/\s+/g, ' ').slice(0, 160);
-  return [status, code, msg].filter(Boolean).join(' ');
+  return errorSummary(error);
 }
 
 /**
