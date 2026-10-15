@@ -89,7 +89,7 @@ function getUnityEnvironmentConfig(): UnityEnvironmentConfig {
     // Unity Endpoints - sandbox defaults outside production only (checked above)
     ubiquityEndpoint:
       process.env.UNITY_UBIQUITY_ENDPOINT ||
-      "https://ubiquityunity.azurewebsites.net/UnityService.svc",
+      "https://open-uny-ubiquity.platform.veradigm.com/UnityService.svc",
     ubiquityIdPM: process.env.UNITY_UBIQUITY_ID_PM || "VHCP001PM:PMGA02^8^",
     ubiquityIdEHR: process.env.UNITY_UBIQUITY_ID_EHR || "AHMCP00101:CP00101^1^",
 

@@ -6,7 +6,7 @@ All patients below are **Veradigm sandbox test records, not real people.** No cr
 
 | What | Value | Source |
 |---|---|---|
-| Unity (sandbox) | `https://ubiquityunity.azurewebsites.net/UnityService.svc/json/` (`GetToken`, `MagicJson`, `RetireToken`) | Kanaya, Oct 8 email; repo `unity-endpoints.ts` |
+| Unity (sandbox) | `https://open-uny-ubiquity.platform.veradigm.com/UnityService.svc/json/` (`GetToken`, `MagicJson`, `RetireToken`) | Kanaya, Oct 8 email; repo `unity-endpoints.ts` |
 | FHIR (sandbox, current) | `https://scmlatestdev.open.allscripts.com/FHIR` | Kanaya, Oct 8 email |
 | FHIR capability statement | `GET [base]/metadata` | Veradigm FHIR docs |
 | FHIR endpoint directory | `https://open.platform.veradigm.com/fhirendpoints` | Veradigm FHIR docs |

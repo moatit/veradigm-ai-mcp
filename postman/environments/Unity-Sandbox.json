@@ -10,7 +10,7 @@
     },
     {
       "key": "unity_base_url",
-      "value": "https://ubiquityunity.azurewebsites.net/UnityService.svc",
+      "value": "https://open-uny-ubiquity.platform.veradigm.com/UnityService.svc",
       "type": "default",
       "enabled": true
     },
