@@ -209,7 +209,7 @@ export class FallbackDocTypes {
         if (!this.fallback) throw e;
       }
     }
-    if (!this.fallback) throw UnityErrorHandler.createAPIError('No category source', 'GetDocumentType');
+    if (!this.fallback) throw UnityErrorHandler.createAPIError('No category source', UnityActions.Document.GET_DOCUMENT_TYPES);
     return this.fallback.list();
   }
 

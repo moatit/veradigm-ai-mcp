@@ -270,7 +270,7 @@ export class UnityAppointmentTools {
       if (!response.success) {
         throw UnityErrorHandler.createAPIError(
           response.error || 'Failed to save appointment',
-          'SaveAppointment'
+          UnityActions.Scheduling.SAVE_APPOINTMENT
         );
       }
 
@@ -288,7 +288,7 @@ export class UnityAppointmentTools {
       if (error instanceof UnityMCPError) {
         throw error;
       }
-      throw UnityErrorHandler.handleUnknownError(error, 'SaveAppointment');
+      throw UnityErrorHandler.handleUnknownError(error, UnityActions.Scheduling.SAVE_APPOINTMENT);
     }
   }
 
@@ -446,7 +446,7 @@ export class UnityAppointmentTools {
       if (error instanceof UnityMCPError) {
         throw error;
       }
-      throw UnityErrorHandler.handleUnknownError(error, 'GetOpenSlots');
+      throw UnityErrorHandler.handleUnknownError(error, UnityActions.Scheduling.GET_OPEN_SLOTS);
     }
   }
 
@@ -495,7 +495,7 @@ export class UnityAppointmentTools {
       if (error instanceof UnityMCPError) {
         throw error;
       }
-      throw UnityErrorHandler.handleUnknownError(error, 'GetScheduleByPatientID');
+      throw UnityErrorHandler.handleUnknownError(error, UnityActions.Scheduling.GET_APPOINTMENTS);
     }
   }
 

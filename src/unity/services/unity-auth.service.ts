@@ -1,7 +1,7 @@
 import axios, { AxiosResponse } from 'axios';
 import NodeCache from 'node-cache';
 import { unityConfig } from '../config/environment';
-import { getUbiquityId, unityEndpoints, UnityTargetSystem } from '../config/unity-endpoints';
+import { getUbiquityId, unityEndpoints, UnityActions, UnityTargetSystem } from '../config/unity-endpoints';
 
 /**
  * Unity Security Token Response
@@ -167,7 +167,7 @@ export class UnityAuthService {
 
       // Call GetUserAuthentication via MagicJson
       const payload = {
-        Action: 'GetUserAuthentication',
+        Action: UnityActions.Auth.GET_USER_AUTHENTICATION,
         Appname: unityConfig.appName,
         AppUserID: login.user,
         PatientID: '',

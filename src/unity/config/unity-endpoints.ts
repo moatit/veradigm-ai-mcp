@@ -131,6 +131,8 @@ export const UnityActions = {
 
   // Clinical Actions (Veradigm EHR, read only)
   Clinical: {
+    // Recent results / vitals (getRecentResults) and the section-based reads below.
+    GET_CLINICAL_SUMMARY: action('GET_CLINICAL_SUMMARY', 'GetClinicalSummary'),
     // Sandbox Oct 9: GetClinicalSummary with a section name (Parameter1) returns the chart summary rows for
     // medications / allergies / problems. GetProblems returns the full history (250 rows), GetAllergies 0 rows.
     GET_PATIENT_PROBLEMS: action('GET_PATIENT_PROBLEMS', 'GetClinicalSummary'),
