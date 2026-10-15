@@ -5,6 +5,7 @@ import { outreachModule } from './modules/outreach';
 import { huddleModule } from './modules/huddle';
 import { activityModule } from './modules/activity';
 import { intakeModule } from './modules/intake';
+import { veradigmModule } from './modules/veradigm';
 
 /**
  * Every Drawbridge platform module, registered once at startup.
@@ -20,4 +21,5 @@ export function loadPlatformModules(): void {
   registerModule(huddleModule);
   registerModule(activityModule);
   registerModule(intakeModule);
+  registerModule(veradigmModule);
 }

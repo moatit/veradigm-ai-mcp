@@ -13,7 +13,8 @@ import express, { NextFunction, Request, Response } from "express";
 import { adminLogger } from "../middleware/admin-logger";
 import { toVoiceSummary } from "../utils/response-formatter";
 import { unityConfig } from "./config/environment";
-import { UnityAuthService } from "./services/unity-auth.service";
+import { configuredTargets, UnityAuthService } from "./services/unity-auth.service";
+import { setUnityDiagnostics, UnityDiagnostics } from "./services/unity-diagnostics";
 import { UnityService } from "./services/unity.service";
 import { UnityAppointmentTools } from "./tools/appointment.tools";
 import { UnityClinicalTools } from "./tools/clinical.tools";
@@ -42,6 +43,10 @@ const patientTools = new UnityPatientTools(unityService);
 const clinicalTools = new UnityClinicalTools(unityService);
 const billingTools = new UnityBillingTools(unityService);
 const taskTools = new UnityTaskTools(unityService);
+// Veradigm-required admin actions: GetServerInfo at start (cached), LastLogs after Veradigm-side errors.
+const diagnostics = new UnityDiagnostics({ unity: unityService, targets: configuredTargets });
+unityService.onServerError((action, target, code) => diagnostics.onServerError(action, target, code));
+setUnityDiagnostics(diagnostics);
 loadPlatformModules();
 
 // Retell call events: needs the raw body for verification, so it goes before express.json().
@@ -396,17 +401,19 @@ app.get("/test/auth", requireToolKey, async (req: Request, res: Response) => {
   }
 });
 
-// Test server info endpoint
+// Veradigm connection (GetServerInfo, cached): product, version and time zone per configured system only.
+app.get("/diagnostics/veradigm", requireToolKey, (req: Request, res: Response) => {
+  const lastLogs = diagnostics.lastLogs();
+  res.json({
+    server_info: diagnostics.serverInfo(),
+    last_logs: { count: lastLogs.length, latest_at: lastLogs[0]?.at || null },
+    timestamp: new Date().toISOString(),
+  });
+});
+
+// Test server info endpoint: re-runs GetServerInfo now (same summary fields, never the raw reply)
 app.get("/test/serverinfo", requireToolKey, async (req: Request, res: Response) => {
-  try {
-    const serverInfo = await unityService.getServerInfo("EHR");
-    res.json(serverInfo);
-  } catch (error: any) {
-    res.status(500).json({
-      error: error.message,
-      timestamp: new Date().toISOString(),
-    });
-  }
+  res.json({ server_info: await diagnostics.refreshServerInfo(true), timestamp: new Date().toISOString() });
 });
 
 // Drawbridge platform: staff app at /app, module APIs at /api/<module>
@@ -417,8 +424,9 @@ mountPlatform(app, {
 
 // Start server
 app.listen(PORT, () => {
-  // Pre-warm auth tokens so first Retell call doesn't wait for auth
-  authService.getSecurityToken("EHR").catch(() => {});
+  // First token + login per configured system, then GetServerInfo (also pre-warms auth for the first Retell call).
+  // A failure is logged and shown as "unavailable"; it never stops the server.
+  diagnostics.start();
 
   console.log("");
   console.log(

@@ -7,7 +7,8 @@ import {
   ListToolsRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 import { unityConfig } from "./config/environment";
-import { UnityAuthService } from "./services/unity-auth.service";
+import { configuredTargets, UnityAuthService } from "./services/unity-auth.service";
+import { setUnityDiagnostics, UnityDiagnostics } from "./services/unity-diagnostics";
 import { UnityService } from "./services/unity.service";
 import { UnityAppointmentTools } from "./tools/appointment.tools";
 import { UnityPatientTools } from "./tools/patient.tools";
@@ -32,6 +33,7 @@ class VeradigmUnityMCPServer {
   private server: Server;
   private authService: UnityAuthService;
   private unityService: UnityService;
+  private diagnostics: UnityDiagnostics;
   private appointmentTools: UnityAppointmentTools;
   private patientTools: UnityPatientTools;
   private clinicalTools: UnityClinicalTools;
@@ -54,6 +56,10 @@ class VeradigmUnityMCPServer {
     // Initialize services
     this.authService = new UnityAuthService();
     this.unityService = new UnityService(this.authService);
+    // Veradigm-required admin actions: GetServerInfo at start, LastLogs after Veradigm-side errors.
+    this.diagnostics = new UnityDiagnostics({ unity: this.unityService, targets: configuredTargets });
+    this.unityService.onServerError((action, target, code) => this.diagnostics.onServerError(action, target, code));
+    setUnityDiagnostics(this.diagnostics);
 
     // Initialize tool classes
     this.appointmentTools = new UnityAppointmentTools(this.unityService);
@@ -200,6 +206,7 @@ class VeradigmUnityMCPServer {
   async start(): Promise<void> {
     const transport = new StdioServerTransport();
     await this.server.connect(transport);
+    this.diagnostics.start();
 
     console.error(
       `Veradigm Unity MCP Server started (${unityConfig.nodeEnv} environment)`

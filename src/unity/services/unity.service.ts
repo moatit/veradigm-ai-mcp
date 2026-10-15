@@ -2,6 +2,7 @@ import axios, { AxiosResponse } from 'axios';
 import { unityConfig } from '../config/environment';
 import { unityEndpoints, UnityActions, UnityTargetSystem } from '../config/unity-endpoints';
 import { isTokenRejection, UnityAuthService, unityLogin } from './unity-auth.service';
+import { isServerSideError, isUnexpectedUnityError } from './unity-diagnostics';
 
 /**
  * Unity Magic Request Parameters
@@ -54,9 +55,13 @@ export class UnityAPIError extends Error {
  * Wrapper for Unity MagicJson API calls.
  * Handles authentication, request formatting, and response parsing.
  */
+/** Called when an action fails on Veradigm's side (diagnostics: LastLogs). Must not throw or block. */
+export type ServerErrorHook = (action: string, target: UnityTargetSystem, code: string) => unknown;
+
 export class UnityService {
   private authService: UnityAuthService;
   private currentTarget: UnityTargetSystem = 'EHR';
+  private serverErrorHook: ServerErrorHook | null = null;
 
   constructor(authService: UnityAuthService) {
     this.authService = authService;
@@ -67,6 +72,21 @@ export class UnityService {
    */
   setTarget(target: UnityTargetSystem): void {
     this.currentTarget = target;
+  }
+
+  /** Register the server-side error hook (UnityDiagnostics.onServerError). */
+  onServerError(hook: ServerErrorHook | null): void {
+    this.serverErrorHook = hook;
+  }
+
+  /** Tell diagnostics about a server-side failure. Never for LastLogs itself (no loop), never throws. */
+  private notifyServerError(action: string, target: UnityTargetSystem, code: string): void {
+    if (!this.serverErrorHook || action === UnityActions.Admin.LAST_LOG) return;
+    try {
+      Promise.resolve(this.serverErrorHook(action, target, code)).catch(() => undefined);
+    } catch {
+      // diagnostics must never break the call
+    }
   }
 
   /**
@@ -148,6 +168,7 @@ export class UnityService {
           this.authService.invalidate(targetSystem, token);
           continue;
         }
+        if (!parsed.success && isUnexpectedUnityError(parsed.error)) this.notifyServerError(action, targetSystem, 'UNITY_ERROR');
         return parsed;
       } catch (error: any) {
         if (attempt === 0 && token && error?.response?.status === 401) {
@@ -157,7 +178,11 @@ export class UnityService {
         }
         // Message only: the full axios error carries the request body, including the session token.
         console.error(`[Unity Service] Action ${action} failed: ${error?.response?.status || error?.code || ''} ${String(error?.message || error).slice(0, 200)}`);
-        throw this.handleError(error, action);
+        const handled = this.handleError(error, action);
+        if (isServerSideError(handled.code) || (handled.code === 'API_ERROR' && Number(error?.response?.status) >= 500)) {
+          this.notifyServerError(action, targetSystem, handled.code);
+        }
+        throw handled;
       }
     }
   }

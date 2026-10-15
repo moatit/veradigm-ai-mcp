@@ -418,6 +418,14 @@ export class UnityAuthService {
   }
 }
 
+/** Targets with a usable EHR/PM login (PM is optional; calls to an unconfigured target are refused locally). */
+export function configuredTargets(): UnityTargetSystem[] {
+  return (['PM', 'EHR'] as UnityTargetSystem[]).filter((t) => {
+    const l = unityLogin(t);
+    return !!l.user && !!l.password && !/^placeholder/i.test(l.user);
+  });
+}
+
 /** EHR/PM login for a Unity target (AppUserID + password). */
 export function unityLogin(target: UnityTargetSystem): { user: string; password: string } {
   return target === 'PM'
