@@ -44,6 +44,10 @@ export function mountPlatform(app: Express, deps: PlatformDeps): void {
   // Drawbridge Admin (call reports, monitoring, client API keys): separate Next.js app
   if (process.env.ADMIN_PUBLIC_URL) registerNav({ path: process.env.ADMIN_PUBLIC_URL, label: 'Admin console', order: 90 });
 
+  // Behind nginx / a tunnel: DRAWBRIDGE_TRUST_PROXY (hop count, e.g. 1) so the login lockout sees client IPs.
+  const trustProxy = String(process.env.DRAWBRIDGE_TRUST_PROXY || '').trim();
+  if (trustProxy) app.set('trust proxy', /^\d+$/.test(trustProxy) ? Number(trustProxy) : trustProxy);
+
   app.use(APP_BASE, shellRouter());
 
   // Each module gets a Veradigm view that audits its direct actions (channel = module name).

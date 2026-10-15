@@ -160,27 +160,10 @@ export function queuePage(
     : '<div class="card empty muted">No documents here.</div>';
 
   const upload = `<details class="card"><summary><strong>Upload a document</strong> <span class="muted" style="font-size:13px">PDF, TIFF, PNG or JPEG</span></summary>
-<form id="intake-upload" style="margin-top:10px"><p><label>File<input type="file" name="file" accept=".pdf,.tif,.tiff,.png,.jpg,.jpeg" required></label></p>
+<form id="intake-upload" style="margin-top:10px" data-upload-url="${APP_BASE}/intake/upload" data-upload-type="${esc(UPLOAD_TYPE)}" data-item-url="${APP_BASE}/intake/item/"><p><label>File<input type="file" name="file" accept=".pdf,.tif,.tiff,.png,.jpg,.jpeg" required></label></p>
 <p><label>Document text (optional, helps matching when the file has no text layer)<textarea name="text" rows="4"></textarea></label></p>
-<button>Upload</button> <span id="intake-upload-msg" class="muted" style="font-size:13px"></span></form></details>
-<script>
-document.getElementById('intake-upload').addEventListener('submit', function (ev) {
-  ev.preventDefault();
-  var f = ev.target.file.files[0], msg = document.getElementById('intake-upload-msg');
-  if (!f) return;
-  msg.textContent = 'Uploading…';
-  var r = new FileReader();
-  r.onload = function () {
-    var b64 = String(r.result).split(',')[1] || '';
-    fetch('${APP_BASE}/intake/upload', { method: 'POST', headers: { 'Content-Type': '${UPLOAD_TYPE}' }, credentials: 'same-origin',
-      body: JSON.stringify({ name: f.name, mime: f.type, data_base64: b64, text: ev.target.text.value }) })
-      .then(function (res) { return res.json().then(function (j) { return { ok: res.ok, j: j }; }); })
-      .then(function (o) { if (o.ok && o.j.id) location.href = '${APP_BASE}/intake/item/' + encodeURIComponent(o.j.id); else msg.textContent = o.j.error || 'Upload failed.'; })
-      .catch(function () { msg.textContent = 'Upload failed.'; });
-  };
-  r.readAsDataURL(f);
-});
-</script>`;
+<button>Upload</button> <span id="intake-upload-msg" class="muted" style="font-size:13px"></span></form></details>`;
+  // The upload itself runs in /app/assets/drawbridge.js (shell.ts): no inline script under the CSP.
 
   return `<div class="row" style="margin:4px 0 8px"><h2 style="margin:0">Document intake</h2><span style="flex:1"></span>${
     filing.enabled ? pill('ok', `Filing: ${filing.mode}`) : pill('', 'Filing off')

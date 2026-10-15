@@ -127,9 +127,9 @@ export function outreachRouter(deps: PlatformDeps): Router {
     const flashHtml = f
       ? `<div class="card" style="border-color:var(--${f.kind === 'ok' ? 'ok' : f.kind})">${f.lines.map((l) => `<div>${esc(l)}</div>`).join('')}</div>`
       : '';
-    const callBar = `<form method="post" action="${BASE}/call" class="card row" onsubmit="return confirm(${esc(
-      JSON.stringify(cfg.dryRun ? 'Dry run: record who would be called?' : `Place ${approved} real phone call(s) now?`)
-    )})"><strong>${approved}</strong><span>approved job(s) waiting.</span><span style="flex:1"></span>
+    const callBar = `<form method="post" action="${BASE}/call" class="card row" data-confirm="${esc(
+      cfg.dryRun ? 'Dry run: record who would be called?' : `Place ${approved} real phone call(s) now?`
+    )}"><strong>${approved}</strong><span>approved job(s) waiting.</span><span style="flex:1"></span>
 <button ${approved ? '' : 'disabled'}>${cfg.dryRun ? 'Call approved now (dry run)' : 'Call approved now (LIVE)'}</button></form>`;
     const tabs = `<p style="font-size:14px"><a href="${BASE}"${filter === 'open' ? ' style="font-weight:600"' : ''}>Open</a> · <a href="${BASE}?show=all"${
       filter === 'all' ? ' style="font-weight:600"' : ''

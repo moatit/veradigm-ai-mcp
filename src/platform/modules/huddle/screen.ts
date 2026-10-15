@@ -66,7 +66,7 @@ export function renderHuddle(view: HuddleView): string {
 <label>Date<input type="date" name="date" value="${esc(dateKey)}" required></label>
 <button>Show</button>
 <button name="refresh" value="1" class="secondary">Refresh from Veradigm® PM</button>
-<button type="button" class="secondary" onclick="window.print()">Print</button></form>`;
+<button type="button" class="secondary" data-print>Print</button></form>`;
 
   let body = `${STYLE}${tools}<h2 style="margin-top:14px">Huddle brief · ${esc(dateLabel(dateKey))}</h2>`;
 
