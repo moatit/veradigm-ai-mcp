@@ -6,10 +6,16 @@ import * as path from 'path';
  * Staff login safeguards used by the app shell (shell.ts):
  *  - LoginThrottle: brute-force lockout per username and per client IP
  *  - passwordProblem(): password policy for new staff logins (npm run staff:user)
- *  - TOTP (RFC 6238) for named staff who opted in (users file `:totp=<base32>`)
+ *  - TOTP (RFC 6238), mandatory for every named staff login (users file `:totp=<base32>`)
+ *  - password age (`:pwset=YYYY-MM-DD`) and history (`:hist=`, the 4 previous hashes: no reuse of the last 5)
  *  - SessionRevocations: per-user "sessions valid after" time, so logout, removal from the users
  *    file and a password change end every existing session cookie of that user
  *
+ *   DRAWBRIDGE_REQUIRE_TOTP              on (default): a login without an enrolled TOTP secret cannot sign in, and
+ *                                        the single shared login (DRAWBRIDGE_USERNAME) is refused. "off" only for
+ *                                        local development; ignored (always on) when NODE_ENV=production
+ *   DRAWBRIDGE_PASSWORD_MAX_AGE_DAYS     a password expires this many days after it was set (default 90, 1-3650).
+ *                                        An entry without `:pwset=` counts as expired (re-issue it with staff:user)
  *   DRAWBRIDGE_LOGIN_MAX_FAILS      failed sign-ins per username before it is locked (default 5)
  *   DRAWBRIDGE_LOGIN_WINDOW_MIN     window for counting failures and lock length, minutes (default 15)
  *   DRAWBRIDGE_LOGIN_IP_MAX_FAILS   failed sign-ins per client IP in the window before that IP is locked (default 30;
@@ -23,6 +29,84 @@ const int = (v: unknown, d: number, min: number, max: number) => {
 export const loginMaxFails = () => int(process.env.DRAWBRIDGE_LOGIN_MAX_FAILS, 5, 1, 100);
 export const loginWindowMs = () => int(process.env.DRAWBRIDGE_LOGIN_WINDOW_MIN, 15, 1, 24 * 60) * 60_000;
 export const loginIpMaxFails = () => int(process.env.DRAWBRIDGE_LOGIN_IP_MAX_FAILS, 30, 1, 100_000);
+
+/** TOTP is required for every staff sign-in unless explicitly turned off outside production. */
+export function requireTotp(env: NodeJS.ProcessEnv = process.env): boolean {
+  if (String(env.NODE_ENV || '').trim().toLowerCase() === 'production') return true;
+  return !/^(0|false|off|no)$/i.test(String(env.DRAWBRIDGE_REQUIRE_TOTP ?? '').trim());
+}
+export const passwordMaxAgeDays = () => int(process.env.DRAWBRIDGE_PASSWORD_MAX_AGE_DAYS, 90, 1, 3650);
+/** A new password may not be any of the last this-many passwords (the current one included). */
+export const PASSWORD_HISTORY = 5;
+
+// ---------------------------------------------------------------------------
+// Users file lines
+// ---------------------------------------------------------------------------
+
+/**
+ * One named staff login. Users file line (one per person, written by npm run staff:user):
+ *   username:scrypt$N$r$p$salt$hash[:totp=<base32>][:pwset=YYYY-MM-DD][:hist=<hash>,<hash>...][:role=admin|emergency]
+ * Attributes may come in any order; unknown ones are ignored, so older lines (hash only, or hash + totp) still
+ * load. role=admin may run the accounting-of-disclosures report; role=emergency is the sealed break-glass login.
+ */
+export type StaffRole = 'staff' | 'admin' | 'emergency';
+export interface StaffEntry {
+  hash: string;
+  totp?: string;
+  /** Day the password was set (UTC, YYYY-MM-DD). Missing: age unknown, treated as expired. */
+  pwset?: string;
+  /** Hashes of up to PASSWORD_HISTORY - 1 previous passwords, newest first. */
+  hist: string[];
+  role: StaffRole;
+}
+
+const HASH_RE = /^scrypt\$\d+\$\d+\$\d+\$[A-Za-z0-9+/=]+\$[A-Za-z0-9+/=]+$/;
+export const USERNAME_RE = /^[A-Za-z0-9._@-]{2,64}$/;
+
+/** Parse one users-file line; null for blank, comment or malformed lines. */
+export function parseStaffLine(line: string): { user: string; entry: StaffEntry } | null {
+  const parts = line.trim().split(':');
+  if (parts.length < 2 || !USERNAME_RE.test(parts[0]) || !HASH_RE.test(parts[1])) return null;
+  const entry: StaffEntry = { hash: parts[1], hist: [], role: 'staff' };
+  for (const attr of parts.slice(2)) {
+    const i = attr.indexOf('=');
+    const [k, v] = i > 0 ? [attr.slice(0, i), attr.slice(i + 1)] : [attr, ''];
+    if (k === 'totp' && /^[A-Z2-7]{16,128}$/.test(v)) entry.totp = v;
+    else if (k === 'pwset' && /^\d{4}-\d{2}-\d{2}$/.test(v) && Number.isFinite(Date.parse(`${v}T00:00:00Z`))) entry.pwset = v;
+    else if (k === 'hist') entry.hist = v.split(',').filter((h) => HASH_RE.test(h)).slice(0, PASSWORD_HISTORY - 1);
+    else if (k === 'role' && (v === 'admin' || v === 'emergency')) entry.role = v;
+  }
+  return { user: parts[0].toLowerCase(), entry };
+}
+
+/** The users-file line for one staff member. */
+export function formatStaffLine(user: string, e: StaffEntry): string {
+  return [
+    `${user}:${e.hash}`,
+    e.totp ? `totp=${e.totp}` : '',
+    e.pwset ? `pwset=${e.pwset}` : '',
+    e.hist.length ? `hist=${e.hist.slice(0, PASSWORD_HISTORY - 1).join(',')}` : '',
+    e.role !== 'staff' ? `role=${e.role}` : '',
+  ]
+    .filter(Boolean)
+    .join(':');
+}
+
+/** Today (UTC) as YYYY-MM-DD. */
+export const utcDay = (nowMs: number = Date.now()) => new Date(nowMs).toISOString().slice(0, 10);
+
+/** Whole days since the password was set, or null when the entry has no date. */
+export function passwordAgeDays(e: Pick<StaffEntry, 'pwset'>, nowMs: number = Date.now()): number | null {
+  if (!e.pwset) return null;
+  const t = Date.parse(`${e.pwset}T00:00:00Z`);
+  return Number.isFinite(t) ? Math.floor((nowMs - t) / 86_400_000) : null;
+}
+
+/** Expired: older than DRAWBRIDGE_PASSWORD_MAX_AGE_DAYS, or no set date on the line. */
+export function passwordExpired(e: Pick<StaffEntry, 'pwset'>, nowMs: number = Date.now()): boolean {
+  const age = passwordAgeDays(e, nowMs);
+  return age === null || age >= passwordMaxAgeDays();
+}
 
 // ---------------------------------------------------------------------------
 // Brute-force lockout
@@ -139,7 +223,7 @@ export function passwordProblem(username: string, password: string): string | nu
 }
 
 // ---------------------------------------------------------------------------
-// TOTP (RFC 6238, SHA-1, 6 digits, 30 s) for named staff who opted in
+// TOTP (RFC 6238, SHA-1, 6 digits, 30 s), mandatory for named staff (requireTotp)
 // ---------------------------------------------------------------------------
 
 const B32 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';

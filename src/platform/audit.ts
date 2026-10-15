@@ -19,15 +19,33 @@ import * as path from 'path';
  * end of a file or deleting a whole day file is not detectable this way: keep the files on
  * append-only / backed-up storage for that (docs/drawbridge/SECURITY_CONTROLS.md).
  *
+ * Staff access (HIPAA 164.312(b)): every staff screen request writes a line too, kind "view" (GET) or
+ * "staff" (POST), with the staff `user`, the screen in `tool`, the opaque path in `object` and the
+ * patient ID when the screen is about one patient (app.ts staffAudit). Security events (sign-ins,
+ * failures, lockouts, expired passwords, rejected keys and webhooks, integrity failures, export
+ * volume alerts) are kind "security" (security-events.ts) and may carry the client `ip`.
+ *
  * Writes are queued and asynchronous; nothing here throws into the request path.
  *
  *   AUDIT_DIR              base directory (default CALL_RECORDS_DIR, else ./data)
- *   AUDIT_RETENTION_DAYS   delete day files older than this (default 30); checked at the
- *                          first write of each day and by pruneAudit() at startup
+ *   AUDIT_RETENTION_DAYS   delete day files older than this (default 2190 = 6 years, HIPAA
+ *                          164.316(b)(2) and the 6-year accounting window of 164.528); checked at
+ *                          the first write of each day and by pruneAudit() at startup
  */
 export type AuditServer = 'unity' | 'fhir';
-/** tool: an agent/staff tool call; action: a Veradigm action a module sent directly. */
-export type AuditKind = 'tool' | 'action';
+/**
+ * tool: an agent/staff tool call; action: a Veradigm action a module sent directly;
+ * view: a staff screen was shown; staff: a staff change (POST); security: a security event.
+ */
+export type AuditKind = 'tool' | 'action' | 'view' | 'staff' | 'security';
+const KINDS: AuditKind[] = ['tool', 'action', 'view', 'staff', 'security'];
+
+/** The server name this process writes when a caller doesn't say (the FHIR server sets 'fhir'). */
+let defaultServer: AuditServer = 'unity';
+export function setDefaultAuditServer(s: AuditServer): void {
+  defaultServer = s === 'fhir' ? 'fhir' : 'unity';
+}
+export const defaultAuditServer = (): AuditServer => defaultServer;
 
 export interface AuditEntry {
   ts: string;
@@ -40,6 +58,12 @@ export interface AuditEntry {
   error_code: string;
   latency_ms: number;
   channel: string;
+  /** Staff username (view / staff / security lines only). */
+  user?: string;
+  /** What was viewed or acted on: an opaque path or ID, never a name (view / staff / security lines only). */
+  object?: string;
+  /** Client IP (security lines only). */
+  ip?: string;
   /** Hash of the previous line from the same server in this day file (chain start: genesis hash). */
   prev?: string;
   /** sha256 of this line without `hash`. */
@@ -59,6 +83,12 @@ export interface AuditInput {
   errorCode?: string;
   latencyMs: number;
   channel?: string;
+  /** Staff username. */
+  user?: unknown;
+  /** Opaque path or ID of what was viewed or acted on. */
+  object?: unknown;
+  /** Client IP (security events). */
+  ip?: unknown;
 }
 
 export function auditBaseDir(): string {
@@ -69,7 +99,7 @@ export function auditDir(): string {
 }
 export function retentionDays(): number {
   const n = Number(process.env.AUDIT_RETENTION_DAYS);
-  return Number.isFinite(n) && n >= 1 ? Math.floor(n) : 30;
+  return Number.isFinite(n) && n >= 1 ? Math.floor(n) : 2190;
 }
 
 /** YYYY-MM-DD in the clinic's timezone. */
@@ -101,11 +131,17 @@ export function patientIdFrom(args: unknown): string {
   return safeId(a.patientId) || safeId(a.patient);
 }
 
+/** Staff usernames as the users file allows them (letters, digits, . _ @ -), lower case. */
+export const safeUser = (v: unknown): string =>
+  typeof v === 'string' && /^[A-Za-z0-9._@-]{1,64}$/.test(v.trim()) ? v.trim().toLowerCase() : '';
+/** Opaque paths and IDs ("/call/call_abc", "in_x1"): no spaces, no query strings, at most 120 characters. */
+const safeObject = (v: unknown): string => (typeof v === 'string' ? v.split('?')[0].replace(/[^A-Za-z0-9._:\-/]/g, '').slice(0, 120) : '');
+
 export function toEntry(input: AuditInput, now: Date = new Date()): AuditEntry {
-  return {
+  const entry: AuditEntry = {
     ts: now.toISOString(),
     server: input.server === 'fhir' ? 'fhir' : 'unity',
-    kind: input.kind === 'action' ? 'action' : 'tool',
+    kind: KINDS.includes(input.kind as AuditKind) ? (input.kind as AuditKind) : 'tool',
     call_id: safeId(input.callId),
     tool: safeToken(input.tool, 80),
     patient_id: safeId(input.patientId) || patientIdFrom(input.args),
@@ -114,6 +150,14 @@ export function toEntry(input: AuditInput, now: Date = new Date()): AuditEntry {
     latency_ms: Math.max(0, Math.round(Number(input.latencyMs) || 0)),
     channel: safeToken(input.channel, 32).toLowerCase(),
   };
+  // Only on lines that have them, so tool and action lines keep their shape.
+  const user = safeUser(input.user);
+  const object = safeObject(input.object);
+  const ip = safeToken(input.ip, 64);
+  if (user) entry.user = user;
+  if (object) entry.object = object;
+  if (ip) entry.ip = ip;
+  return entry;
 }
 
 let queue: Promise<void> = Promise.resolve();
@@ -290,6 +334,15 @@ export async function readAuditDay(day: string): Promise<AuditEntry[]> {
       // skip partial line
     }
   }
+  return out;
+}
+
+/** All entries of the day files from `from` to `to` (inclusive, YYYY-MM-DD), oldest first. At most `maxDays` files. */
+export async function readAuditRange(from: string, to: string, maxDays = 2200): Promise<AuditEntry[]> {
+  if (!isDayKey(from) || !isDayKey(to) || from > to) return [];
+  const days = (await auditDays()).filter((d) => d >= from && d <= to).sort().slice(-maxDays);
+  const out: AuditEntry[] = [];
+  for (const d of days) out.push(...(await readAuditDay(d)));
   return out;
 }
 

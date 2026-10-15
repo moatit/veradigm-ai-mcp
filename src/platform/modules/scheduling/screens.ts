@@ -58,7 +58,7 @@ export function openingsPage(opts: {
   const partOpt = (v: string, label: string) => `<option value="${v}"${part === v ? ' selected' : ''}>${label}</option>`;
 
   const forms = `${tabs('openings', `${BASE}/day?date=${encodeURIComponent(opts.today)}`)}
-<div class="card"><form method="get" action="${BASE}" class="row" style="flex-wrap:nowrap">
+<div class="card"><form method="post" action="${BASE}" class="row" style="flex-wrap:nowrap">
 <input name="q" value="${esc(q)}" placeholder="Who has an opening Tuesday afternoon?" aria-label="Question" autofocus>
 <button>Ask</button></form>
 <p class="muted" style="font-size:13px;margin:8px 0 0">Understands days (today, tomorrow, Tuesday, next week, 10/13), morning or afternoon, and provider names (Dr. Lee).</p></div>

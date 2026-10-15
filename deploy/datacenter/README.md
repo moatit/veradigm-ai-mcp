@@ -128,14 +128,14 @@ Staff open `https://<server>:8443/app/intake`. Express Lab files are taken in wi
 
 ## Staff logins
 
-One line per person in `users/users`; nobody else can sign in (the shared `DRAWBRIDGE_USERNAME` login is off when this file is set):
+One line per person in `users/users`; nobody else can sign in (there is no shared login in production). Every login needs a password **and** a code from an authenticator app (mandatory TOTP), and passwords expire after 90 days:
 
 ```
 read -rs -p "Password for pat.reviewer: " P; echo
-printf '%s\n' "$P" | docker compose run --rm --no-deps -T intake node dist/scripts/staff-user.js pat.reviewer >> users/users; unset P
+printf '%s\n' "$P" | docker compose run --rm --no-deps -T intake node dist/scripts/staff-user.js pat.reviewer --totp >> users/users; unset P
 ```
 
-Passwords are stored as scrypt hashes. To remove someone, delete their line: they are signed out at once. Set `DRAWBRIDGE_SESSION_SECRET` (`openssl rand -hex 32`) so sessions survive restarts.
+`--totp` prints the authenticator link once on the terminal (not into the file): add it to the person's authenticator app right away. Add `--admin` for the privacy or security officer. To change a password (every 90 days, or when someone may have seen it), run the same command without `--totp` (it reads the current line from the mounted users file), then replace the person's line: the authenticator stays, and the last 5 passwords are refused. Passwords are stored as scrypt hashes. To remove someone, delete their line: they are signed out at once. Set `DRAWBRIDGE_SESSION_SECRET` (`openssl rand -hex 32`) so sessions survive restarts. Lines made before Oct 15, 2026 have no authenticator or set date and must be re-issued with `--totp`.
 
 ## Old faxes
 

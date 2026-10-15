@@ -20,7 +20,8 @@ import { failureText, toVoiceSummary } from "./utils/response-formatter";
 import { markRedacted } from "./utils/redaction";
 import { requireToolKey } from "./platform/app";
 import { corsFromEnv } from "./platform/cors";
-import { auditToolCall } from "./platform/audit";
+import { auditToolCall, setDefaultAuditServer } from "./platform/audit";
+import { forAgent } from "./utils/minimum-necessary";
 import { DISABLED_FHIR_TOOLS, disabledToolMessage } from "./config/disabled-tools";
 import { errorSummary } from "./utils/safe-log";
 
@@ -48,6 +49,34 @@ app.use((req, res, next) => {
 // Every route that lists tools, returns patient data or acts on it needs the tool key (fails closed when unset).
 // Only /health stays open.
 app.use(["/mcp", "/tools", "/test", "/api"], requireToolKey);
+
+// Audit lines and security events from this process belong to the FHIR server's hash chain.
+setDefaultAuditServer("fhir");
+
+/**
+ * REST convenience and test routes (/api/patient/..., /api/medication?patientId=..., /test/...): they put patient
+ * IDs in URLs and return full records, so they are off in production (404) unless DRAWBRIDGE_FHIR_REST_ROUTES=on,
+ * and every request to them is audited (HIPAA 164.312(b)). The agent uses POST /api/retell and the MCP routes.
+ */
+const restRoutesEnabled = (): boolean => {
+  const v = String(process.env.DRAWBRIDGE_FHIR_REST_ROUTES || "").trim().toLowerCase();
+  if (v) return /^(1|true|on|yes)$/.test(v);
+  return String(process.env.NODE_ENV || "").trim().toLowerCase() !== "production";
+};
+app.use(["/test", "/api"], (req, res, next) => {
+  if (req.baseUrl === "/api" && req.path === "/retell") return next();
+  if (!restRoutesEnabled()) {
+    res.status(404).json({ error: "not found" });
+    return;
+  }
+  const t0 = Date.now();
+  const path = `${req.baseUrl}${req.path}`;
+  const patientId = (typeof req.query.patientId === "string" && req.query.patientId) || path.match(/^\/api\/patient\/(?!search$|verify$)([^/]+)$/)?.[1] || req.body?.patientId || "";
+  res.on("finish", () =>
+    auditToolCall({ server: "fhir", tool: "fhir_rest", patientId, success: res.statusCode < 400, errorCode: res.statusCode >= 400 ? `HTTP_${res.statusCode}` : undefined, latencyMs: Date.now() - t0, channel: "rest", object: path })
+  );
+  next();
+});
 
 // Initialize services (same as index.ts)
 const authService = new AuthService();
@@ -81,7 +110,8 @@ async function executeFhirTool(name: string, args: any, audit: { callId?: string
     }
     const result = markRedacted(await runFhirTool(name, args));
     record(!(result?.success === false), result?.success === false ? result?.error_code : undefined);
-    return result;
+    // Every caller of this function is an agent endpoint: minimum necessary (src/utils/minimum-necessary.ts).
+    return forAgent(name, args, result);
   } catch (error) {
     record(false, ErrorHandler.handleUnknownError(error).code);
     throw error;

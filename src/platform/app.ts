@@ -1,9 +1,57 @@
 import { createHash, timingSafeEqual } from 'crypto';
 import express, { Express, NextFunction, Request, Response } from 'express';
+import { auditToolCall } from './audit';
 import { auditedUnity } from './audited-unity';
 import { platformModules, PlatformDeps, PlatformModule } from './registry';
+import { clientIp, throttledSecurityEvent, viewMonitor } from './security-events';
 import { APP_BASE, esc, navItems, page, registerNav, requireLogin, shellRouter } from './shell';
 import { errorSummary } from '../utils/safe-log';
+
+/**
+ * A staff screen tells the access audit which patient (and which object) it showed or changed:
+ * `auditPatient(res, patientId, object?)` before sending. Opaque IDs only, never names.
+ */
+export function auditPatient(res: Response, patientId: unknown, object?: string): void {
+  if (patientId !== undefined && patientId !== null && patientId !== '') res.locals.auditPatientId = String(patientId);
+  if (object) res.locals.auditObject = object;
+}
+
+/**
+ * Staff access audit (HIPAA 164.312(b)): one audit line per staff screen request of a module, written when the
+ * response is finished. GET → kind "view", anything else → kind "staff". Holds the user, the module and path
+ * (opaque IDs only; the query string is never recorded), the patient ID the screen set with auditPatient(), the
+ * HTTP outcome and latency. A patient-specific screen also counts toward the per-user view volume alert.
+ */
+export function staffAudit(moduleName: string) {
+  return (req: Request, res: Response, next: NextFunction): void => {
+    const t0 = Date.now();
+    const path = String(req.originalUrl || '').split('?')[0];
+    res.on('finish', () => {
+      try {
+        const user = String((req as any).drawbridgeUser || '');
+        const patientId = res.locals.auditPatientId || '';
+        const object = res.locals.auditObject || path;
+        const view = req.method === 'GET' || req.method === 'HEAD';
+        auditToolCall({
+          server: 'unity',
+          kind: view ? 'view' : 'staff',
+          tool: `${moduleName}_${view ? 'view' : 'action'}`,
+          patientId,
+          success: res.statusCode < 400,
+          errorCode: res.statusCode >= 400 ? `HTTP_${res.statusCode}` : undefined,
+          latencyMs: Date.now() - t0,
+          channel: 'staff_app',
+          user,
+          object,
+        });
+        if (patientId && user) viewMonitor.record(user, clientIp(req));
+      } catch {
+        // never into the request path
+      }
+    });
+    next();
+  };
+}
 
 /** Constant-time compare of two secrets of any length. */
 function safeEqual(a: string, b: string): boolean {
@@ -33,6 +81,8 @@ export function requireToolKey(req: Request, res: Response, next: NextFunction):
     next();
     return;
   }
+  // Security event (at most one a minute per client and path): someone without the key is calling a PHI endpoint.
+  throttledSecurityEvent('tool_key_rejected', { ip: clientIp(req), code: given ? 'WRONG_KEY' : 'NO_KEY', object: req.path });
   res.status(401).json({ error: 'unauthorized' });
 }
 
@@ -73,7 +123,7 @@ export function mountPlatform(app: Express, deps: PlatformDeps): void {
 
   for (const m of modules) {
     if (m.appRouter && m.nav) {
-      app.use(`${APP_BASE}${m.nav.path}`, requireLogin, express.urlencoded({ extended: false }), m.appRouter(depsFor.get(m)!));
+      app.use(`${APP_BASE}${m.nav.path}`, requireLogin, staffAudit(m.name), express.urlencoded({ extended: false }), m.appRouter(depsFor.get(m)!));
     }
     if (m.apiRouter) {
       app.use(`/api/${m.name}`, requireToolKey, express.json(), m.apiRouter(depsFor.get(m)!));

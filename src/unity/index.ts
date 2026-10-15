@@ -19,6 +19,7 @@ import { UnityTaskTools } from "./tools/task.tools";
 import { toToolFailure } from "./utils/tool-result";
 import { UnityErrorHandler } from "./utils/error-handler";
 import { errorSummary } from "../utils/safe-log";
+import { forAgent } from "../utils/minimum-necessary";
 
 /**
  * Veradigm Unity MCP Server
@@ -163,8 +164,8 @@ class VeradigmUnityMCPServer {
           content: [
             {
               type: "text",
-              // The SSN's last 4 is for document matching only, never for the agent.
-              text: JSON.stringify(result, (k, v) => (k === "ssnLast4" ? undefined : v), 2),
+              // Minimum necessary for the agent: identity and ID fields only, never an SSN or its last 4.
+              text: JSON.stringify(forAgent(name, args, result), null, 2),
             },
           ],
         };

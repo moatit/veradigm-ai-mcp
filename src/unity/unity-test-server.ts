@@ -11,6 +11,7 @@ import express, { NextFunction, Request, Response } from "express";
 // Load env first so adminLogger gets ADMIN_PORTAL_URL and ADMIN_API_KEY
 import { adminLogger } from "../middleware/admin-logger";
 import { toVoiceSummary } from "../utils/response-formatter";
+import { agentToolAllowed, forAgent, staffOnlyFailure } from "../utils/minimum-necessary";
 import { unityConfig } from "./config/environment";
 import { configuredTargets, UnityAuthService } from "./services/unity-auth.service";
 import { setUnityDiagnostics, UnityDiagnostics } from "./services/unity-diagnostics";
@@ -80,6 +81,21 @@ app.get("/health", (req: Request, res: Response) => {
 app.get("/tools", requireToolKey, (req: Request, res: Response) => {
   res.json({ tools: getToolDefinitions() });
 });
+
+// Tools offered to the phone agent (MCP tools/list): staff-only tools that list other patients are left out.
+const getAgentToolDefinitions = () => getToolDefinitions().filter((t) => agentToolAllowed(t.name));
+
+/**
+ * One phone-agent tool call (Retell custom function or MCP tools/call): staff-only tools are refused (and audited),
+ * and the result is cut to the minimum necessary before the agent sees it (src/utils/minimum-necessary.ts).
+ */
+async function executeAgentTool(name: string, args: any, callId: string | undefined, callerPhone: string | undefined, channel: string): Promise<any> {
+  if (!agentToolAllowed(name)) {
+    auditToolCall({ server: "unity", tool: name, args, callId, success: false, errorCode: "STAFF_ONLY", latencyMs: 0, channel });
+    return staffOnlyFailure(name);
+  }
+  return forAgent(name, args, await executeTool(name, args, callId, callerPhone, channel));
+}
 
 // Get all tool definitions
 const getToolDefinitions = () => {
@@ -234,7 +250,7 @@ app.post("/", requireToolKey, async (req: Request, res: Response): Promise<void>
         break;
 
       case "tools/list":
-        result = { tools: getToolDefinitions() };
+        result = { tools: getAgentToolDefinitions() };
         break;
 
       case "tools/call": {
@@ -254,7 +270,7 @@ app.post("/", requireToolKey, async (req: Request, res: Response): Promise<void>
         try {
           const callId =
             (req.headers["x-call-id"] as string) || toolArgs?.call_id || undefined;
-          const toolResult = await executeTool(name, toolArgs || {}, callId, undefined, channel);
+          const toolResult = await executeAgentTool(name, toolArgs || {}, callId, undefined, channel);
           const toolResponseTime = Date.now() - toolStartTime;
           const failed = toolResult?.success === false && toolResult?.error_code;
 
@@ -357,7 +373,7 @@ app.post("/api/retell", requireToolKey, async (req: Request, res: Response): Pro
   }
 
   // executeTool never throws; failures come back as { success:false, error_code, retryable }.
-  const toolResult = await executeTool(name, args || {}, call?.call_id, call?.from_number, "retell");
+  const toolResult = await executeAgentTool(name, args || {}, call?.call_id, call?.from_number, "retell");
   const responseText = toVoiceSummary(name, toolResult);
   const responseTime = Date.now() - t0;
   const failed = toolResult?.success === false && toolResult?.error_code;

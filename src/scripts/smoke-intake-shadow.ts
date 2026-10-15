@@ -518,12 +518,14 @@ async function main(): Promise<void> {
   assert.strictEqual(report.originOf(wStore.list()[0]), 'Watched folder (e.g. Express Lab)');
   ok('watched folders: nested, read in place (never moved or deleted), each file once, INTAKE_WATCH_SINCE, settle time');
 
-  // 11. Named staff logins (DRAWBRIDGE_USERS_FILE)
+  // 11. Named staff logins (DRAWBRIDGE_USERS_FILE), password + TOTP code (mandatory)
+  const auth = await import('../platform/staff-auth');
   const usersFile = path.join(TMP, 'users');
-  const line = shell.hashStaffPassword('pat.reviewer', 'correct horse battery');
+  const secret = auth.newTotpSecret();
+  const line = `${shell.hashStaffPassword('pat.reviewer', 'correct horse battery')}:totp=${secret}`;
   assert.ok(/^pat\.reviewer:scrypt\$16384\$8\$1\$/.test(line) && !line.includes('correct horse'));
   assert.throws(() => shell.hashStaffPassword('pat', 'short'));
-  fs.writeFileSync(usersFile, `${line}\n${shell.hashStaffPassword('lee.staff', 'another long password')}\n`);
+  fs.writeFileSync(usersFile, `${line}\n${shell.hashStaffPassword('lee.staff', 'another long password')}:totp=${auth.newTotpSecret()}\n`);
   process.env.DRAWBRIDGE_USERS_FILE = usersFile;
   process.env.DRAWBRIDGE_USERNAME = 'shared';
   process.env.DRAWBRIDGE_PASSWORD = 'shared-password-123';
@@ -532,7 +534,8 @@ async function main(): Promise<void> {
   loginApp.get('/app/x', shell.requireLogin, (req: any, res) => res.send(`hello ${req.drawbridgeUser}`));
   const ls = await listen(loginApp);
   try {
-    const login = (u: string, p: string) => fetch(`${ls.url}/app/login`, { method: 'POST', redirect: 'manual', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: form({ u, p, next: '/app/x' }) });
+    const otp = auth.totpCode(secret, Math.floor(Date.now() / 30_000));
+    const login = (u: string, p: string) => fetch(`${ls.url}/app/login`, { method: 'POST', redirect: 'manual', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: form({ u, p, otp, next: '/app/x' }) });
     const good = await login('Pat.Reviewer', 'correct horse battery');
     assert.strictEqual(good.headers.get('location'), '/app/x');
     const cookie = (good.headers.get('set-cookie') || '').split(';')[0];

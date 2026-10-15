@@ -113,7 +113,19 @@ async function main(): Promise<void> {
   assert.ok(prodSet.status === 0 && prodSet.stdout.includes('LOADED'), prodSet.stderr.slice(-400));
   const sandbox = load({ NODE_ENV: 'sandbox' });
   assert.ok(sandbox.status === 0 && sandbox.stdout.includes('LOADED'), 'sandbox keeps its defaults');
-  ok('NODE_ENV=production refuses to start without UNITY_UBIQUITY_ENDPOINT / _ID_PM / _ID_EHR (no sandbox fallback)');
+  const prodHttp = load({ NODE_ENV: 'production', UNITY_UBIQUITY_ENDPOINT: 'http://unity.example.invalid/UnityService.svc', UNITY_UBIQUITY_ID_PM: 'P:X^1^', UNITY_UBIQUITY_ID_EHR: 'E:X^1^' });
+  assert.ok(prodHttp.status !== 0 && /must be an https:\/\/ URL/.test(prodHttp.stderr), 'production refuses a plain-HTTP Unity endpoint');
+  const loadFhir = (env: Record<string, string>) =>
+    spawnSync(process.execPath, [tsNode, '--transpile-only', '-e', "require('./src/config/environment'); console.log('LOADED')"], {
+      encoding: 'utf8',
+      env: { PATH: process.env.PATH, SystemRoot: process.env.SystemRoot, CLIENT_ID: 'a', CLIENT_SECRET: 'b', ...env },
+    });
+  const fhirUrls = { FHIR_BASE_URL_PRODUCTION: 'https://f.example.invalid/FHIR', AUTH_URL_PRODUCTION: 'https://f.example.invalid/auth', TOKEN_URL_PRODUCTION: 'https://f.example.invalid/token' };
+  assert.ok(loadFhir({ NODE_ENV: 'production', ...fhirUrls }).stdout.includes('LOADED'));
+  const fhirHttp = loadFhir({ NODE_ENV: 'production', ...fhirUrls, TOKEN_URL_PRODUCTION: 'http://f.example.invalid/token' });
+  assert.ok(fhirHttp.status !== 0 && /TOKEN_URL_PRODUCTION must be set to https/.test(fhirHttp.stderr), 'production refuses a plain-HTTP FHIR URL');
+  assert.ok(loadFhir({ NODE_ENV: 'sandbox' }).stdout.includes('LOADED'));
+  ok('NODE_ENV=production refuses to start without UNITY_UBIQUITY_ENDPOINT / _ID_PM / _ID_EHR (no sandbox fallback), or with a non-HTTPS Veradigm® URL');
 
   // 5. Retention: call records and outreach jobs
   const day = 86_400_000;

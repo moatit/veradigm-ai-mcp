@@ -2,6 +2,7 @@ import { createHmac, timingSafeEqual } from 'crypto';
 import express, { Express, Request, Response } from 'express';
 
 type FetchResponse = Awaited<ReturnType<typeof fetch>>;
+import { clientIp, throttledSecurityEvent } from '../../security-events';
 import { pagesFromMarkers } from './pages';
 import { intakeStore, IntakeStore } from './store';
 
@@ -124,6 +125,7 @@ export function mountFaxWebhook(app: Express, opts: { store?: () => IntakeStore 
       const out = handleFaxDelivery(raw, req.headers, getStore());
       if (out.status !== 204) {
         console.warn(`[Intake] fax webhook rejected: ${out.reason}`);
+        if (out.status === 401) throttledSecurityEvent('webhook_rejected', { ip: clientIp(req), code: 'FAX_SIGNATURE', object: '/webhooks/moatit-fax' });
         res.status(out.status).json({ error: out.reason });
         return;
       }
@@ -262,6 +264,11 @@ export class MoatitFaxClient {
     const baseUrl = process.env.MOATIT_FAX_BASE_URL || '';
     const apiKey = process.env.MOATIT_FAX_API_KEY || '';
     if (!baseUrl || !apiKey || !/^https?:\/\//.test(baseUrl)) return null;
+    // Transmission security (HIPAA 164.312(e)): documents are fetched over HTTPS only in production.
+    if (String(process.env.NODE_ENV || '').trim().toLowerCase() === 'production' && !/^https:\/\//i.test(baseUrl)) {
+      console.error('[Intake] MOATIT_FAX_BASE_URL must be https:// in production; the fax download is off');
+      return null;
+    }
     const mb = Number(process.env.INTAKE_MAX_FILE_MB);
     return new MoatitFaxClient({ baseUrl, apiKey, maxBytes: (Number.isFinite(mb) && mb > 0 ? mb : 25) * 1024 * 1024 });
   }

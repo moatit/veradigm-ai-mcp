@@ -4,7 +4,10 @@
  *   CALL_RECORDS_RETENTION_DAYS   on-call call records (default 30), by last update
  *   OUTREACH_RETENTION_DAYS       outreach jobs (default 30), by last update; the opt-out list is kept
  *   INTAKE_RETENTION_DAYS         intake originals of filed / sent-to-indexing documents (default 30)
- *   AUDIT_RETENTION_DAYS          audit day files (default 30; audit.ts, at the first write of each day)
+ *   INTAKE_RECORD_RETENTION_DAYS  patient details on those intake records (default 90; IDs, hash and history stay)
+ *   AUDIT_RETENTION_DAYS          audit day files (default 2190 = 6 years; audit.ts, at the first write of each day)
+ * Deletion is a file unlink on the encrypted data volume; the media itself is disposed of by destroying the volume
+ * and its key (crypto-erase; docs/drawbridge/HIPAA_TECHNICAL_SAFEGUARDS.md).
  */
 export function retentionDaysFrom(name: string, fallback = 30): number {
   const n = Number(process.env[name]);

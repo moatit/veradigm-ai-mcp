@@ -1,10 +1,11 @@
 import fs from 'fs';
+import { securityEvent } from '../../security-events';
 import type { UnityService } from '../../../unity/services/unity.service';
 import { UnityActions } from '../../../unity/config/unity-endpoints';
 import { pick, unityRows } from '../../../unity/utils/unity-rows';
 import { planReviewTask, RECIPIENT_SOURCE_LABEL, type NotifyPlan, type NotifyRecord, type ProviderSource } from './notify';
 import { shadowMode } from './shadow';
-import type { IntakeItem, IntakeStore } from './store';
+import { sha256, type IntakeItem, type IntakeStore } from './store';
 
 /**
  * Filing a document to the patient's Veradigm® EHR chart.
@@ -38,6 +39,10 @@ import type { IntakeItem, IntakeStore } from './store';
  * Critical results: the task is High priority with "CRITICAL" first in the subject and the item records that a
  * phone call is required. When no task could be created for one (no recipient, Veradigm® refused or didn't
  * answer, no task ID back), the filed item goes back to staff (needs_review) with that reason.
+ *
+ * Integrity (HIPAA 164.312(c)): the original's SHA-256 is recorded when it is received (store.ts). Right before the
+ * write it is read again and must match; otherwise nothing is filed (INTEGRITY_FAILED), the item goes back to
+ * staff and a security event is written.
  *
  * Duplicate guard: an attempt is recorded on the item before the write. If Veradigm never answered
  * (timeout, network), the item is left FILING_UNCERTAIN and is not retried automatically: staff check
@@ -89,7 +94,7 @@ export function filingStatus(): FilingStatus {
   return { enabled: true, mode, format_confirmed: confirmed, reason: '' };
 }
 
-export type FilingErrorCode = 'FILING_DISABLED' | 'NOT_READY' | 'ALREADY_FILED' | 'FILING_REJECTED' | 'FILING_UNCERTAIN';
+export type FilingErrorCode = 'FILING_DISABLED' | 'NOT_READY' | 'ALREADY_FILED' | 'FILING_REJECTED' | 'FILING_UNCERTAIN' | 'INTEGRITY_FAILED';
 
 /** Structured failure, same shape the platform uses for tools ({ success:false, error_code, retryable }). */
 export class IntakeFilingError extends Error {
@@ -293,6 +298,16 @@ async function file(item: IntakeItem, target: 'chart' | 'indexing', by: string, 
   const status = target === 'chart' ? filedDocStatus() : SCAN_STATUS.APPROVED;
   const title = documentTitle(current, now);
   const data = fs.readFileSync(p);
+  if (!current.file?.sha256 || sha256(data) !== current.file.sha256) {
+    store.update(
+      current.id,
+      { status: 'needs_review', error_code: 'INTEGRITY_FAILED', note: 'The stored file no longer matches the document that was received. It was not filed. Tell the Drawbridge administrator.' },
+      'not filed: the stored file does not match the received document (SHA-256)',
+      by
+    );
+    securityEvent('integrity_failed', { user: by, code: 'ORIGINAL_HASH_MISMATCH', object: `intake_item:${current.id}`, patientId: chartId });
+    throw new IntakeFilingError('INTEGRITY_FAILED', 'The stored file does not match the document that was received. It was not filed.');
+  }
 
   store.update(current.id, { filing: { target, started_at: now.toISOString() } }, target === 'chart' ? 'filing to chart started' : 'sending to indexing started', by);
   let documentId: string;

@@ -7,6 +7,8 @@
  *    401 with a wrong key, pass with the right key
  *  - /health is open and reveals no endpoint, app name or environment
  *  - CORS: no Access-Control-Allow-Origin unless the origin is in DRAWBRIDGE_CORS_ORIGINS
+ *  - a rejected key is a security event in the audit log; the FHIR REST/test routes are audited and are off in
+ *    production; staff-only tools are not offered to (and refused for) the phone agent
  *
  *   npm run smoke:endpoints
  */
@@ -90,6 +92,18 @@ async function start(script: string, portVar: string, extra: Record<string, stri
   throw new Error(`${script} did not start: ${out.slice(-800)}`);
 }
 
+/** Every audit line written so far under TMP/audit. */
+function auditLines(): any[] {
+  const dir = path.join(TMP, 'audit');
+  if (!fs.existsSync(dir)) return [];
+  return fs
+    .readdirSync(dir)
+    .flatMap((f) => fs.readFileSync(path.join(dir, f), 'utf8').split('\n'))
+    .filter((l) => l.trim())
+    .map((l) => JSON.parse(l));
+}
+const settle = () => new Promise((r) => setTimeout(r, 400));
+
 async function main(): Promise<void> {
   let passed = 0;
   const ok = (label: string) => {
@@ -146,8 +160,29 @@ async function main(): Promise<void> {
     assert.strictEqual(allowed.headers.get('access-control-allow-origin'), 'https://admin.example.com');
     const denied = await fetch(`${fhir.url}/health`, { headers: { Origin: 'https://evil.example' } });
     assert.strictEqual(denied.headers.get('access-control-allow-origin'), null);
+    await call(fhir.url, 'GET', '/api/patient/4711', { 'x-drawbridge-key': KEY });
+    await settle();
+    const fl = auditLines();
+    assert.ok(fl.some((l) => l.server === 'fhir' && l.kind === 'security' && l.tool === 'tool_key_rejected' && l.error_code === 'WRONG_KEY' && l.ip), 'wrong key → security event');
+    assert.ok(fl.some((l) => l.server === 'fhir' && l.tool === 'fhir_rest' && l.patient_id === '4711' && l.object === '/api/patient/4711'), 'REST route audited with the patient ID');
     fhir.proc.kill();
-    ok('FHIR server: wrong key 401, right key 200; CORS only for DRAWBRIDGE_CORS_ORIGINS');
+    ok('FHIR server: wrong key 401 (security event, server "fhir"), right key 200; REST routes audited; CORS only for DRAWBRIDGE_CORS_ORIGINS');
+
+    // ---- FHIR server in production: REST/test routes off, agent routes on ----
+    fhir = await start('src/test-server.ts', 'MCP_SERVER_PORT', {
+      DRAWBRIDGE_TOOL_KEY: KEY,
+      NODE_ENV: 'production',
+      FHIR_BASE_URL_PRODUCTION: 'https://127.0.0.1:1/fhir',
+      AUTH_URL_PRODUCTION: 'https://127.0.0.1:1/auth',
+      TOKEN_URL_PRODUCTION: 'https://127.0.0.1:1/token',
+    });
+    procs.push(fhir.proc);
+    for (const p of ['/api/patient/123', '/api/medication?patientId=123', '/test/auth']) {
+      assert.strictEqual((await call(fhir.url, 'GET', p, { 'x-drawbridge-key': KEY })).status, 404, `production ${p}`);
+    }
+    assert.strictEqual((await call(fhir.url, 'POST', '/api/retell', { 'x-drawbridge-key': KEY })).status, 400, 'agent route still served (400: no tool name)');
+    fhir.proc.kill();
+    ok('FHIR server in production: REST and test routes (patient IDs in URLs) answer 404; the agent routes stay');
 
     // ---- Unity server ----
     let unity = await start('src/unity/unity-test-server.ts', 'UNITY_PORT', { DRAWBRIDGE_TOOL_KEY: undefined });
@@ -187,8 +222,24 @@ async function main(): Promise<void> {
     assert.deepStrictEqual(diag.server_info.map((s: any) => [s.target, s.status]), [['EHR', 'unavailable']], 'EHR only (PM not configured), unavailable, server still up');
     assert.strictEqual((await fetch(`${unity.url}/health`)).status, 200, 'GetServerInfo failure never stops the server');
     assert.ok(!unity.out().includes('ehr-pw') && !unity.out().includes('svc-pw'), 'a password reached the server log');
-    unity.proc.kill();
     ok('Unity server: wrong key 401; GetServerInfo failure at start shown as "unavailable", server stays up, no passwords logged');
+
+    // Minimum necessary on the agent endpoints: staff-only tools are neither offered nor run.
+    const post = (p: string, body: unknown) =>
+      fetch(`${unity.url}${p}`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-drawbridge-key': KEY }, body: JSON.stringify(body) });
+    const toolList: any = await (await post('/', { jsonrpc: '2.0', id: 1, method: 'tools/list' })).json();
+    const names: string[] = toolList.result.tools.map((t: any) => t.name);
+    assert.ok(names.includes('unity_search_patients') && !names.includes('unity_get_day_schedule') && !names.includes('unity_get_changed_appointments') && !names.includes('drawbridge_get_huddle_brief'), 'staff-only tools listed to the agent');
+    const refusedTool = await (await post('/api/retell', { name: 'unity_get_day_schedule', args: { date: '10/15/2026' }, call: { call_id: 'call_smoke1' } })).json();
+    assert.ok(/TOOL_ERROR \(STAFF_ONLY/.test(String(refusedTool)), String(refusedTool));
+    const nameOnly = await (await post('/api/retell', { name: 'unity_search_patients', args: { lastName: 'Smith' }, call: { call_id: 'call_smoke2' } })).json();
+    assert.ok(/TOOL_ERROR/.test(String(nameOnly)), 'search fails (no Veradigm): never an empty result');
+    await settle();
+    const ul = auditLines();
+    assert.ok(ul.some((l) => l.server === 'unity' && l.tool === 'unity_get_day_schedule' && l.error_code === 'STAFF_ONLY' && l.channel === 'retell'), 'refusal audited');
+    assert.ok(ul.some((l) => l.server === 'unity' && l.kind === 'security' && l.tool === 'tool_key_rejected'), 'Unity wrong key → security event');
+    unity.proc.kill();
+    ok('Unity server: staff-only tools (day schedule, changed appointments, huddle brief) not offered to the agent and refused (STAFF_ONLY, audited); wrong key → security event');
   } finally {
     for (const p of procs) if (p.exitCode === null) p.kill();
     await new Promise((r) => setTimeout(r, 300));

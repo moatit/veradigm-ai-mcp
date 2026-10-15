@@ -51,7 +51,7 @@ Until one of these is set up, call events don't arrive. The audit log and the Ac
 | Variable | Default | Purpose |
 |---|---|---|
 | `AUDIT_DIR` | `CALL_RECORDS_DIR`, else `./data` | Base directory for `audit/*.jsonl` and `calls.json`. Both containers must point at the same volume (`/app/data` in `deploy/local`). |
-| `AUDIT_RETENTION_DAYS` | `30` | Delete audit day files and calls-index entries older than this. |
+| `AUDIT_RETENTION_DAYS` | `2190` (6 years) | Delete audit day files and calls-index entries older than this. |
 | `RETELL_WEBHOOK_SECRET` | unset (webhook closed) | Shared secret expected in `x-drawbridge-webhook-secret`. |
 | `RETELL_API_KEY` | unset | Used for `x-retell-signature` verification only when `retell-sdk` is installed. |
 | `CLINIC_TIMEZONE` | `America/Boise` | Decides which day file a call lands in. Set it the same in both containers. |

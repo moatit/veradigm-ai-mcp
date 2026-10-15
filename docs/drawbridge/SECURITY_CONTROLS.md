@@ -1,6 +1,6 @@
 # Drawbridge security controls
 
-This document describes the security controls Drawbridge has in code as of branch `drawbridge/cert-hardening`, as evidence for the Veradigm Vendor Security Questionnaire. It states what the code does. Controls that depend on how Drawbridge is hosted are marked **Deployment requirement**, and the current AWS gaps are listed at the end.
+This document describes the security controls Drawbridge has in code as of branch `drawbridge/cert-hardening`, as evidence for the Veradigm Vendor Security Questionnaire. The HIPAA safeguard-by-safeguard checklist (with file and line evidence) is `HIPAA_TECHNICAL_SAFEGUARDS.md`; staff and clinics see the same list on the **HIPAA & Compliance** screen. It states what the code does. Controls that depend on how Drawbridge is hosted are marked **Deployment requirement**, and the current AWS gaps are listed at the end.
 
 Drawbridge has three server processes:
 
@@ -14,13 +14,13 @@ Drawbridge has three server processes:
 
 | Control | As implemented |
 |---|---|
-| Accounts | Named staff logins in `DRAWBRIDGE_USERS_FILE`, one line per person. A single shared login (`DRAWBRIDGE_USERNAME` / `DRAWBRIDGE_PASSWORD`) exists only for local development and is disabled whenever the users file is set. |
+| Accounts | Named staff logins in `DRAWBRIDGE_USERS_FILE`, one line per person, with a role (`staff`, `admin` for the privacy/security officer, `emergency` for the sealed break-glass login). A single shared login (`DRAWBRIDGE_USERNAME` / `DRAWBRIDGE_PASSWORD`) exists only for local development: it is refused whenever the users file is set, whenever TOTP is required (the default) and always in production. |
 | Password storage | scrypt (N=16384, r=8, p=1, 16-byte random salt, 32-byte hash). Clear-text passwords are never stored or logged. Verification is constant-time. |
 | Password policy | Enforced when a login is created (`npm run staff:user -- <name>`). At least 12 and at most 256 characters. Common passwords are refused, including common words with digits or symbols added and leetspeak (`P@ssw0rd2026!`). So are keyboard and number sequences, passwords with fewer than 4 distinct characters, and passwords that contain the username. |
-| Password rotation | Change a password whenever it may have been seen, when a person leaves a shared role, and at least yearly. To change it, replace the person's line in the users file. That person's existing sessions end at once. |
-| Multi-factor (optional, per user) | TOTP (RFC 6238: SHA-1, 6 digits, 30 s, ±1 step). Enrol with `npm run staff:user -- <name> --totp`, which adds `:totp=<secret>` to the line and prints the `otpauth://` link once, on stderr. Once a user has enrolled, the password alone is refused, and each code works only once. **Not mandatory**; enrolling every user is an operational decision. |
+| Password expiry and history | Passwords expire `DRAWBRIDGE_PASSWORD_MAX_AGE_DAYS` (90) days after `:pwset=`; a line without a date counts as expired. After the right password and code an expired login is refused with a message to contact the administrator, and open sessions end. `npm run staff:user -- <name>` re-issues it: it reads the current line, refuses any of the last 5 passwords (`:hist=` keeps the 4 previous hashes) and keeps the TOTP secret and role. Replacing the line ends the person's sessions at once. |
+| Multi-factor (**mandatory**) | TOTP (RFC 6238: SHA-1, 6 digits, 30 s, ±1 step) for every staff login: `DRAWBRIDGE_REQUIRE_TOTP` defaults on and is forced on in production. A line without `:totp=` cannot sign in ("Two-factor sign-in is not set up", security event). Enrol with `npm run staff:user -- <name> --totp`, which adds `:totp=<secret>` and prints the `otpauth://` link once, on stderr. Each code works only once. |
 | Brute-force lockout | 5 failed sign-ins for a username within 15 minutes lock that username for 15 minutes. This applies to any name typed, so a lock does not reveal whether the account exists. A client IP is locked after 30 failures in the window. Settings: `DRAWBRIDGE_LOGIN_MAX_FAILS`, `DRAWBRIDGE_LOGIN_WINDOW_MIN` and `DRAWBRIDGE_LOGIN_IP_MAX_FAILS`. While locked, even the right password is refused. Every failure gets the same message ("Wrong username or password.") after the same 800 ms delay. Lockouts are logged without the password. The counters are in memory, so a restart clears them. |
-| Sessions | An HMAC-SHA256-signed cookie (`DRAWBRIDGE_SESSION_SECRET`) set with `HttpOnly; Secure; SameSite=Strict`. It holds the user, the issue time and the last-activity time. A session ends after 15 minutes without a request (`DRAWBRIDGE_IDLE_MINUTES`, sliding) and 12 hours after sign-in no matter what. |
+| Sessions | An HMAC-SHA256-signed cookie `__Host-drawbridge_session` (`DRAWBRIDGE_SESSION_SECRET`) set with `HttpOnly; Secure; SameSite=Strict; Path=/`, no Domain. It holds the user, the issue time and the last-activity time. A session ends after 15 minutes without a request (`DRAWBRIDGE_IDLE_MINUTES`, sliding) and 12 hours after sign-in no matter what (4 hours for the emergency login). Each signed-in page blanks itself and goes to the sign-in page when the idle time is up. Staff pages send `Strict-Transport-Security`. |
 | Logout and revocation | Logout is server-side: it records a per-user "sessions valid after" time, so the cookie (and that user's sessions in other browsers) stops working even if it was copied. Removing a person from the users file, or changing their password, does the same. The revocation list is kept in memory and in `staff-sessions.json` (mode 0600, `DRAWBRIDGE_SESSIONS_FILE`), so it survives restarts. A name that is re-added does not bring old cookies back. |
 | Page security headers | Every staff page sends a Content-Security-Policy: `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'; object-src 'none'`. There is no inline script or inline event handler. Page behaviour is in `/app/assets/drawbridge.js`. Inline *styles* are allowed because the pages use style attributes. Every staff page also sends `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer` and `Cache-Control: no-store`. Everything rendered is HTML-escaped. |
 | Cross-site requests | State changes are POSTs carrying a `SameSite=Strict` cookie. CORS sends no headers unless an origin is on the allow-list (see 1.3). |
@@ -62,6 +62,8 @@ Drawbridge has three server processes:
 
 - One JSON line per agent or staff tool call, and per Veradigm action a module sends directly: intake `SaveScanDocument`/`SaveTask`, filing-observer reads, provider and schedule reads, huddle and outreach reads, and `GetServerInfo`/`LastLogs`.
 - Each line holds: time, server, kind (`tool`/`action`), call ID, tool or action name, patient ID (only if it is a plain ID), success, error code, latency and channel. Never arguments, results, names, dates of birth or chart contents.
+- Staff access: every staff screen request is a `view` (GET) or `staff` (POST) line with the staff `user`, the opaque path or object (`call_record:<id>`, `intake_item:<id>`) and the patient ID when the screen is about one patient. Security events (sign-ins, failures, lockouts, expired passwords, emergency access, rejected keys and webhooks, integrity failures, export and record-view volume alerts) are `security` lines and `[SECURITY]` server-log lines. Administrators can export every line for one patient or one staff user for a date range (Activity → Access report).
+- Retention: `AUDIT_RETENTION_DAYS`, default 2190 (6 years).
 - Files: `<AUDIT_DIR>/audit/YYYY-MM-DD.jsonl` (clinic-local day), mode 0600 in a 0700 directory, append only.
 - **Tamper evidence**: each line carries `prev` (the hash of the previous line from the same server in that file, starting from `sha256("drawbridge-audit|<day>|<server>")`) and `hash` (SHA-256 of the line without `hash`). `npm run audit:verify -- <YYYY-MM-DD>` (or `node dist/scripts/audit-verify.js` in the container) reports edited, deleted, reordered and inserted lines by line number. **Limitation**: the chain cannot show lines cut from the end of a file, or a whole day file deleted. **Deployment requirement**: copy the day files daily to append-only or versioned storage (for example S3 with Object Lock) for that.
 - A summary also goes to the admin portal (`ADMIN_PORTAL_URL`): tool name, timing, status and error code only.
@@ -75,7 +77,8 @@ Every prune runs at startup and then daily, and none of them stop the server if 
 | On-call call records (patient identity, message, chart snapshot) | `<CALL_RECORDS_DIR>/call-records.json`, 0600 | `CALL_RECORDS_RETENTION_DAYS`, default 30 days after the last update |
 | Outreach jobs (first name, phone, appointment) | `<CALL_RECORDS_DIR>/outreach-jobs.json`, 0600 | `OUTREACH_RETENTION_DAYS`, default 30. The opt-out list (patient IDs only) is kept. |
 | Intake originals of filed or sent-to-indexing documents | intake store | `INTAKE_RETENTION_DAYS`, default 30 |
-| Audit day files | `<AUDIT_DIR>/audit/` | `AUDIT_RETENTION_DAYS`, default 30 |
+| Patient details on records of filed documents (names, DOBs, extracted fields, notes, file names) | intake store | `INTAKE_RECORD_RETENTION_DAYS`, default 90 (IDs, hash and history stay) |
+| Audit day files | `<AUDIT_DIR>/audit/` | `AUDIT_RETENTION_DAYS`, default 2190 (6 years) |
 | Veradigm diagnostics (LastLogs, scrubbed) | `<CALL_RECORDS_DIR>/unity-diagnostics.json`, 0600 | last 50 records |
 | Calls index (call ID, times, last 4 phone digits) | `<AUDIT_DIR>/calls.json` | last 5000 calls |
 | Staff session revocations (usernames, times) | `staff-sessions.json`, 0600 | kept (tiny) |
@@ -101,7 +104,8 @@ There are no client-specific values in code. `CLINIC_NAME` (no default) sets the
 |---|---|
 | `npm run smoke:unity-auth` | Single-flight login, retry after a rejected token, timeouts, no passwords in the logs, GetServerInfo, LastLogs |
 | `npm run smoke:endpoints` | Both HTTP servers: 503 without a key, 401 with a wrong key, minimal `/health`, CORS |
-| `npm run smoke:staff-login` | Lockout, idle and absolute timeout, logout and revocation, TOTP, password policy, CSP |
+| `npm run smoke:staff-login` | Lockout, idle and absolute timeout, logout and revocation, mandatory TOTP, password expiry and history, roles, security events, CSP, HSTS, automatic logoff |
+| `npm run smoke:hipaa` | Staff access audit, document integrity, access and disclosure report, volume alerts, minimum necessary for the agent, no patient IDs in URLs, intake record retention, HIPAA & Compliance page and checklist consistency |
 | `npm run smoke:activity` | Audit content, hash chain and tamper detection, audited module actions |
 | `npm run smoke:config` | `CLINIC_NAME`, intervals, the polling floor, the production sandbox refusal, retention |
 
@@ -114,6 +118,12 @@ The suites `smoke`, `smoke:intake`, `smoke:outreach`, `smoke:huddle` and `smoke:
 | `DRAWBRIDGE_TOOL_KEY` | none (endpoints answer 503) | Shared key for machine endpoints. **Required.** |
 | `DRAWBRIDGE_CORS_ORIGINS` | none | Browser origin allow-list |
 | `DRAWBRIDGE_IDLE_MINUTES` | 15 | Staff idle timeout |
+| `DRAWBRIDGE_REQUIRE_TOTP` | on (forced on in production) | Mandatory TOTP |
+| `DRAWBRIDGE_PASSWORD_MAX_AGE_DAYS` | 90 | Password expiry |
+| `DRAWBRIDGE_EXPORT_ALERT_PER_HOUR` / `DRAWBRIDGE_VIEW_ALERT_PER_HOUR` | 20 / 200 | Volume alerts |
+| `DRAWBRIDGE_AGENT_STAFF_TOOLS` | off | Staff-only tools on the agent endpoints |
+| `DRAWBRIDGE_FHIR_REST_ROUTES` | off in production | FHIR REST and test routes |
+| `INTAKE_RECORD_RETENTION_DAYS` / `AUDIT_RETENTION_DAYS` | 90 / 2190 | Retention |
 | `DRAWBRIDGE_LOGIN_MAX_FAILS` / `_WINDOW_MIN` / `_IP_MAX_FAILS` | 5 / 15 / 30 | Lockout |
 | `DRAWBRIDGE_TRUST_PROXY` | unset | Hop count of proxies in front (for example `1` behind nginx), so the per-IP lockout sees client IPs |
 | `DRAWBRIDGE_SESSIONS_FILE` | `<CALL_RECORDS_DIR>/staff-sessions.json` | Revocation list |
@@ -150,7 +160,7 @@ These findings are in `infra/` and the deploy workflow, which belong to Kanhaiya
 
 ## 12. Known limitations
 
-- MFA is optional per user. Lockout counters are in memory and reset on restart.
+- Lockout counters are in memory and reset on restart. There is no self-service password change: the users file stays read-only to the server, and the administrator re-issues passwords.
 - One shared `DRAWBRIDGE_TOOL_KEY` per deployment. Per-caller keys exist only through the admin portal's optional `x-api-key` check.
 - The CSP allows inline styles.
 - The audit chain does not show truncation at the end of a file or a deleted day file (see 3.2).

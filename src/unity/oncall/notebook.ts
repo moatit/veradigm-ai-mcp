@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { auditPatient } from '../../platform/app';
 import { PlatformModule } from '../../platform/registry';
 import { APP_BASE, esc, fmtTime, page } from '../../platform/shell';
 import { callRecords, CallRecord } from './call-records';
@@ -87,7 +88,10 @@ ${override ? `<form method="post" action="${APP_BASE}/oncall/mode" style="margin
           .send(page('Not found', `<div class="card">Call not found. <a href="${APP_BASE}/oncall">Back</a></div>`, { user: user(req), active: '/oncall' }));
         return;
       }
-      res.send(page(`Call · ${r.verified ? r.patient_name : 'Unverified'}`, detail(r), { user: user(req), active: '/oncall' }));
+      // Access audit: who opened which call record, and for which patient (IDs only).
+      auditPatient(res, r.patient_ref.id, `call_record:${r.call_id}`);
+      // No patient name in the title: browsers keep titles in their history.
+      res.send(page('Call record · Drawbridge', detail(r), { user: user(req), active: '/oncall' }));
     });
 
     return router;

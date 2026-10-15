@@ -32,6 +32,7 @@
     "smoke:endpoints": "ts-node src/scripts/smoke-endpoints.ts",
     "smoke:staff-login": "ts-node src/scripts/smoke-staff-login.ts",
     "smoke:config": "ts-node src/scripts/smoke-config.ts",
+    "smoke:hipaa": "ts-node src/scripts/smoke-hipaa.ts",
     "smoke:intake": "ts-node src/scripts/smoke-intake.ts && ts-node src/scripts/smoke-intake-shadow.ts && ts-node src/scripts/smoke-intake-rules.ts",
     "smoke:intake-rules": "ts-node src/scripts/smoke-intake-rules.ts",
     "smoke:intake-shadow": "ts-node src/scripts/smoke-intake-shadow.ts",
@@ -40,6 +41,7 @@
     "intake:import": "ts-node src/scripts/intake-import.ts",
     "staff:user": "ts-node src/scripts/staff-user.ts",
     "audit:verify": "ts-node src/scripts/audit-verify.ts",
+    "docs:hipaa": "ts-node src/scripts/docs-hipaa.ts",
     "server:shadow": "ts-node src/platform/shadow-server.ts"
   },
   "keywords": [

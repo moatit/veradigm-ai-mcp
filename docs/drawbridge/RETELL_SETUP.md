@@ -48,7 +48,7 @@ Paged responses are `{ items, has_more, pagination_key }`, not a bare array. Dra
 
 ## Staff app
 
-`https://drawbridge.moatit.dev/app`. The login is `DRAWBRIDGE_USERNAME` / `DRAWBRIDGE_PASSWORD` in `deploy/local/.env`.
+`https://drawbridge.moatit.dev/app`. Named logins with an authenticator code, one line per person in `deploy/local/secrets/drawbridge-users` (`npm run staff:user -- <name> --totp`, `DRAWBRIDGE_USERS_FILE` in `deploy/local/.env`). The shared `DRAWBRIDGE_USERNAME` / `DRAWBRIDGE_PASSWORD` login works only with `DRAWBRIDGE_REQUIRE_TOTP=off` for local development.
 
 ## Current state (Oct 8, 2026, night)
 

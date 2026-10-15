@@ -67,6 +67,10 @@ function getUnityEnvironmentConfig(): UnityEnvironmentConfig {
         `NODE_ENV=production: set ${missing.join(", ")} (no sandbox defaults in production)`
       );
     }
+    // Transmission security (HIPAA 164.312(e)(1)): PHI goes to Veradigm over TLS only.
+    if (!/^https:\/\//i.test(String(process.env.UNITY_UBIQUITY_ENDPOINT).trim())) {
+      throw new Error("NODE_ENV=production: UNITY_UBIQUITY_ENDPOINT must be an https:// URL");
+    }
   }
 
   return {

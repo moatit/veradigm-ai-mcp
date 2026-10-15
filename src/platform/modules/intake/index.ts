@@ -1,5 +1,8 @@
 import express, { Request, Response, Router } from 'express';
+import fs from 'fs';
+import { auditPatient } from '../../app';
 import { PlatformModule } from '../../registry';
+import { recordExport, securityEvent, clientIp } from '../../security-events';
 import { APP_BASE, esc, fmtTime, page } from '../../shell';
 import { CsvDocTypes, DocTypeCache, FallbackDocTypes, type DocType, type DocTypeSource } from './doctypes';
 import type { Confidence, DocumentKind, Extracted } from './extract';
@@ -24,7 +27,7 @@ import {
   type ConfirmFilter,
   type ShadowPanelContext,
 } from './shadow-ui';
-import { ALLOWED_MIME, INTAKE_STATUSES, IntakeItem, IntakeStatus, intakeStore, sniffMime } from './store';
+import { ALLOWED_MIME, INTAKE_STATUSES, IntakeItem, IntakeStatus, intakeStore, sha256, sniffMime } from './store';
 import { retentionDaysFrom, startDailyRetention } from '../../retention';
 
 export { mountFaxWebhook } from './moatit-fax';
@@ -104,6 +107,7 @@ const MESSAGES: Record<string, string> = {
   ALREADY_FILED: 'This document was already filed.',
   FILING_REJECTED: 'Veradigm® EHR did not accept the document. It was not filed.',
   FILING_UNCERTAIN: 'Veradigm® EHR did not answer. Check the patient chart before trying again.',
+  INTEGRITY_FAILED: 'The stored file no longer matches the document that was received. It was not filed. Tell the Drawbridge administrator.',
   filed: 'Filed to the patient chart in Veradigm® EHR.',
   category: 'Category changed.',
   category_unknown: 'That category is not available in Veradigm® EHR.',
@@ -367,6 +371,13 @@ export const intakeModule: PlatformModule = {
       res.status(code).send(page(`${title} · Drawbridge`, body, { user: user(req), active: '/intake' }));
     const back = (res: Response, id: string, m: string) => res.redirect(`${APP_BASE}/intake/item/${encodeURIComponent(id)}?m=${encodeURIComponent(m)}`);
 
+    // Access audit: every item screen and action records the item and its matched patient (IDs only).
+    router.param('id', (_req, res, next, id) => {
+      const it = intakeStore().get(String(id));
+      if (it) auditPatient(res, it.match?.patient?.chartPatientId || it.match?.patient?.patientId, `intake_item:${it.id}`);
+      next();
+    });
+
     router.get('/', (req, res) => {
       try {
         const status = INTAKE_STATUSES.includes(req.query.status as IntakeStatus) ? (req.query.status as IntakeStatus) : '';
@@ -452,10 +463,24 @@ export const intakeModule: PlatformModule = {
         res.status(404).send('Not found');
         return;
       }
+      // Integrity (HIPAA 164.312(c)): the original must still match the SHA-256 recorded when it was received.
+      let data: Buffer;
+      try {
+        data = fs.readFileSync(p);
+      } catch {
+        res.status(404).send('Not found');
+        return;
+      }
+      if (sha256(data) !== item.file.sha256) {
+        securityEvent('integrity_failed', { user: user(req), ip: clientIp(req), code: 'ORIGINAL_HASH_MISMATCH', object: `intake_item:${item.id}` });
+        res.status(409).send('This document no longer matches the file that was received. It was not shown. Tell the Drawbridge administrator.');
+        return;
+      }
+      recordExport(req, `intake_original:${item.id}`, item.match?.patient?.chartPatientId || item.match?.patient?.patientId || '');
       res.setHeader('Content-Type', ALLOWED_MIME.has(item.file.mime) ? item.file.mime : 'application/octet-stream');
       res.setHeader('Content-Disposition', `inline; filename="${item.file.name.replace(/["\\]/g, '_')}"`);
       res.setHeader('X-Content-Type-Options', 'nosniff');
-      res.sendFile(p);
+      res.send(data);
     });
 
     const filingAction = (fn: (i: IntakeItem, by: string) => Promise<FilingResult>) => async (req: Request, res: Response) => {
@@ -576,5 +601,7 @@ export const intakeModule: PlatformModule = {
     if (resumed) console.log(`[Intake] resumed ${resumed} unfinished document(s)`);
     // Originals of filed documents: at startup and daily (INTAKE_RETENTION_DAYS, default 30).
     startDailyRetention('intake originals', () => intakeStore().pruneFiled(retentionDaysFrom('INTAKE_RETENTION_DAYS')));
+    // Patient details on the records of filed documents (INTAKE_RECORD_RETENTION_DAYS, default 90).
+    startDailyRetention('intake records', () => intakeStore().purgeRecords(retentionDaysFrom('INTAKE_RECORD_RETENTION_DAYS', 90)));
   },
 };
