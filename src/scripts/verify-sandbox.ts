@@ -9,10 +9,12 @@
  *
  * Must run on a machine that can reach the Veradigm sandboxes (not the Claude cloud workspace).
  *
- * How to read the "Action name check" rows: each pair compares the action name the repo sends
- * today with the name in Veradigm's PM/EHR API reference. A FAIL whose message is about missing
- * or bad parameters usually means the action EXISTS; a FAIL saying the action is unknown/invalid
- * means it does not. GetServerInfo shows which Veradigm product and version the sandbox is.
+ * Every Unity action name comes from src/unity/config/unity-endpoints.ts (UNITY_ACTION_* overrides
+ * apply), so this checks exactly what the app sends. The read actions in
+ * docs/drawbridge/UNITY_ACTIONS_FOR_CERTIFICATION.md are covered; writes are never called.
+ * A FAIL whose message is about missing or bad parameters usually means the action EXISTS; a FAIL
+ * saying the action is unknown/invalid means it does not. GetServerInfo shows which Veradigm
+ * product and version the sandbox is; LastLogs is Veradigm's troubleshooting log.
  *
  * Optional env (defaults are the Veradigm sandbox test patients):
  *   VERIFY_UNITY_PATIENT_ID=56500  VERIFY_UNITY_LAST=Smith  VERIFY_UNITY_FIRST=Ed  VERIFY_UNITY_DOB=12/06/1952
@@ -21,7 +23,7 @@
  */
 import * as fs from 'fs';
 import type { UnityService } from '../unity/services/unity.service';
-import type { UnityTargetSystem } from '../unity/config/unity-endpoints';
+import type { UnityActions as UnityActionsT, UnityTargetSystem } from '../unity/config/unity-endpoints';
 import type { FHIRService } from '../services/fhir.service';
 
 type Status = 'PASS' | 'FAIL' | 'SKIP' | 'INFO';
@@ -76,6 +78,7 @@ function errMsg(e: unknown): string {
 }
 
 let unity: UnityService | null = null;
+let A: typeof UnityActionsT | null = null;
 let fhir: FHIRService | null = null;
 
 async function unityCheck(
@@ -147,6 +150,7 @@ async function main(): Promise<void> {
   try {
     const { UnityAuthService } = await import('../unity/services/unity-auth.service');
     const { UnityService: Unity } = await import('../unity/services/unity.service');
+    A = (await import('../unity/config/unity-endpoints')).UnityActions;
     unity = new Unity(new UnityAuthService());
   } catch (e) {
     console.log(`Unity checks skipped (config): ${errMsg(e)}`);
@@ -159,10 +163,19 @@ async function main(): Promise<void> {
     console.log(`FHIR checks skipped (config): ${errMsg(e)}`);
   }
 
-  // ---- Unity: connection and product info ----
+  if (unity && A) await unityChecks(A);
+  else results.push({ group: 'Unity', check: 'All Unity checks', target: 'PM/EHR', priority: 'P0', status: 'SKIP', ms: 0, detail: 'Unity not configured' });
+
+  await fhirChecks();
+  report();
+}
+
+async function unityChecks(A: typeof UnityActionsT): Promise<void> {
+  // ---- Unity: connection, product info, troubleshooting log (GetServerInfo and LastLogs are Veradigm-required) ----
   for (const t of ['PM', 'EHR'] as UnityTargetSystem[]) {
-    await unityCheck('Unity connection', `Echo (${t})`, 'Echo', { Parameter1: 'drawbridge' }, '', t, 'P0');
-    await unityCheck('Unity connection', `GetServerInfo (${t}) · shows product/version`, 'GetServerInfo', {}, '', t, 'P0');
+    await unityCheck('Unity connection', `${A.Admin.ECHO} (${t})`, A.Admin.ECHO, { Parameter1: 'drawbridge' }, '', t, 'P0');
+    await unityCheck('Unity connection', `${A.Admin.GET_SERVER_INFO} (${t}) · shows product/version`, A.Admin.GET_SERVER_INFO, {}, '', t, 'P0');
+    await unityCheck('Unity connection', `${A.Admin.LAST_LOG} (${t}) · troubleshooting log`, A.Admin.LAST_LOG, {}, '', t, 'P1');
   }
 
   // ---- Unity: patient search (gate for every Unity flow) ----
@@ -178,47 +191,41 @@ async function main(): Promise<void> {
       results.push({ group: 'Unity patients', check: 'SearchPatients (PM)', target: 'PM', priority: 'P0', status: 'FAIL', ms: Date.now() - t0, detail: errMsg(e) });
     }
   }
-  await unityCheck('Unity patients', `GetPatient ${U_PID} (EHR)`, 'GetPatient', {}, U_PID, 'EHR', 'P1');
-  await unityCheck('Unity patients', `GetPatientByMRN ${U_MRN} (EHR)`, 'GetPatientByMRN', { Parameter1: U_MRN }, '', 'EHR', 'P1');
-
-  // ---- Action name check: repo name vs Veradigm reference name ----
-  const pairs: Array<[string, string, string, Record<string, string>, string, UnityTargetSystem, string]> = [
-    // [label, repoAction, referenceAction, params, patientId, target, priority]
-    ['Patient appointments', 'GetAppointments', 'GetScheduleByPatientID', {}, U_PID, 'PM', 'P0'],
-    ['Open slots', 'GetOpenSlots', 'GetAllAvailableAppointments', { Parameter1: mmddyyyy(1), Parameter2: mmddyyyy(14) }, '', 'PM', 'P0'],
-    ['Problem list', 'GetPatientProblems', 'GetProblems', {}, U_PID, 'EHR', 'P1'],
-    ['Allergies', 'GetPatientAllergies', 'GetAllergies', {}, U_PID, 'EHR', 'P1'],
-    ['Current medications', 'GetPatientMedications', 'GetClinicalSummary', {}, U_PID, 'EHR', 'P1'],
-    ['Troubleshooting log', 'LastLog', 'LastLogs', {}, '', 'PM', 'P2'],
-  ];
-  for (const [label, repoAct, refAct, params, pid, target, pr] of pairs) {
-    await unityCheck('Action name check', `${label}: repo sends ${repoAct}`, repoAct, params, pid, target, pr);
-    await unityCheck('Action name check', `${label}: reference ${refAct}`, refAct, params, pid, target, pr);
-  }
+  await unityCheck('Unity patients', `${A.Patient.GET_PATIENT} ${U_PID} (EHR)`, A.Patient.GET_PATIENT, {}, U_PID, 'EHR', 'P1');
+  await unityCheck('Unity patients', `${A.Patient.GET_PATIENT_BY_MRN} ${U_MRN} (EHR)`, A.Patient.GET_PATIENT_BY_MRN, { Parameter1: U_MRN }, '', 'EHR', 'P1');
   results.push({
-    group: 'Action name check', check: 'CancelAppointment vs SetAppointmentStatus; UpdateDemographics vs SavePatient',
-    target: 'PM', priority: 'P0', status: 'SKIP', ms: 0,
-    detail: 'Write actions: verify by hand on a sandbox test appointment (this script never writes).',
+    group: 'Unity patients', check: `Writes: ${A.Scheduling.SAVE_APPOINTMENT}, ${A.Scheduling.SET_APPOINTMENT_STATUS}, ${A.Patient.SAVE_PATIENT}, ${A.Task.SAVE_TASK}, ${A.Document.SAVE_SCAN_DOCUMENT}`,
+    target: 'PM/EHR', priority: 'P0', status: 'SKIP', ms: 0,
+    detail: 'Write actions: verify by hand on sandbox test data (this script never writes).',
   });
 
-  // ---- Planned Unity reads ----
-  await unityCheck('Planned PM reads', 'GetAppointmentCancellationReasons', 'GetAppointmentCancellationReasons', {}, '', 'PM', 'P0');
-  await unityCheck('Planned PM reads', 'GetAppointmentTypes', 'GetAppointmentTypes', {}, '', 'PM', 'P1');
-  await unityCheck('Planned PM reads', 'GetAppointmentConfirmationResults', 'GetAppointmentConfirmationResults', {}, '', 'PM', 'P2');
+  // ---- Veradigm PM reads the app makes ----
+  await unityCheck('PM reads', `${A.Scheduling.GET_APPOINTMENTS} ${U_PID}`, A.Scheduling.GET_APPOINTMENTS, {}, U_PID, 'PM', 'P0');
+  await unityCheck('PM reads', A.Scheduling.GET_RESOURCES, A.Scheduling.GET_RESOURCES, {}, '', 'PM', 'P0');
+  await unityCheck('PM reads', A.Scheduling.GET_CANCELLATION_REASONS, A.Scheduling.GET_CANCELLATION_REASONS, {}, '', 'PM', 'P0');
+  await unityCheck('PM reads', A.Scheduling.GET_APPOINTMENT_TYPES, A.Scheduling.GET_APPOINTMENT_TYPES, {}, '', 'PM', 'P1');
   if (APPT_ID) {
-    await unityCheck('Planned PM reads', `GetAppointmentById ${APPT_ID}`, 'GetAppointmentById', { Parameter1: APPT_ID }, U_PID, 'PM', 'P1');
+    await unityCheck('PM reads', `${A.Scheduling.GET_APPOINTMENT_BY_ID} ${APPT_ID}`, A.Scheduling.GET_APPOINTMENT_BY_ID, { Parameter1: APPT_ID }, U_PID, 'PM', 'P1');
   } else {
-    results.push({ group: 'Planned PM reads', check: 'GetAppointmentById', target: 'PM', priority: 'P1', status: 'SKIP', ms: 0, detail: 'Set VERIFY_APPOINTMENT_ID' });
+    results.push({ group: 'PM reads', check: A.Scheduling.GET_APPOINTMENT_BY_ID, target: 'PM', priority: 'P1', status: 'SKIP', ms: 0, detail: 'Set VERIFY_APPOINTMENT_ID' });
   }
-  await unityCheck('Planned PM reads', `GetPatientAccountBalance ${U_PID}`, 'GetPatientAccountBalance', {}, U_PID, 'PM', 'P1');
-  await unityCheck('Planned PM reads', `GetPatientPolicy ${U_PID}`, 'GetPatientPolicy', {}, U_PID, 'PM', 'P1');
-  await unityCheck('Planned PM reads', `GetSchedule ${mmddyyyy(0)}`, 'GetSchedule', { Parameter1: mmddyyyy(0) }, '', 'PM', 'P2');
-  await unityCheck('Planned PM reads', `GetAppointmentsByChangeDTTM since ${mmddyyyy(-7)}`, 'GetAppointmentsByChangeDTTM', { Parameter1: mmddyyyy(-7), Parameter2: mmddyyyy(0) }, '', 'PM', 'later');
-  await unityCheck('Planned PM reads', `GetRecalls ${U_PID}`, 'GetRecalls', { Parameter1: U_PID }, U_PID, 'PM', 'later');
-  await unityCheck('Planned EHR reads', `GetPatientDiagnosis ${U_PID}`, 'GetPatientDiagnosis', {}, U_PID, 'EHR', 'P2');
-  await unityCheck('Planned EHR reads', 'GetLocation', 'GetLocation', {}, '', 'EHR', 'P2');
-  await unityCheck('Planned EHR reads', 'GetProviders', 'GetProviders', {}, '', 'EHR', 'P2');
+  await unityCheck('PM reads', `${A.Billing.GET_ACCOUNT_BALANCE} ${U_PID}`, A.Billing.GET_ACCOUNT_BALANCE, {}, U_PID, 'PM', 'P1');
+  await unityCheck('PM reads', `${A.Billing.GET_PATIENT_POLICY} ${U_PID}`, A.Billing.GET_PATIENT_POLICY, {}, U_PID, 'PM', 'P1');
+  await unityCheck('PM reads', `${A.Scheduling.GET_SCHEDULE} ${mmddyyyy(0)}`, A.Scheduling.GET_SCHEDULE, { Parameter1: mmddyyyy(0) }, '', 'PM', 'P2');
+  await unityCheck('PM reads', `${A.Scheduling.GET_APPOINTMENTS_BY_CHANGE} since ${mmddyyyy(-7)}`, A.Scheduling.GET_APPOINTMENTS_BY_CHANGE, { Parameter1: mmddyyyy(-7), Parameter2: mmddyyyy(0) }, '', 'PM', 'later');
+  await unityCheck('PM reads', `${A.Scheduling.GET_RECALLS} ${U_PID}`, A.Scheduling.GET_RECALLS, { Parameter1: U_PID }, U_PID, 'PM', 'later');
 
+  // ---- Veradigm EHR reads the app makes ----
+  for (const section of ['problems', 'medications', 'allergies', 'results']) {
+    await unityCheck('EHR reads', `${A.Clinical.GET_CLINICAL_SUMMARY} ${section} ${U_PID}`, A.Clinical.GET_CLINICAL_SUMMARY, { Parameter1: section }, U_PID, 'EHR', 'P1');
+  }
+  await unityCheck('EHR reads', `${A.Clinical.GET_PATIENT_DIAGNOSIS} ${U_PID}`, A.Clinical.GET_PATIENT_DIAGNOSIS, {}, U_PID, 'EHR', 'P2');
+  await unityCheck('EHR reads', A.Practice.GET_LOCATION, A.Practice.GET_LOCATION, {}, '', 'EHR', 'P2');
+  await unityCheck('EHR reads', A.Provider.GET_PROVIDERS, A.Provider.GET_PROVIDERS, {}, '', 'EHR', 'P2');
+  await unityCheck('EHR reads', A.Document.GET_DOCUMENT_TYPES, A.Document.GET_DOCUMENT_TYPES, {}, '', 'EHR', 'P2');
+}
+
+async function fhirChecks(): Promise<void> {
   // ---- FHIR ----
   if (fhir) {
     const t0 = Date.now();
@@ -250,7 +257,9 @@ async function main(): Promise<void> {
   }
   await fhirSearch('Practitioner', 'Practitioner', { _count: '1' }, 'P2');
   await fhirSearch('Location', 'Location', { _count: '1' }, 'P2');
+}
 
+function report(): void {
   // ---- Report ----
   let group = '';
   for (const r of results) {

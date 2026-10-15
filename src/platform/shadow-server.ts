@@ -121,11 +121,25 @@ async function main(): Promise<void> {
   if (!process.env.DRAWBRIDGE_USERS_FILE && !(process.env.DRAWBRIDGE_USERNAME && process.env.DRAWBRIDGE_PASSWORD)) console.warn('[Intake shadow] staff login not configured');
   if (!process.env.DRAWBRIDGE_SESSION_SECRET) console.warn('[Intake shadow] DRAWBRIDGE_SESSION_SECRET not set: staff are signed out at every restart');
 
-  const { app } = await createShadowApp(startup);
+  const { app, unity } = await createShadowApp(startup);
   const port = Number(process.env.INTAKE_SHADOW_PORT) || 3001;
-  app.listen(port, '0.0.0.0', () => {
+  const server = app.listen(port, '0.0.0.0', () => {
     console.log(`[Intake shadow] listening on ${port}; patients from ${startup.roster ? 'the local patient list' : 'Veradigm (read-only)'}; nothing is filed`);
   });
+  // Graceful shutdown: retire the Veradigm token this process holds (RetireToken), flush the audit log.
+  let stopping = false;
+  const shutdown = async () => {
+    if (stopping) return;
+    stopping = true;
+    setTimeout(() => process.exit(0), 10_000).unref();
+    server.close();
+    if (typeof unity.cleanup === 'function') await unity.cleanup();
+    const { flushAudit } = await import('./audit');
+    await flushAudit().catch(() => undefined);
+    process.exit(0);
+  };
+  process.on('SIGINT', () => void shutdown());
+  process.on('SIGTERM', () => void shutdown());
 }
 
 if (require.main === module) {

@@ -28,7 +28,7 @@ import { loadPlatformModules } from "../platform/modules";
 import { moduleForTool, platformTools, platformWriteTools, ToolContext } from "../platform/registry";
 import { mountPlatform, requireToolKey } from "../platform/app";
 import { corsFromEnv } from "../platform/cors";
-import { auditToolCall } from "../platform/audit";
+import { auditToolCall, flushAudit } from "../platform/audit";
 import { auditedUnity } from "../platform/audited-unity";
 import { mountRetellWebhook } from "../platform/modules/activity";
 import { mountFaxWebhook } from "../platform/modules/intake";
@@ -421,7 +421,7 @@ mountPlatform(app, {
 });
 
 // Start server
-app.listen(PORT, () => {
+const httpServer = app.listen(PORT, () => {
   // First token + login per configured system, then GetServerInfo (also pre-warms auth for the first Retell call).
   // A failure is logged and shown as "unavailable"; it never stops the server.
   diagnostics.start();
@@ -477,3 +477,19 @@ app.listen(PORT, () => {
   console.log("Ready for Retell AI integration! 🎙️");
   console.log("");
 });
+
+// Graceful shutdown (SIGINT/SIGTERM, e.g. docker stop): stop taking requests, retire the Unity tokens
+// this process holds (RetireToken, PM and EHR), flush the audit log. Forced exit after 10 s.
+let shuttingDown = false;
+async function shutdown(signal: string): Promise<void> {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  console.log(`[Unity] ${signal}: shutting down`);
+  setTimeout(() => process.exit(0), 10_000).unref();
+  httpServer.close();
+  await unityService.cleanup();
+  await flushAudit().catch(() => undefined);
+  process.exit(0);
+}
+process.on("SIGINT", () => void shutdown("SIGINT"));
+process.on("SIGTERM", () => void shutdown("SIGTERM"));

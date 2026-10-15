@@ -412,19 +412,6 @@ export class UnityService {
     }, patientId, target);
   }
 
-  /**
-   * Get patient full demographics
-   */
-  async getPatientFull(
-    patientId: string,
-    mrn?: string,
-    target?: UnityTargetSystem
-  ): Promise<UnityMagicResponse> {
-    return this.executeAction(UnityActions.Patient.GET_PATIENT_FULL, {
-      Parameter1: mrn || '',
-      Parameter2: '' // Organization
-    }, patientId, target);
-  }
 
   /**
    * Escape XML special characters
