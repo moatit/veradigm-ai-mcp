@@ -16,6 +16,7 @@ import { PatientTools } from "./tools/patient.tools";
 import { ProviderTools } from "./tools/provider.tools";
 import { ErrorHandler } from "./utils/error-handler";
 import { adminLogger } from "./middleware/admin-logger";
+import { DISABLED_FHIR_TOOLS, disabledToolMessage } from "./config/disabled-tools";
 
 class VeradigmFHIRMCPServer {
   private server: Server;
@@ -63,7 +64,7 @@ class VeradigmFHIRMCPServer {
         ...this.medicationTools.getTools(),
         ...this.providerTools.getTools(),
         ...this.clinicalTools.getTools(),
-      ];
+      ].filter((t) => !DISABLED_FHIR_TOOLS.has(t.name));
 
       return {
         tools: allTools,
@@ -78,6 +79,10 @@ class VeradigmFHIRMCPServer {
 
       try {
         let result: any;
+
+        if (DISABLED_FHIR_TOOLS.has(name)) {
+          throw ErrorHandler.createValidationError(disabledToolMessage(name));
+        }
 
         // Patient tools
         if (name === "search_patient") {

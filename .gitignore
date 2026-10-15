@@ -74,3 +74,29 @@ infra/terraform/terraform.tfvars
 # Infra environment files with real secrets
 infra/.env.prod
 infra/.env
+
+# Sandbox verification reports
+verify-sandbox-report*.json
+
+# Drawbridge call records (patient data; never commit)
+data/
+
+# Local Docker dev stack secrets and data
+deploy/local/.env
+deploy/local/data/
+deploy/local/secrets/
+
+# Data-center shadow intake: secrets, staff logins, certificates and patient lists (PHI)
+deploy/datacenter/.env
+deploy/datacenter/lists/
+deploy/datacenter/users/
+deploy/datacenter/tls/
+deploy/datacenter/data/
+
+# Fax/document intake drop folder (PHI, never committed). Anchored: src/platform/modules/intake/ is code.
+/intake/
+deploy/local/intake/
+
+# Python caches (tools/intake-synth, deploy/ocr)
+__pycache__/
+*.pyc

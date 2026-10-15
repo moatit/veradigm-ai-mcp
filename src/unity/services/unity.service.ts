@@ -1,7 +1,7 @@
 import axios, { AxiosResponse } from 'axios';
 import { unityConfig } from '../config/environment';
-import { unityEndpoints, UnityTargetSystem } from '../config/unity-endpoints';
-import { UnityAuthService } from './unity-auth.service';
+import { unityEndpoints, UnityActions, UnityTargetSystem } from '../config/unity-endpoints';
+import { UnityAuthService, unityLogin } from './unity-auth.service';
 
 /**
  * Unity Magic Request Parameters
@@ -109,7 +109,7 @@ export class UnityService {
       const request: UnityMagicRequest = {
         Action: action,
         Appname: unityConfig.appName,
-        AppUserID: unityConfig.ehrUsername,
+        AppUserID: unityLogin(targetSystem).user,
         PatientID: patientId,
         Token: token,
         Parameter1: params.Parameter1 || '',
@@ -124,12 +124,24 @@ export class UnityService {
       console.error(`[Unity Service] Executing action: ${action}`);
       console.error(`[Unity Service] Target: ${targetSystem}, PatientID: ${patientId || 'N/A'}`);
 
-      // Execute the request
-      const response = await this.sendMagicRequest(request);
-      
+      // Execute the request. Reads get one retry when Veradigm's gateway blips (502/503/504, reset);
+      // writes (Save*/Set*) never retry here, so a slow success can't be sent twice.
+      let response: any;
+      try {
+        response = await this.sendMagicRequest(request);
+      } catch (first: any) {
+        const status = first?.response?.status;
+        const transient = [502, 503, 504].includes(status) || ['ECONNRESET', 'ETIMEDOUT', 'EAI_AGAIN'].includes(first?.code);
+        if (!transient || /^(Save|Set)/.test(action)) throw first;
+        console.error(`[Unity Service] ${action} transient ${status || first?.code}; retrying once`);
+        await new Promise((r) => setTimeout(r, 400));
+        response = await this.sendMagicRequest(request);
+      }
+
       return this.parseResponse<T>(response);
-    } catch (error) {
-      console.error(`[Unity Service] Action ${action} failed:`, error);
+    } catch (error: any) {
+      // Message only: the full axios error carries the request body, including the session token.
+      console.error(`[Unity Service] Action ${action} failed: ${error?.response?.status || error?.code || ''} ${String(error?.message || error).slice(0, 200)}`);
       throw this.handleError(error, action);
     }
   }
@@ -157,6 +169,15 @@ export class UnityService {
    * Parse Unity response
    */
   private parseResponse<T>(data: any): UnityMagicResponse<T> {
+    // Unity often returns errors inside an array: [{ "Error": "Magic Error - ..." }]
+    if (Array.isArray(data) && data.length > 0 && data[0] && typeof data[0] === 'object' && data[0].Error) {
+      return {
+        success: false,
+        error: String(data[0].Error),
+        rawResponse: data
+      };
+    }
+
     // Check for error in response
     if (data?.Error) {
       return {
@@ -207,6 +228,15 @@ export class UnityService {
       return error;
     }
 
+    if (axios.isAxiosError(error) && !error.response) {
+      // No HTTP response: Unity unreachable or too slow.
+      const timedOut = error.code === 'ECONNABORTED' || /timeout/i.test(error.message);
+      return new UnityAPIError(
+        timedOut ? 'Unity request timed out' : `Unity unreachable: ${error.code || error.message}`,
+        timedOut ? 'TIMEOUT_ERROR' : 'NETWORK_ERROR'
+      );
+    }
+
     if (axios.isAxiosError(error)) {
       const status = error.response?.status;
       const data = error.response?.data;
@@ -247,8 +277,21 @@ export class UnityService {
       }
     }
 
+    // Errors thrown by UnityAuthService are plain Errors; classify them by message.
+    const msg = String(error?.message || '');
+    if (/ECONNREFUSED|ENOTFOUND|EAI_AGAIN|ECONNRESET|socket hang up/i.test(msg)) {
+      return new UnityAPIError(`Unity unreachable during ${action}`, 'NETWORK_ERROR');
+    }
+    if (/ETIMEDOUT|timeout/i.test(msg)) {
+      return new UnityAPIError(`Unity timed out during ${action}`, 'TIMEOUT_ERROR');
+    }
+    if (/authentication failed/i.test(msg)) {
+      // Usually expired/rotated Unity service credentials or EHR/PM user password.
+      return new UnityAPIError(msg, 'AUTH_ERROR');
+    }
+
     return new UnityAPIError(
-      error.message || 'Unknown Unity error',
+      msg || 'Unknown Unity error',
       'UNKNOWN_ERROR',
       error
     );
@@ -263,7 +306,7 @@ export class UnityService {
    */
   async testConnection(target?: UnityTargetSystem): Promise<boolean> {
     try {
-      const response = await this.executeAction('Echo', {
+      const response = await this.executeAction(UnityActions.Admin.ECHO, {
         Parameter1: 'ConnectionTest',
         Parameter2: new Date().toISOString()
       }, '', target);
@@ -278,7 +321,7 @@ export class UnityService {
    * Get server information
    */
   async getServerInfo(target?: UnityTargetSystem): Promise<UnityMagicResponse> {
-    return this.executeAction('GetServerInfo', {}, '', target);
+    return this.executeAction(UnityActions.Admin.GET_SERVER_INFO, {}, '', target);
   }
 
   /**
@@ -293,40 +336,26 @@ export class UnityService {
     },
     target?: UnityTargetSystem
   ): Promise<UnityMagicResponse> {
-    // Build XML search criteria for SearchPatients action
-    const xmlCriteria = this.buildPatientSearchXml(searchCriteria);
-    
-    return this.executeAction('SearchPatients', {
-      Parameter1: xmlCriteria
+    // SearchPatients takes plain search text: "Last, First", "Last" or an MRN. Verified on the PM and
+    // EHR sandboxes Oct 9; XML criteria return a single "No patients found" row. DOB is filtered by the caller.
+    return this.executeAction(UnityActions.Patient.SEARCH_PATIENTS, {
+      Parameter1: this.patientSearchText(searchCriteria)
     }, '', target);
   }
 
   /**
-   * Build XML search criteria for patient search
+   * Plain SearchPatients text: "Last, First", "Last", "First" or an MRN.
+   * Veradigm PM prefix-matches the last name and finds nothing once it contains a hyphen or space
+   * ("Okonkwo-Vance" no rows, "Okonkwo" finds Okonkwo-Vance; sandbox Oct 11). Speech also hears
+   * "Okonkwo Vance". So only the first part is sent; callers filter on the full name.
    */
-  private buildPatientSearchXml(criteria: {
-    lastName?: string;
-    firstName?: string;
-    dob?: string;
-    mrn?: string;
-  }): string {
-    let xml = '<searchcriteria>';
-    
-    if (criteria.lastName) {
-      xml += `<LastName>${this.escapeXml(criteria.lastName)}</LastName>`;
-    }
-    if (criteria.firstName) {
-      xml += `<FirstName>${this.escapeXml(criteria.firstName)}</FirstName>`;
-    }
-    if (criteria.dob) {
-      xml += `<DOB>${this.escapeXml(criteria.dob)}</DOB>`;
-    }
-    if (criteria.mrn) {
-      xml += `<MRN>${this.escapeXml(criteria.mrn)}</MRN>`;
-    }
-    
-    xml += '</searchcriteria>';
-    return xml;
+  private patientSearchText(criteria: { lastName?: string; firstName?: string; dob?: string; mrn?: string }): string {
+    const fullLast = (criteria.lastName || '').trim();
+    const head = fullLast.split(/[\s-]+/)[0];
+    const last = head.length >= 2 ? head : fullLast;
+    const first = (criteria.firstName || '').trim();
+    if (last && first) return `${last}, ${first}`;
+    return last || first || (criteria.mrn || '').trim();
   }
 
   /**
@@ -337,7 +366,7 @@ export class UnityService {
     includePicture: boolean = false,
     target?: UnityTargetSystem
   ): Promise<UnityMagicResponse> {
-    return this.executeAction('GetPatient', {
+    return this.executeAction(UnityActions.Patient.GET_PATIENT, {
       Parameter1: includePicture ? 'Y' : 'N'
     }, patientId, target);
   }
@@ -350,7 +379,7 @@ export class UnityService {
     mrn?: string,
     target?: UnityTargetSystem
   ): Promise<UnityMagicResponse> {
-    return this.executeAction('GetPatientFull', {
+    return this.executeAction(UnityActions.Patient.GET_PATIENT_FULL, {
       Parameter1: mrn || '',
       Parameter2: '' // Organization
     }, patientId, target);

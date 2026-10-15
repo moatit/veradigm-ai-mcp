@@ -20,7 +20,21 @@
     "docker:run:unity": "docker run -p 3001:3001 veradigm-unity-mcp-server",
     "docker:compose:up": "docker-compose up -d",
     "docker:compose:down": "docker-compose down",
-    "docker:compose:logs": "docker-compose logs -f"
+    "docker:compose:logs": "docker-compose logs -f",
+    "verify:sandbox": "ts-node src/scripts/verify-sandbox.ts",
+    "smoke": "ts-node src/scripts/smoke-offline.ts",
+    "smoke:scheduling": "ts-node src/scripts/smoke-scheduling.ts",
+    "smoke:outreach": "ts-node src/scripts/smoke-outreach.ts",
+    "smoke:huddle": "ts-node src/scripts/smoke-huddle.ts",
+    "smoke:activity": "ts-node src/scripts/smoke-activity.ts",
+    "smoke:intake": "ts-node src/scripts/smoke-intake.ts && ts-node src/scripts/smoke-intake-shadow.ts && ts-node src/scripts/smoke-intake-rules.ts",
+    "smoke:intake-rules": "ts-node src/scripts/smoke-intake-rules.ts",
+    "smoke:intake-shadow": "ts-node src/scripts/smoke-intake-shadow.ts",
+    "eval:intake": "ts-node src/scripts/eval-intake.ts",
+    "eval:shadow": "ts-node src/scripts/eval-shadow.ts",
+    "intake:import": "ts-node src/scripts/intake-import.ts",
+    "staff:user": "ts-node src/scripts/staff-user.ts",
+    "server:shadow": "ts-node src/platform/shadow-server.ts"
   },
   "keywords": [
     "mcp",

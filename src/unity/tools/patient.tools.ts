@@ -77,6 +77,9 @@ export interface PatientUpdateData {
 export interface ParsedPatient {
   id: string;
   mrn?: string;
+  /** Veradigm® PM MRN and Veradigm® EHR chart MRN (= the PM patient number). Outside documents may carry either. */
+  pmMrn?: string;
+  chartMrn?: string;
   firstName: string;
   lastName: string;
   middleName?: string;
@@ -100,6 +103,42 @@ export interface ParsedPatient {
   ethnicity?: string;
   language?: string;
   maritalStatus?: string;
+  /** Search only: Veradigm® PM patient ID (appointments, balance, insurance). */
+  patientId?: string;
+  /** Search only: Veradigm® EHR patient ID (medications, allergies, problems, staff tasks). */
+  chartPatientId?: string;
+  /**
+   * Last 4 digits of the SSN, when Veradigm® returns one and doesn't flag it hidden. Never the full SSN.
+   * For document matching only: stripped before any result reaches the phone agent.
+   */
+  ssnLast4?: string;
+}
+
+/** MM/DD/YYYY with zero padding ("3/5/1979" → "03/05/1979"); '' when not a date. */
+function normalizeDob(v?: string): string {
+  const m = String(v || "").trim().match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})/);
+  if (!m) return "";
+  return `${m[1].padStart(2, "0")}/${m[2].padStart(2, "0")}/${m[3]}`;
+}
+
+/** American Soundex code ("Beasley" and "Beesly" are both B240). */
+function soundex(name: string): string {
+  const s = name.toUpperCase().replace(/[^A-Z]/g, "");
+  if (!s) return "";
+  const codes: Record<string, string> = { B: "1", F: "1", P: "1", V: "1", C: "2", G: "2", J: "2", K: "2", Q: "2", S: "2", X: "2", Z: "2", D: "3", T: "3", L: "4", M: "5", N: "5", R: "6" };
+  let out = s[0];
+  let prev = codes[s[0]] || "";
+  for (const ch of s.slice(1)) {
+    const c = codes[ch] || "";
+    if (c && c !== prev) out += c;
+    if (ch !== "H" && ch !== "W") prev = c;
+  }
+  return (out + "000").slice(0, 4);
+}
+
+/** Last names that sound the same: equal Soundex and same first letter. */
+function soundsAlike(a: string, b: string): boolean {
+  return Boolean(a && b) && soundex(a) === soundex(b);
 }
 
 /**
@@ -271,11 +310,12 @@ export class UnityPatientTools {
         args.target || "EHR",
       );
 
+      // A failed call is an error, not "patient not found" (CLAUDE.md rule 5).
       if (!response.success) {
-        return {
-          success: false,
-          message: response.error || "Patient not found",
-        };
+        throw UnityErrorHandler.createAPIError(
+          response.error || "Failed to get patient",
+          UnityActions.Patient.GET_PATIENT,
+        );
       }
 
       const patient = this.parsePatientFromUnity(response.data);
@@ -301,7 +341,12 @@ export class UnityPatientTools {
   }
 
   /**
-   * Search for patients
+   * Search for patients in Veradigm® PM and Veradigm® EHR (same practice, separate patient IDs).
+   *
+   * SearchPatients takes plain "Last, First" text and returns name matches; date of birth is
+   * filtered here. Each result carries `patientId` (PM: appointments, balance, insurance) and
+   * `chartPatientId` (EHR: medications, allergies, problems). A system that fails is an error only
+   * when both fail; a PM-only failure still returns chart matches without a PM ID.
    */
   async searchPatients(args: {
     lastName?: string;
@@ -313,66 +358,102 @@ export class UnityPatientTools {
     patients: ParsedPatient[];
     total: number;
     message: string;
+    note?: string;
   }> {
     try {
-      // At least one search criterion is required
-      if (!args.lastName && !args.firstName && !args.dateOfBirth && !args.mrn) {
+      if (!args.lastName && !args.firstName && !args.mrn) {
         throw UnityErrorHandler.createValidationError(
-          "At least one search criterion is required (lastName, firstName, dateOfBirth, or mrn)",
+          "A last name, first name or MRN is required to search",
         );
       }
 
-      console.error(`[Unity Patient] Searching patients`);
+      console.error(`[Unity Patient] Searching patients (PM + EHR)`);
 
-      const response = await this.unityService.searchPatients({
-        lastName: args.lastName,
-        firstName: args.firstName,
-        dob: args.dateOfBirth,
-        mrn: args.mrn,
-      });
+      const dob = normalizeDob(args.dateOfBirth) || args.dateOfBirth;
+      const exact = await this.searchBoth(
+        { lastName: args.lastName, firstName: args.firstName, mrn: args.mrn },
+        (list) => this.filterPatients(list, { ...args, dateOfBirth: dob }),
+      );
+      let { patients } = exact;
+      const { pmOk } = exact;
+      let spellingNote = "";
 
-      if (!response.success) {
-        return {
-          patients: [],
-          total: 0,
-          message: response.error || "Search failed",
-        };
+      // Spelling-variant fallback. Phone speech recognition often mishears last names ("Beesly" heard
+      // as "Beasley"). Only with a full name AND birth date: search by the first two letters of the last
+      // name + first name, then require exact DOB, exact first name and a last name that sounds the same.
+      if (patients.length === 0 && args.lastName && args.firstName && normalizeDob(args.dateOfBirth)) {
+        const heard = args.lastName.trim();
+        const variant = await this.searchBoth(
+          { lastName: heard.slice(0, 2), firstName: args.firstName },
+          (list) =>
+            list.filter(
+              (p) =>
+                normalizeDob(p.dateOfBirth) === normalizeDob(args.dateOfBirth) &&
+                (p.firstName || "").trim().toLowerCase() === args.firstName!.trim().toLowerCase() &&
+                soundsAlike(p.lastName || "", heard),
+            ),
+        ).catch(() => ({ patients: [] as ParsedPatient[], pmOk: false }));
+        if (variant.patients.length === 1) {
+          patients = variant.patients;
+          const spelled = (patients[0].lastName || "").trim();
+          spellingNote = ` Matched on a spelling variant: the record's last name is ${spelled} (${spelled.toUpperCase().split("").join("-")}), not ${heard}. Read the spelling back and get a yes before sharing anything.`;
+        }
       }
+      if (args.limit) patients = patients.slice(0, args.limit);
 
-      let patients = this.parsePatientsList(response.data);
-
-      // Unity API often returns ALL patients regardless of filters.
-      // Apply client-side filtering so only relevant results come through.
-      const hasFilter = args.firstName || args.lastName || args.dateOfBirth || args.mrn;
-      if (hasFilter && patients.length > 10) {
-        patients = this.filterPatients(patients, args);
-        console.error(`[Unity Patient] Client-side filter: ${patients.length} match(es)`);
+      let message = `Found ${patients.length} patient(s)`;
+      if (patients.length === 0) {
+        message = args.mrn
+          ? `No patient found with MRN ${args.mrn}. Try searching by patient name instead.`
+          : "No patient matched that name and date of birth.";
       }
+      if (!pmOk) message += " (Veradigm PM could not be reached, so appointment and billing IDs are missing.)";
+      message += spellingNote;
 
-      // Apply limit if specified
-      const limitedPatients = args.limit
-        ? patients.slice(0, args.limit)
-        : patients;
-
-      const noResults = limitedPatients.length === 0;
-      let message = `Found ${limitedPatients.length} patient(s)`;
-      if (noResults && args.mrn) {
-        message = `No patient found with MRN ${args.mrn}. Try searching by patient name instead.`;
-      } else if (noResults) {
-        message = "No patients found matching the search criteria. Try broadening the search with fewer filters.";
-      }
-
-      return {
-        patients: limitedPatients,
-        total: limitedPatients.length,
-        message,
-      };
+      return { patients, total: patients.length, message, ...(spellingNote ? { note: spellingNote.trim() } : {}) };
     } catch (error) {
       if (error instanceof UnityMCPError) {
         throw error;
       }
       throw UnityErrorHandler.handleUnknownError(error, "SearchPatients");
     }
+  }
+
+  /** SearchPatients on PM and EHR; one entry per name + DOB (PM ID + EHR chart ID). Throws if both fail. */
+  private async searchBoth(
+    criteria: { lastName?: string; firstName?: string; mrn?: string },
+    keep: (list: ParsedPatient[]) => ParsedPatient[],
+  ): Promise<{ patients: ParsedPatient[]; pmOk: boolean }> {
+    const [pmRes, ehrRes] = await Promise.all(
+      (["PM", "EHR"] as UnityTargetSystem[]).map((t) =>
+        this.unityService.searchPatients(criteria, t).catch((e) => ({ success: false, error: String(e?.message || e) }) as any),
+      ),
+    );
+    // A failed search is an error, not "no match" (CLAUDE.md rule 5).
+    if (!pmRes.success && !ehrRes.success) {
+      throw UnityErrorHandler.createAPIError(
+        pmRes.error || ehrRes.error || "Patient search failed",
+        UnityActions.Patient.SEARCH_PATIENTS,
+      );
+    }
+    const pm = pmRes.success ? keep(this.parsePatientsList(pmRes.data).filter((p) => p.id)) : [];
+    const ehr = ehrRes.success ? keep(this.parsePatientsList(ehrRes.data).filter((p) => p.id)) : [];
+    const key = (p: ParsedPatient) =>
+      `${(p.lastName || "").trim().toLowerCase()}|${(p.firstName || "").trim().toLowerCase()}|${normalizeDob(p.dateOfBirth)}`;
+    const merged = new Map<string, ParsedPatient>();
+    for (const p of pm) merged.set(key(p), { ...p, patientId: p.id, pmMrn: p.mrn });
+    for (const p of ehr) {
+      const k = key(p);
+      const existing = merged.get(k);
+      if (existing) {
+        existing.chartPatientId = p.id;
+        existing.chartMrn = p.mrn;
+        // Address and SSN-4 (document matching): PM's when it has them, else the EHR's.
+        if (!existing.address?.line1 && p.address?.line1) existing.address = p.address;
+        if (!existing.ssnLast4 && p.ssnLast4) existing.ssnLast4 = p.ssnLast4;
+      } else merged.set(k, { ...p, chartPatientId: p.id, chartMrn: p.mrn });
+    }
+    return { patients: [...merged.values()], pmOk: Boolean(pmRes.success) };
   }
 
   /**
@@ -408,10 +489,10 @@ export class UnityPatientTools {
 
       if (!response.success) {
         console.error(`[Unity Patient] getPatientByMRN total: ${Date.now() - t0}ms (API failed)`);
-        return {
-          success: false,
-          message: response.error || "Patient not found",
-        };
+        throw UnityErrorHandler.createAPIError(
+          response.error || "Failed to get patient by MRN",
+          UnityActions.Patient.GET_PATIENT_BY_MRN,
+        );
       }
 
       let patient = this.parsePatientFromUnity(response.data);
@@ -500,7 +581,7 @@ export class UnityPatientTools {
 
       // DOB provided → strongest filter; name is soft (first 2 chars)
       if (cDob) {
-        const dobMatch = norm(p.dateOfBirth) === cDob;
+        const dobMatch = (normalizeDob(p.dateOfBirth) || norm(p.dateOfBirth)) === (normalizeDob(cDob) || cDob);
         if (!dobMatch) return false;
 
         // If name criteria also given, soft-match first 2 chars
@@ -887,6 +968,14 @@ export class UnityPatientTools {
       ),
     };
 
+    // SSN: only ever its last 4 digits, and only when Veradigm® doesn't flag it hidden or suppressed
+    // (PM SearchPatients rows carry ssn, HideSSN, SuppressSSN; EHR rows carry ssn). Sandbox, Oct 11 2026:
+    // ssn comes back blank in both, HideSSN = SuppressSSN = Y in PM. The document intake add-on compares
+    // it with the last 4 on a faxed document (match.ts); it is never shown to a caller.
+    const hidden = ["HideSSN", "SuppressSSN"].some((k) => /^(y|yes|true|1)$/i.test(getValue(data, k) || ""));
+    const ssnDigits = (getValue(data, "ssn", "SSN", "SocialSecurityNumber") || "").replace(/\D/g, "");
+    if (!hidden && ssnDigits.length >= 4) patient.ssnLast4 = ssnDigits.slice(-4);
+
     return patient;
   }
 
@@ -1160,7 +1249,10 @@ export class UnityPatientTools {
       },
       {
         name: "unity_search_patients",
-        description: "Search for patients in Veradigm via Unity API",
+        description:
+          "Find a patient in Veradigm PM and Veradigm EHR by last name, first name and date of birth. " +
+          "Each match returns patientId (Veradigm PM: appointments, balance, insurance) and chartPatientId " +
+          "(Veradigm EHR: medications, allergies, problems, staff messages). The caller is verified only when exactly one patient matches all three.",
         inputSchema: {
           type: "object",
           properties: {

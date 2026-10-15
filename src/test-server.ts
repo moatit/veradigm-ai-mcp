@@ -17,7 +17,11 @@ import { MedicationTools } from "./tools/medication.tools";
 import { PatientTools } from "./tools/patient.tools";
 import { ProviderTools } from "./tools/provider.tools";
 import { ErrorHandler } from "./utils/error-handler";
-import { toVoiceSummary } from "./utils/response-formatter";
+import { failureText, toVoiceSummary } from "./utils/response-formatter";
+import { markRedacted } from "./utils/redaction";
+import { requireToolKey } from "./platform/app";
+import { auditToolCall } from "./platform/audit";
+import { DISABLED_FHIR_TOOLS, disabledToolMessage } from "./config/disabled-tools";
 
 const app = express();
 
@@ -37,11 +41,10 @@ app.use(express.json());
 app.use((req, res, next) => {
   const originalJson = res.json.bind(res);
   res.json = function (body: any) {
-    console.log(`[${new Date().toISOString()}] ${req.method} ${req.path}`);
-    if (req.body && Object.keys(req.body).length > 0) {
-      console.log("📥 Request:", JSON.stringify(req.body, null, 2));
-    }
-    console.log("📤 Response:", JSON.stringify(body, null, 2));
+    // Never log request or response bodies: they carry patient identity and chart data
+    // (spec §4 rule 8). Method, path and tool name only.
+    const tool = req.body?.name || req.body?.params?.name || req.body?.method || "";
+    console.log(`[${new Date().toISOString()}] ${req.method} ${req.path} ${tool}`);
     return originalJson(body);
   };
   next();
@@ -58,8 +61,35 @@ const medicationTools = new MedicationTools(fhirService);
 const providerTools = new ProviderTools(fhirService);
 const clinicalTools = new ClinicalTools(fhirService);
 
-// Shared tool executor for all endpoints
-async function executeFhirTool(name: string, args: any): Promise<any> {
+function listFhirTools() {
+  return [
+    ...patientTools.getTools(),
+    ...appointmentTools.getTools(),
+    ...medicationTools.getTools(),
+    ...providerTools.getTools(),
+    ...clinicalTools.getTools(),
+  ].filter((t) => !DISABLED_FHIR_TOOLS.has(t.name));
+}
+
+// Shared tool executor for all endpoints. Every call is audited (spec §4 rule 8): metadata only, async, never throws.
+async function executeFhirTool(name: string, args: any, audit: { callId?: string; channel?: string } = {}): Promise<any> {
+  const t0 = Date.now();
+  const record = (success: boolean, errorCode?: string) =>
+    auditToolCall({ server: "fhir", tool: name, args, callId: audit.callId, success, errorCode, latencyMs: Date.now() - t0, channel: audit.channel || "http" });
+  try {
+    if (DISABLED_FHIR_TOOLS.has(name)) {
+      throw ErrorHandler.createValidationError(disabledToolMessage(name));
+    }
+    const result = markRedacted(await runFhirTool(name, args));
+    record(!(result?.success === false), result?.success === false ? result?.error_code : undefined);
+    return result;
+  } catch (error) {
+    record(false, ErrorHandler.handleUnknownError(error).code);
+    throw error;
+  }
+}
+
+async function runFhirTool(name: string, args: any): Promise<any> {
   // Patient tools
   if (name === "search_patient") return await patientTools.searchPatient(args);
   if (name === "get_patient_details") return await patientTools.getPatientDetails(args);
@@ -107,13 +137,7 @@ app.get("/health", (req, res) => {
 
 // List available tools (REST endpoint for testing)
 app.get("/tools", (req, res) => {
-  const allTools = [
-    ...patientTools.getTools(),
-    ...appointmentTools.getTools(),
-    ...medicationTools.getTools(),
-    ...providerTools.getTools(),
-    ...clinicalTools.getTools(),
-  ];
+  const allTools = listFhirTools();
 
   res.json({ tools: allTools });
 });
@@ -123,7 +147,7 @@ app.get("/tools", (req, res) => {
 // =============================================================================
 
 // Root-level JSON-RPC handler (for RetellAI base URL calls)
-app.post("/", async (req, res): Promise<void> => {
+app.post("/", requireToolKey, async (req, res): Promise<void> => {
   try {
     const method = req.body.method;
 
@@ -162,13 +186,7 @@ app.post("/", async (req, res): Promise<void> => {
 
     // MCP Protocol: tools/list
     if (method === "tools/list") {
-      const allTools = [
-        ...patientTools.getTools(),
-        ...appointmentTools.getTools(),
-        ...medicationTools.getTools(),
-        ...providerTools.getTools(),
-        ...clinicalTools.getTools(),
-      ];
+      const allTools = listFhirTools();
 
       const response = {
         jsonrpc: "2.0",
@@ -246,62 +264,8 @@ app.post("/", async (req, res): Promise<void> => {
 
       let result: any;
 
-      // Patient tools
-      if (name === "search_patient") {
-        result = await patientTools.searchPatient(args || {});
-      } else if (name === "get_patient_details") {
-        result = await patientTools.getPatientDetails(args || {});
-      } else if (name === "verify_patient_identity") {
-        result = await patientTools.verifyPatientIdentity(args || {});
-
-        // Appointment tools
-      } else if (name === "get_upcoming_appointments") {
-        result = await appointmentTools.getUpcomingAppointments(args || {});
-      } else if (name === "get_appointment_details") {
-        result = await appointmentTools.getAppointmentDetails(args || {});
-      } else if (name === "check_appointment_status") {
-        result = await appointmentTools.checkAppointmentStatus(args || {});
-      } else if (name === "find_patient_next_appointment") {
-        result = await appointmentTools.findPatientNextAppointment(args || {});
-      } else if (name === "get_appointments_by_date_range") {
-        result = await appointmentTools.getAppointmentsByDateRange(args || {});
-      } else if (name === "create_appointment") {
-        result = await appointmentTools.createAppointment(args || {});
-
-        // Medication tools
-      } else if (name === "get_patient_medications") {
-        result = await medicationTools.getPatientMedications(args || {});
-      } else if (name === "get_medication_requests") {
-        result = await medicationTools.getMedicationRequests(args || {});
-      } else if (name === "check_refill_status") {
-        result = await medicationTools.checkRefillStatus(args || {});
-      } else if (name === "get_medication_statements") {
-        result = await medicationTools.getMedicationStatements(args || {});
-
-        // Provider tools
-      } else if (name === "search_providers") {
-        result = await providerTools.searchProviders(args || {});
-      } else if (name === "get_provider_details") {
-        result = await providerTools.getProviderDetails(args || {});
-      } else if (name === "search_locations") {
-        result = await providerTools.searchLocations(args || {});
-      } else if (name === "get_location_details") {
-        result = await providerTools.getLocationDetails(args || {});
-
-        // Clinical tools
-      } else if (name === "get_patient_conditions") {
-        result = await clinicalTools.getPatientConditions(args || {});
-      } else if (name === "get_allergies") {
-        result = await clinicalTools.getAllergies(args || {});
-      } else if (name === "get_recent_observations") {
-        result = await clinicalTools.getRecentObservations(args || {});
-      } else if (name === "get_patient_procedures") {
-        result = await clinicalTools.getPatientProcedures(args || {});
-      } else if (name === "get_patient_coverage") {
-        result = await clinicalTools.getPatientCoverage(args || {});
-      } else {
-        throw ErrorHandler.createValidationError(`Unknown tool: ${name}`);
-      }
+      const callId = (req.headers["x-call-id"] as string) || args?.call_id || undefined;
+      result = await executeFhirTool(name, args || {}, { callId, channel });
 
       // Log successful call to admin portal (use request's client key so log goes to right client)
       const toolResponseTime = Date.now() - toolStartTime;
@@ -381,7 +345,7 @@ app.post("/", async (req, res): Promise<void> => {
           content: [
             {
               type: "text",
-              text: `Sorry, that request failed: ${fhirError.message}. Please try again.`,
+              text: failureText({ error_code: fhirError.code, retryable: ErrorHandler.isRetryableError(fhirError) }),
             },
           ],
         },
@@ -408,13 +372,7 @@ app.post("/", async (req, res): Promise<void> => {
 // MCP tools/list endpoint (JSON-RPC 2.0)
 app.post("/mcp/tools/list", async (req, res) => {
   try {
-    const allTools = [
-      ...patientTools.getTools(),
-      ...appointmentTools.getTools(),
-      ...medicationTools.getTools(),
-      ...providerTools.getTools(),
-      ...clinicalTools.getTools(),
-    ];
+    const allTools = listFhirTools();
 
     // JSON-RPC 2.0 response format
     const jsonrpcResponse = {
@@ -442,13 +400,7 @@ app.post("/mcp/tools/list", async (req, res) => {
 // Alternative endpoint: POST /tools/list (for compatibility)
 app.post("/tools/list", async (req, res) => {
   try {
-    const allTools = [
-      ...patientTools.getTools(),
-      ...appointmentTools.getTools(),
-      ...medicationTools.getTools(),
-      ...providerTools.getTools(),
-      ...clinicalTools.getTools(),
-    ];
+    const allTools = listFhirTools();
 
     const jsonrpcResponse = {
       jsonrpc: "2.0",
@@ -479,62 +431,7 @@ app.post("/mcp/tools/call", async (req, res) => {
 
     let result: any;
 
-    // Patient tools
-    if (name === "search_patient") {
-      result = await patientTools.searchPatient(args || {});
-    } else if (name === "get_patient_details") {
-      result = await patientTools.getPatientDetails(args || {});
-    } else if (name === "verify_patient_identity") {
-      result = await patientTools.verifyPatientIdentity(args || {});
-
-      // Appointment tools
-    } else if (name === "get_upcoming_appointments") {
-      result = await appointmentTools.getUpcomingAppointments(args || {});
-    } else if (name === "get_appointment_details") {
-      result = await appointmentTools.getAppointmentDetails(args || {});
-    } else if (name === "check_appointment_status") {
-      result = await appointmentTools.checkAppointmentStatus(args || {});
-    } else if (name === "find_patient_next_appointment") {
-      result = await appointmentTools.findPatientNextAppointment(args || {});
-    } else if (name === "get_appointments_by_date_range") {
-      result = await appointmentTools.getAppointmentsByDateRange(args || {});
-    } else if (name === "create_appointment") {
-      result = await appointmentTools.createAppointment(args || {});
-
-      // Medication tools
-    } else if (name === "get_patient_medications") {
-      result = await medicationTools.getPatientMedications(args || {});
-    } else if (name === "get_medication_requests") {
-      result = await medicationTools.getMedicationRequests(args || {});
-    } else if (name === "check_refill_status") {
-      result = await medicationTools.checkRefillStatus(args || {});
-    } else if (name === "get_medication_statements") {
-      result = await medicationTools.getMedicationStatements(args || {});
-
-      // Provider tools
-    } else if (name === "search_providers") {
-      result = await providerTools.searchProviders(args || {});
-    } else if (name === "get_provider_details") {
-      result = await providerTools.getProviderDetails(args || {});
-    } else if (name === "search_locations") {
-      result = await providerTools.searchLocations(args || {});
-    } else if (name === "get_location_details") {
-      result = await providerTools.getLocationDetails(args || {});
-
-      // Clinical tools
-    } else if (name === "get_patient_conditions") {
-      result = await clinicalTools.getPatientConditions(args || {});
-    } else if (name === "get_allergies") {
-      result = await clinicalTools.getAllergies(args || {});
-    } else if (name === "get_recent_observations") {
-      result = await clinicalTools.getRecentObservations(args || {});
-    } else if (name === "get_patient_procedures") {
-      result = await clinicalTools.getPatientProcedures(args || {});
-    } else if (name === "get_patient_coverage") {
-      result = await clinicalTools.getPatientCoverage(args || {});
-    } else {
-      throw ErrorHandler.createValidationError(`Unknown tool: ${name}`);
-    }
+    result = await executeFhirTool(name, args || {});
 
     const wantBrief =
       (req.headers["x-response-format"] as string) === "brief" ||
@@ -572,7 +469,7 @@ app.post("/mcp/tools/call", async (req, res) => {
         content: [
           {
             type: "text",
-            text: `Sorry, that request failed: ${fhirError.message}. Please try again.`,
+            text: failureText({ error_code: fhirError.code, retryable: ErrorHandler.isRetryableError(fhirError) }),
           },
         ],
       },
@@ -587,62 +484,7 @@ app.post("/tools/call", async (req, res) => {
 
     let result: any;
 
-    // Patient tools
-    if (name === "search_patient") {
-      result = await patientTools.searchPatient(args || {});
-    } else if (name === "get_patient_details") {
-      result = await patientTools.getPatientDetails(args || {});
-    } else if (name === "verify_patient_identity") {
-      result = await patientTools.verifyPatientIdentity(args || {});
-
-      // Appointment tools
-    } else if (name === "get_upcoming_appointments") {
-      result = await appointmentTools.getUpcomingAppointments(args || {});
-    } else if (name === "get_appointment_details") {
-      result = await appointmentTools.getAppointmentDetails(args || {});
-    } else if (name === "check_appointment_status") {
-      result = await appointmentTools.checkAppointmentStatus(args || {});
-    } else if (name === "find_patient_next_appointment") {
-      result = await appointmentTools.findPatientNextAppointment(args || {});
-    } else if (name === "get_appointments_by_date_range") {
-      result = await appointmentTools.getAppointmentsByDateRange(args || {});
-    } else if (name === "create_appointment") {
-      result = await appointmentTools.createAppointment(args || {});
-
-      // Medication tools
-    } else if (name === "get_patient_medications") {
-      result = await medicationTools.getPatientMedications(args || {});
-    } else if (name === "get_medication_requests") {
-      result = await medicationTools.getMedicationRequests(args || {});
-    } else if (name === "check_refill_status") {
-      result = await medicationTools.checkRefillStatus(args || {});
-    } else if (name === "get_medication_statements") {
-      result = await medicationTools.getMedicationStatements(args || {});
-
-      // Provider tools
-    } else if (name === "search_providers") {
-      result = await providerTools.searchProviders(args || {});
-    } else if (name === "get_provider_details") {
-      result = await providerTools.getProviderDetails(args || {});
-    } else if (name === "search_locations") {
-      result = await providerTools.searchLocations(args || {});
-    } else if (name === "get_location_details") {
-      result = await providerTools.getLocationDetails(args || {});
-
-      // Clinical tools
-    } else if (name === "get_patient_conditions") {
-      result = await clinicalTools.getPatientConditions(args || {});
-    } else if (name === "get_allergies") {
-      result = await clinicalTools.getAllergies(args || {});
-    } else if (name === "get_recent_observations") {
-      result = await clinicalTools.getRecentObservations(args || {});
-    } else if (name === "get_patient_procedures") {
-      result = await clinicalTools.getPatientProcedures(args || {});
-    } else if (name === "get_patient_coverage") {
-      result = await clinicalTools.getPatientCoverage(args || {});
-    } else {
-      throw ErrorHandler.createValidationError(`Unknown tool: ${name}`);
-    }
+    result = await executeFhirTool(name, args || {});
 
     const wantBrief =
       (req.headers["x-response-format"] as string) === "brief" ||
@@ -680,7 +522,7 @@ app.post("/tools/call", async (req, res) => {
         content: [
           {
             type: "text",
-            text: `Sorry, that request failed: ${fhirError.message}. Please try again.`,
+            text: failureText({ error_code: fhirError.code, retryable: ErrorHandler.isRetryableError(fhirError) }),
           },
         ],
       },
@@ -696,7 +538,7 @@ app.post("/tools/call", async (req, res) => {
 // Preferred over MCP because custom functions have the
 // "Speak After Execution" toggle in the Retell dashboard.
 // ═══════════════════════════════════════════════════════════════
-app.post("/api/retell", async (req, res): Promise<void> => {
+app.post("/api/retell", requireToolKey, async (req, res): Promise<void> => {
   const { name, args, call } = req.body;
   const t0 = Date.now();
   const requestTime = new Date();
@@ -707,11 +549,12 @@ app.post("/api/retell", async (req, res): Promise<void> => {
   }
 
   try {
-    const result = await executeFhirTool(name, args || {});
+    const result = await executeFhirTool(name, args || {}, { callId: call?.call_id, channel: "retell" });
     const responseText = toVoiceSummary(name, result);
     const responseTime = Date.now() - t0;
 
-    console.log(`✅ [Retell] ${name} → ${responseTime}ms → ${responseText.slice(0, 80)}`);
+    // Outcome only; response text can contain chart data.
+    console.log(`✅ [Retell] ${name} → ${responseTime}ms`);
 
     adminLogger.logToolCall({
       toolName: name,
@@ -722,11 +565,12 @@ app.post("/api/retell", async (req, res): Promise<void> => {
 
     res.json(responseText);
   } catch (error: any) {
-    const friendlyMsg = error?.message || "Something went wrong";
-    const responseText = `Sorry, that request failed: ${friendlyMsg}. Please try again.`;
+    const fhirError = ErrorHandler.handleUnknownError(error);
+    const friendlyMsg = fhirError.code;
+    const responseText = failureText({ error_code: fhirError.code, retryable: ErrorHandler.isRetryableError(fhirError) });
     const responseTime = Date.now() - t0;
 
-    console.error(`❌ [Retell] ${name} → ${responseTime}ms → ${friendlyMsg}`);
+    console.error(`❌ [Retell] ${name} → ${responseTime}ms → ${fhirError.code}: ${fhirError.message}`);
 
     adminLogger.logToolCall({
       toolName: name,

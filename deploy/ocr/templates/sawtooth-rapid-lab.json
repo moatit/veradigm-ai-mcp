@@ -1,0 +1,52 @@
+{
+  "id": "sawtooth-rapid-lab",
+  "synthetic": true,
+  "note": "Synthetic stand-in for Express Lab's daily batch file (tools/intake-synth daily_batch layout). Replace with the real Express Lab layout once de-identified samples arrive.",
+  "match": {
+    "text": [
+      "SAWTOOTH RAPID LAB"
+    ],
+    "fax": [
+      "2085550163"
+    ]
+  },
+  "fields": {
+    "name": {
+      "labels": [
+        "PT:"
+      ],
+      "order": "last_first"
+    },
+    "dob": {
+      "labels": [
+        "DOB:"
+      ],
+      "formats": [
+        "YYYY-MM-DD",
+        "MM/DD/YYYY"
+      ]
+    },
+    "mrn": {
+      "labels": [
+        "MRN:",
+        "PATIENT ID:"
+      ],
+      "pattern": "^\\d{5,8}$"
+    },
+    "phone": {
+      "labels": [
+        "PT PHONE:"
+      ]
+    }
+  },
+  "ocr": {
+    "header_labels": [
+      "PT:",
+      "DOB:",
+      "MRN:",
+      "PATIENT ID:",
+      "PT PHONE:"
+    ],
+    "whitelist": "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789:,.'-/#()"
+  }
+}

@@ -45,86 +45,132 @@ function getUnityEndpoints(): UnityEndpoints {
 export const unityEndpoints = getUnityEndpoints();
 
 /**
+ * Resolve a Unity action name. Every name can be overridden per environment/client with
+ * UNITY_ACTION_<KEY> (e.g. UNITY_ACTION_GET_APPOINTMENTS=GetScheduleByPatientID) so a
+ * product difference between Veradigm environments is a config change, not a code change.
+ *
+ * Defaults marked "verify" are what the Feb 13 code sent and are NOT in Veradigm's PM/EHR
+ * API references; the reference name is in the comment. Switch them once
+ * `npm run verify:sandbox` shows which name the sandbox accepts (docs/handover/02_REPO_AUDIT.md §3).
+ */
+function action(key: string, fallback: string): string {
+  return process.env[`UNITY_ACTION_${key}`] || fallback;
+}
+
+/**
  * Unity Action Categories
  * Organized by functionality for easy reference
  */
 export const UnityActions = {
   // Admin Actions
   Admin: {
-    ECHO: 'Echo',
-    GET_SERVER_INFO: 'GetServerInfo',
-    LAST_LOG: 'LastLog'
+    ECHO: action('ECHO', 'Echo'),
+    GET_SERVER_INFO: action('GET_SERVER_INFO', 'GetServerInfo'),
+    LAST_LOG: action('LAST_LOG', 'LastLogs')
   },
-  
+
   // Authentication Actions
   Auth: {
-    GET_USER_AUTHENTICATION: 'GetUserAuthentication',
-    GET_TOKEN_VALIDATION: 'GetTokenValidation'
+    GET_USER_AUTHENTICATION: action('GET_USER_AUTHENTICATION', 'GetUserAuthentication'),
+    GET_TOKEN_VALIDATION: action('GET_TOKEN_VALIDATION', 'GetTokenValidation')
   },
-  
+
   // Patient/Demographic Actions
   Patient: {
-    GET_PATIENT: 'GetPatient',
-    GET_PATIENT_BY_MRN: 'GetPatientByMRN',
-    GET_PATIENT_FULL: 'GetPatientFull',
-    SEARCH_PATIENTS: 'SearchPatients',
-    SAVE_PATIENT: 'SavePatient',
-    // PM has no UpdateDemographics action. Demographic changes are SavePatient.
-    UPDATE_DEMOGRAPHICS: 'SavePatient',
-    GET_CHANGED_PATIENTS: 'GetChangedPatients'
+    GET_PATIENT: action('GET_PATIENT', 'GetPatient'),
+    GET_PATIENT_BY_MRN: action('GET_PATIENT_BY_MRN', 'GetPatientByMRN'),
+    GET_PATIENT_FULL: action('GET_PATIENT_FULL', 'GetPatientFull'),
+    SEARCH_PATIENTS: action('SEARCH_PATIENTS', 'SearchPatients'),
+    SAVE_PATIENT: action('SAVE_PATIENT', 'SavePatient'),
+    // PM has no UpdateDemographics action; demographic changes are SavePatient (Kanhaiya, main 0a4e3c4).
+    UPDATE_DEMOGRAPHICS: action('UPDATE_DEMOGRAPHICS', 'SavePatient'),
+    GET_CHANGED_PATIENTS: action('GET_CHANGED_PATIENTS', 'GetChangedPatients')
   },
-  
-  // Appointment/Scheduling Actions
+
+  // Appointment/Scheduling Actions (Veradigm PM)
   Scheduling: {
-    GET_SCHEDULE: 'GetSchedule',
-    // Patient appointment reads use GetSchedule with PatientID set.
-    GET_APPOINTMENTS: 'GetSchedule',
-    SAVE_APPOINTMENT: 'SaveAppointment',
-    // Cancellation is a status change. PM status X means cancelled.
-    CANCEL_APPOINTMENT: 'SetAppointmentStatus',
-    GET_OPEN_SLOTS: 'GetAvailableSchedule',
-    BOOK_APPOINTMENT: 'SaveAppointment'
+    GET_SCHEDULE: action('GET_SCHEDULE', 'GetSchedule'),
+    // Sandbox Oct 9: GetScheduleByPatientID returns one patient's full history (filter future here).
+    // Never GetSchedule with a PatientID: it ignores the patient and returns everyone's visits for the day.
+    GET_APPOINTMENTS: action('GET_APPOINTMENTS', 'GetScheduleByPatientID'),
+    GET_APPOINTMENT_BY_ID: action('GET_APPOINTMENT_BY_ID', 'GetAppointmentById'),
+    SAVE_APPOINTMENT: action('SAVE_APPOINTMENT', 'SaveAppointment'),
+    // Cancellation is a status change: SetAppointmentStatus(appointmentId, 'X', reason) (Kanhaiya, main 0a4e3c4; not yet run on the sandbox).
+    CANCEL_APPOINTMENT: action('CANCEL_APPOINTMENT', 'SetAppointmentStatus'),
+    SET_APPOINTMENT_STATUS: action('SET_APPOINTMENT_STATUS', 'SetAppointmentStatus'),
+    // Sandbox Oct 9: GetAvailableSchedule(resource ABBREVIATION, start, end) returns one row per day with
+    // 5-minute bitmaps (see decodeAvailability). GetOpenSlots is not licensed; a numeric resource ID returns 0 rows.
+    GET_OPEN_SLOTS: action('GET_OPEN_SLOTS', 'GetAvailableSchedule'),
+    BOOK_APPOINTMENT: action('BOOK_APPOINTMENT', 'BookAppointment'), // unused; reference: SaveAppointment
+    GET_CANCELLATION_REASONS: action('GET_CANCELLATION_REASONS', 'GetAppointmentCancellationReasons'),
+    GET_CONFIRMATION_RESULTS: action('GET_CONFIRMATION_RESULTS', 'GetAppointmentConfirmationResults'),
+    GET_APPOINTMENT_TYPES: action('GET_APPOINTMENT_TYPES', 'GetAppointmentTypes'),
+    GET_APPOINTMENTS_BY_CHANGE: action('GET_APPOINTMENTS_BY_CHANGE', 'GetAppointmentsByChangeDTTM'),
+    GET_RECALLS: action('GET_RECALLS', 'GetRecalls'),
+    GET_RECALL_TYPES: action('GET_RECALL_TYPES', 'GetRecallTypes'),
+    GET_FIRST_AVAILABLE: action('GET_FIRST_AVAILABLE', 'GetFirstAvailableAppointments'),
+    GET_AVAILABLE_SCHEDULE: action('GET_AVAILABLE_SCHEDULE', 'GetAvailableSchedule'),
+    GET_RESOURCES: action('GET_RESOURCES', 'GetResources'),
+    GET_SCHEDULING_LOCATIONS: action('GET_SCHEDULING_LOCATIONS', 'GetSchedulingLocations'),
+    GET_SCHEDULING_DEPARTMENTS: action('GET_SCHEDULING_DEPARTMENTS', 'GetSchedulingDepartments')
   },
-  
-  // Encounter Actions
+
+  // Billing Actions (Veradigm PM)
+  Billing: {
+    GET_ACCOUNT_BALANCE: action('GET_ACCOUNT_BALANCE', 'GetPatientAccountBalance'),
+    GET_PATIENT_POLICY: action('GET_PATIENT_POLICY', 'GetPatientPolicy')
+  },
+
+  // Encounter Actions (not in the Veradigm references; not used by any tool)
   Encounter: {
-    GET_ENCOUNTER: 'GetEncounter',
-    GET_ENCOUNTER_LIST: 'GetEncounterList',
-    SAVE_SIMPLE_ENCOUNTER: 'SaveSimpleEncounter',
-    GET_ENCOUNTER_SUMMARY: 'GetEncounterSummary'
+    GET_ENCOUNTER: action('GET_ENCOUNTER', 'GetEncounter'),
+    GET_ENCOUNTER_LIST: action('GET_ENCOUNTER_LIST', 'GetEncounterList'),
+    SAVE_SIMPLE_ENCOUNTER: action('SAVE_SIMPLE_ENCOUNTER', 'SaveSimpleEncounter'),
+    GET_ENCOUNTER_SUMMARY: action('GET_ENCOUNTER_SUMMARY', 'GetEncounterSummary')
   },
-  
-  // Clinical Actions
+
+  // Clinical Actions (Veradigm EHR, read only)
   Clinical: {
-    // Problems, medications, and allergies are sections of GetClinicalSummary.
-    GET_PATIENT_PROBLEMS: 'GetClinicalSummary',
-    GET_PATIENT_DIAGNOSIS: 'GetPatientDiagnosis',
-    SAVE_DIAGNOSIS: 'SaveDiagnosis',
-    GET_PATIENT_MEDICATIONS: 'GetClinicalSummary',
-    GET_PATIENT_ALLERGIES: 'GetClinicalSummary'
+    // Sandbox Oct 9: GetClinicalSummary with a section name (Parameter1) returns the chart summary rows for
+    // medications / allergies / problems. GetProblems returns the full history (250 rows), GetAllergies 0 rows.
+    GET_PATIENT_PROBLEMS: action('GET_PATIENT_PROBLEMS', 'GetClinicalSummary'),
+    GET_PATIENT_DIAGNOSIS: action('GET_PATIENT_DIAGNOSIS', 'GetPatientDiagnosis'),
+    GET_PATIENT_MEDICATIONS: action('GET_PATIENT_MEDICATIONS', 'GetClinicalSummary'), // sandbox Oct 8: GetPatientMedications = not valid for license
+    GET_PATIENT_ALLERGIES: action('GET_PATIENT_ALLERGIES', 'GetClinicalSummary') // sandbox Oct 8: GetPatientAllergies = not valid for license
   },
-  
-  // Document Actions
+
+  // Staff tasks (Veradigm EHR). The ONLY EHR write the agent may make.
+  Task: {
+    SAVE_TASK: action('SAVE_TASK', 'SaveTask')
+  },
+
+  // Documents (Veradigm EHR): staff-side fax/document intake add-on only, never the phone agent.
+  // GetDocumentType and GetDocuments verified on the sandbox Oct 9 (read). SaveScanDocument is the
+  // owner-approved filing write (CLAUDE.md rule 4 exception), verified Oct 11 on synthetic patients;
+  // see src/platform/modules/intake/file.ts. SaveDocumentImage (chart attachment) is not used.
+  // Read by the shadow-mode staff filing observer (src/platform/modules/intake/observe.ts), verified
+  // read-only on the sandbox: GetDocumentsByDocumentType (PatientID blank; Parameter1 type ID or name,
+  // Parameter2 LOINC '', Parameter3/4 start/end MM/DD/YYYY; all patients) and GetDocumentImage
+  // (Parameter1 DocumentID, 'Scan', 'PDF', 'N' → base64image).
   Document: {
-    GET_DOCUMENTS: 'GetDocuments',
-    GET_DOCUMENT_IMAGE: 'GetDocumentImage',
-    SAVE_DOCUMENT_IMAGE: 'SaveDocumentImage',
-    SAVE_NOTE: 'SaveNote',
-    GET_CCDA: 'GetCCDA'
+    GET_DOCUMENT_TYPES: action('GET_DOCUMENT_TYPES', 'GetDocumentType'),
+    GET_DOCUMENTS: action('GET_DOCUMENTS', 'GetDocuments'),
+    GET_DOCUMENTS_BY_DOCUMENT_TYPE: action('GET_DOCUMENTS_BY_DOCUMENT_TYPE', 'GetDocumentsByDocumentType'),
+    GET_DOCUMENT_IMAGE: action('GET_DOCUMENT_IMAGE', 'GetDocumentImage'),
+    SAVE_DOCUMENT_IMAGE: action('SAVE_DOCUMENT_IMAGE', 'SaveDocumentImage'),
+    SAVE_SCAN_DOCUMENT: action('SAVE_SCAN_DOCUMENT', 'SaveScanDocument')
   },
-  
-  // Order Actions
-  Orders: {
-    GET_ORDERS: 'GetOrders',
-    SAVE_ORDER: 'SaveOrder',
-    GET_ORDER_HISTORY: 'GetOrderHistory'
+
+  // Practice info (Veradigm EHR)
+  Practice: {
+    GET_LOCATION: action('GET_LOCATION', 'GetLocation'),
+    GET_PATIENT_DEMOGRAPHICS: action('GET_PATIENT_DEMOGRAPHICS', 'GetPatientDemographics')
   },
-  
+
   // Provider Actions
   Provider: {
-    GET_PROVIDER: 'GetProvider',
-    GET_PROVIDERS: 'GetProviders',
-    SEARCH_PROVIDERS: 'SearchProviders'
+    GET_PROVIDER: action('GET_PROVIDER', 'GetProvider'),
+    GET_PROVIDERS: action('GET_PROVIDERS', 'GetProviders')
   }
 } as const;
 

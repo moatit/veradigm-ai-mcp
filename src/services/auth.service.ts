@@ -1,5 +1,7 @@
 import axios, { AxiosResponse } from "axios";
 import NodeCache from "node-cache";
+import { randomUUID, sign } from "crypto";
+import { readFileSync } from "fs";
 import { config } from "../config/environment";
 
 export interface TokenResponse {
@@ -50,17 +52,52 @@ export class AuthService {
   }
 
   /**
+   * Single-use JWT client assertion (SMART backend services), signed with the private key whose
+   * public half is published at the app's registered JWKS URL. 5-minute expiry per Veradigm's sample.
+   *   FHIR_JWT_PRIVATE_KEY_PATH  PEM file (pkcs8), FHIR_JWT_KID  key id in the JWKS, FHIR_JWT_ALG  RS256|RS384
+   */
+  private clientAssertion(): string {
+    const keyPath = process.env.FHIR_JWT_PRIVATE_KEY_PATH || "";
+    const kid = process.env.FHIR_JWT_KID || "";
+    const alg = (process.env.FHIR_JWT_ALG || "RS256") as "RS256" | "RS384";
+    const privateKey = readFileSync(keyPath);
+    const now = Math.floor(Date.now() / 1000);
+    const b64u = (v: object | Buffer) =>
+      Buffer.from(v instanceof Buffer ? v : JSON.stringify(v)).toString("base64url");
+    const input = `${b64u({ alg, typ: "JWT", kid })}.${b64u({
+      iss: config.clientId,
+      sub: config.clientId,
+      aud: config.tokenUrl,
+      jti: randomUUID(),
+      iat: now,
+      nbf: now,
+      exp: now + 300,
+    })}`;
+    const signature = sign(alg === "RS384" ? "sha384" : "sha256", Buffer.from(input), privateKey);
+    return `${input}.${b64u(signature)}`;
+  }
+
+  /**
    * Request a new access token using client credentials flow
    */
   private async requestNewToken(): Promise<TokenResponse> {
     try {
-      // Build params with scope for FHIR read access
-      const params = new URLSearchParams({
-        grant_type: "client_credentials",
-        client_id: config.clientId,
-        client_secret: config.clientSecret,
-        scope: "system/*.read",
-      });
+      // Veradigm FHIR R4 system apps authenticate with a signed JWT (private_key_jwt);
+      // FHIR_AUTH_MODE=private_key_jwt switches to it. Default stays client_secret.
+      const params =
+        process.env.FHIR_AUTH_MODE === "private_key_jwt"
+          ? new URLSearchParams({
+              grant_type: "client_credentials",
+              scope: process.env.FHIR_SCOPE || "system/*.read",
+              client_assertion_type: "urn:ietf:params:oauth:client-assertion-type:jwt-bearer",
+              client_assertion: this.clientAssertion(),
+            })
+          : new URLSearchParams({
+              grant_type: "client_credentials",
+              client_id: config.clientId,
+              client_secret: config.clientSecret,
+              scope: "system/*.read",
+            });
 
       const response: AxiosResponse<TokenResponse> = await axios.post(
         config.tokenUrl,

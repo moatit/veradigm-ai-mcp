@@ -1,0 +1,432 @@
+import { createHash, randomBytes } from 'crypto';
+import * as fs from 'fs';
+import * as path from 'path';
+import { redactSsn, type ExtractedFields } from './extract';
+import type { MatchResult } from './match';
+import type { DocTypeSuggestion } from './doctypes';
+import type { NotifyRecord } from './rules';
+import type { GroundTruth, ShadowDecision, StaffObservation } from './shadow';
+
+/**
+ * Intake working store: one JSON file of items plus the original files.
+ *
+ *   <CALL_RECORDS_DIR or /app/data>/intake/items.json     status, extracted fields, match, audit
+ *   <CALL_RECORDS_DIR or /app/data>/intake/files/<id>.*   originals (and <id>.txt: document text)
+ *
+ * The volume is encrypted at rest in production. Files are written 0600, directories 0700.
+ * items.json is rewritten atomically (temp file + rename) on every change. All reads and writes
+ * are synchronous, so one process never interleaves two read-modify-write cycles.
+ *
+ * Dedupe: by source_ref (MOATiT Fax X-Webhook-Id, folder file name + hash, upload hash) and by
+ * the SHA-256 of the file. Nothing here logs file contents, document text or patient identifiers.
+ * Stored document text has every full SSN masked to its last 4 (extract.ts redactSsn); the original
+ * file is kept as received.
+ */
+export type IntakeSource = 'moatit_fax' | 'folder' | 'upload';
+/** 'split': a file with several patients, split into one part (child item) per patient; never filed itself. */
+export type IntakeStatus = 'received' | 'read' | 'matched' | 'needs_review' | 'filed' | 'sent_to_indexing' | 'split' | 'failed';
+export const INTAKE_STATUSES: IntakeStatus[] = ['received', 'read', 'matched', 'needs_review', 'filed', 'sent_to_indexing', 'split', 'failed'];
+
+export interface IntakeHistory {
+  ts: string;
+  action: string;
+  /** Staff username, or "drawbridge" for automatic steps. */
+  by: string;
+}
+
+export interface IntakeFile {
+  name: string;
+  mime: string;
+  sha256: string;
+  size: number;
+  /** File name inside files/ (never a caller-supplied path). */
+  stored_as: string;
+}
+
+export interface IntakeItem {
+  id: string;
+  source: IntakeSource;
+  /** Dedupe key from the source (e.g. "fax:<job-id>:fax.received"). */
+  source_ref: string;
+  /** MOATiT Fax job ID (fax items only). */
+  job_id?: string;
+  received_at: string;
+  updated_at: string;
+  status: IntakeStatus;
+  file?: IntakeFile;
+  /** Document text is stored next to the file (files/<id>.txt), never in items.json. */
+  has_text?: boolean;
+  /** Sending fax number as reported by MOATiT Fax (the sender's, not the patient's). */
+  sender_fax?: string;
+  extracted?: ExtractedFields;
+  match?: MatchResult;
+  document_type?: DocTypeSuggestion | null;
+  /** Item ID of an earlier item with the same file hash. */
+  duplicate_of?: string;
+  /** Last error code (never a message with content). */
+  error_code?: string;
+  /** Staff note shown on the item ("why it needs review"). Plain text, short. */
+  note?: string;
+  reviewed_by?: string;
+  reviewed_at?: string;
+  /** Filing attempt marker: set before the Veradigm write, finished when it answered (duplicate guard). */
+  filing?: { target: 'chart' | 'indexing'; started_at: string; finished_at?: string };
+  /** What was written to the Veradigm® EHR chart. */
+  filed?: { document_id: string; document_type: string; doc_status: string; task_id?: string; at: string; by: string };
+  /**
+   * Clinic rules around the review task (rules.ts): a critical result (phone call required), who the task went
+   * to and why, or why none was sent (same-day appointment, no recipient, Veradigm® refused it).
+   */
+  notify?: NotifyRecord;
+  /** Times processing waited for MOATiT Fax OCR. */
+  ocr_waits?: number;
+  /** Set when Drawbridge's own OCR container (ocr.ts) read the file. page_confidences: one per page. */
+  ocr?: { engine: 'local'; pages: number; mean_confidence: number; used_text_layer: boolean; page_confidences?: number[] };
+  /** Pages in the file when the source said (MOATiT Fax page_count, OCR). */
+  page_count?: number;
+  /** Per-page patient check (pages.ts). ok = it may be filed as one patient's document. */
+  pages_check?: { ok: boolean; batch_sender: boolean; pages: number; cover_pages?: number[]; reason: string };
+  /** Parent (status 'split'): its parts, one per patient, in page order. */
+  split?: { at: string; children: string[]; pages: number[][]; cover_pages: number[] };
+  /** Part of a split file: the parent item and which of its pages this part holds. */
+  parent_id?: string;
+  part?: { index: number; of: number; pages: number[] };
+  /** Shadow mode (INTAKE_MODE=shadow): what Drawbridge would have done. Nothing is filed. */
+  shadow?: ShadowDecision;
+  /** Shadow mode: what staff confirmed (patient and category, or not an IKI patient / unreadable / several). */
+  truth?: GroundTruth;
+  /** Shadow mode: where staff were seen to file it in Veradigm® EHR (observe.ts, read-only). */
+  observed?: StaffObservation;
+  history: IntakeHistory[];
+}
+
+export interface NewPart {
+  /** 0-based position among the parent's parts. */
+  index: number;
+  of: number;
+  /** 1-based pages of the parent's file. */
+  pages: number[];
+  data: Buffer;
+  mime: string;
+  /** The part's own pages' text, joined with form feeds. */
+  text: string;
+  ocr?: IntakeItem['ocr'];
+}
+
+export interface NewDocument {
+  source: IntakeSource;
+  source_ref: string;
+  name: string;
+  mime: string;
+  data: Buffer;
+  /** Text layer / OCR when the source already has it. */
+  text?: string;
+  by?: string;
+}
+
+export interface AddResult {
+  item: IntakeItem;
+  /** True when an item with the same source_ref or file hash already existed (nothing written). */
+  duplicate: boolean;
+}
+
+export function intakeDir(): string {
+  return path.join(process.env.CALL_RECORDS_DIR || '/app/data', 'intake');
+}
+
+const EXT_BY_MIME: Record<string, string> = {
+  'application/pdf': '.pdf',
+  'image/tiff': '.tif',
+  'image/png': '.png',
+  'image/jpeg': '.jpg',
+};
+export const ALLOWED_MIME = new Set(Object.keys(EXT_BY_MIME));
+
+/** Safe display name: base name only, no control or path characters, max 120 chars. */
+export function safeFileName(name: unknown): string {
+  const base = String(name ?? '').split(/[\\/]/).pop() || '';
+  return base.replace(/[^\w .()+-]/g, '_').replace(/^\.+/, '').slice(0, 120) || 'document';
+}
+
+/** File type from the first bytes (PDF, TIFF, PNG, JPEG); '' for anything else. */
+export function sniffMime(data: Buffer): string {
+  const head = data.subarray(0, 8);
+  if (head.subarray(0, 4).toString('latin1') === '%PDF') return 'application/pdf';
+  if (head[0] === 0x89 && head.subarray(1, 4).toString('latin1') === 'PNG') return 'image/png';
+  if (head[0] === 0xff && head[1] === 0xd8 && head[2] === 0xff) return 'image/jpeg';
+  const t = head.subarray(0, 4).toString('latin1');
+  if (t === 'II*\u0000' || t === 'MM\u0000*') return 'image/tiff';
+  return '';
+}
+
+export const sha256 =(data: Buffer): string => createHash('sha256').update(data).digest('hex');
+const newId = () => `in_${Date.now().toString(36)}${randomBytes(5).toString('hex')}`;
+const ID_RE = /^in_[a-z0-9]{6,40}$/;
+
+export class IntakeStore {
+  private items: IntakeItem[] | null = null;
+
+  constructor(
+    readonly dir: string = intakeDir(),
+    private now: () => Date = () => new Date()
+  ) {}
+
+  get file(): string {
+    return path.join(this.dir, 'items.json');
+  }
+  get filesDir(): string {
+    return path.join(this.dir, 'files');
+  }
+
+  private load(): IntakeItem[] {
+    if (this.items) return this.items;
+    try {
+      const rows = JSON.parse(fs.readFileSync(this.file, 'utf8'));
+      this.items = Array.isArray(rows) ? rows : [];
+    } catch (e: any) {
+      if (e?.code !== 'ENOENT') {
+        // A corrupt store is not "empty": keep the bad file aside and start a new one loudly.
+        const aside = `${this.file}.corrupt-${Date.now()}`;
+        try {
+          fs.renameSync(this.file, aside);
+        } catch {
+          // ignore
+        }
+        console.error(`[Intake] items.json unreadable (${e?.code || e?.name || 'error'}); moved aside`);
+      }
+      this.items = [];
+    }
+    return this.items;
+  }
+
+  private persist(): void {
+    fs.mkdirSync(this.dir, { recursive: true, mode: 0o700 });
+    const tmp = `${this.file}.${process.pid}.tmp`;
+    fs.writeFileSync(tmp, JSON.stringify(this.items || [], null, 1), { mode: 0o600 });
+    fs.renameSync(tmp, this.file);
+  }
+
+  /** Write a file into files/ atomically. */
+  private writeBlob(name: string, data: Buffer | string): void {
+    fs.mkdirSync(this.filesDir, { recursive: true, mode: 0o700 });
+    const dest = path.join(this.filesDir, name);
+    const tmp = `${dest}.${process.pid}.tmp`;
+    fs.writeFileSync(tmp, data, { mode: 0o600 });
+    fs.renameSync(tmp, dest);
+  }
+
+  /** Newest first, optionally one status. */
+  list(status?: IntakeStatus): IntakeItem[] {
+    return this.load()
+      .filter((i) => !status || i.status === status)
+      .sort((a, b) => b.received_at.localeCompare(a.received_at));
+  }
+
+  get(id: string): IntakeItem | undefined {
+    if (!ID_RE.test(String(id))) return undefined;
+    return this.load().find((i) => i.id === id);
+  }
+
+  findBySourceRef(ref: string): IntakeItem | undefined {
+    return ref ? this.load().find((i) => i.source_ref === ref) : undefined;
+  }
+
+  findBySha(hash: string): IntakeItem | undefined {
+    return hash ? this.load().find((i) => i.file?.sha256 === hash) : undefined;
+  }
+
+  counts(): Record<IntakeStatus, number> {
+    const out = Object.fromEntries(INTAKE_STATUSES.map((s) => [s, 0])) as Record<IntakeStatus, number>;
+    for (const i of this.load()) out[i.status] = (out[i.status] || 0) + 1;
+    return out;
+  }
+
+  private create(fields: Pick<IntakeItem, 'source' | 'source_ref'> & Partial<IntakeItem>, by: string, action: string): IntakeItem {
+    const ts = this.now().toISOString();
+    const item: IntakeItem = {
+      ...fields,
+      id: newId(),
+      received_at: ts,
+      updated_at: ts,
+      status: 'received',
+      history: [{ ts, action, by }],
+    };
+    this.load().push(item);
+    this.persist();
+    return item;
+  }
+
+  /**
+   * MOATiT Fax webhook: record the job durably before the 2xx. Duplicate when the webhook ID or
+   * the job ID was seen before (MOATiT Fax delivers at least once).
+   */
+  recordFax(webhookId: string, jobId: string): AddResult {
+    const existing = this.findBySourceRef(webhookId) || this.load().find((i) => i.source === 'moatit_fax' && i.job_id === jobId);
+    if (existing) return { item: existing, duplicate: true };
+    return { item: this.create({ source: 'moatit_fax', source_ref: webhookId, job_id: jobId }, 'moatit_fax', 'fax received'), duplicate: false };
+  }
+
+  /** Folder or upload: store the original (and text) and create the item. Dedupe by source_ref and hash. */
+  addDocument(doc: NewDocument): AddResult {
+    const hash = sha256(doc.data);
+    const sourceRef = doc.source_ref || `${doc.source}:${hash}`;
+    const existing = this.findBySourceRef(sourceRef) || this.findBySha(hash);
+    if (existing) return { item: existing, duplicate: true };
+    const mime = ALLOWED_MIME.has(doc.mime) ? doc.mime : 'application/octet-stream';
+    const id = newId();
+    const storedAs = `${id}${EXT_BY_MIME[mime] || '.bin'}`;
+    this.writeBlob(storedAs, doc.data);
+    if (doc.text && doc.text.trim()) this.writeBlob(`${id}.txt`, redactSsn(doc.text));
+    const ts = this.now().toISOString();
+    const item: IntakeItem = {
+      id,
+      source: doc.source,
+      source_ref: sourceRef,
+      received_at: ts,
+      updated_at: ts,
+      status: 'received',
+      file: { name: safeFileName(doc.name), mime, sha256: hash, size: doc.data.length, stored_as: storedAs },
+      has_text: !!(doc.text && doc.text.trim()),
+      history: [{ ts, action: doc.source === 'upload' ? 'uploaded' : 'picked up from drop folder', by: doc.by || 'drawbridge' }],
+    };
+    this.load().push(item);
+    this.persist();
+    return { item, duplicate: false };
+  }
+
+  /** Dedupe key of one part of a split file: the parent and its pages, so re-processing finds it again. */
+  static partRef(parentId: string, pages: number[]): string {
+    return `split:${parentId}:p${pages.join('.')}`;
+  }
+
+  /**
+   * One part of a split file (the pages of one patient) as a new item, linked to its parent. Idempotent:
+   * the same parent and pages return the existing part. A part whose bytes equal another item's file
+   * is created but flagged duplicate_of (never auto-filed).
+   */
+  addPart(parent: IntakeItem, part: NewPart): AddResult {
+    const sourceRef = IntakeStore.partRef(parent.id, part.pages);
+    const existing = this.findBySourceRef(sourceRef);
+    if (existing) return { item: existing, duplicate: true };
+    const hash = sha256(part.data);
+    const dup = this.findBySha(hash);
+    const mime = ALLOWED_MIME.has(part.mime) ? part.mime : 'application/octet-stream';
+    const id = newId();
+    const storedAs = `${id}${EXT_BY_MIME[mime] || '.bin'}`;
+    this.writeBlob(storedAs, part.data);
+    if (part.text.trim()) this.writeBlob(`${id}.txt`, redactSsn(part.text));
+    const ts = this.now().toISOString();
+    const range = part.pages.length > 1 && part.pages[part.pages.length - 1] - part.pages[0] === part.pages.length - 1
+      ? `${part.pages[0]}-${part.pages[part.pages.length - 1]}`
+      : part.pages.join(',');
+    const base = (parent.file?.name || 'document').replace(/(\.[A-Za-z0-9]{2,4})$/, '');
+    const item: IntakeItem = {
+      id,
+      source: parent.source,
+      source_ref: sourceRef,
+      received_at: ts,
+      updated_at: ts,
+      status: 'received',
+      file: { name: safeFileName(`${base} (pages ${range})${EXT_BY_MIME[mime] || ''}`), mime, sha256: hash, size: part.data.length, stored_as: storedAs },
+      has_text: !!part.text.trim(),
+      ...(parent.sender_fax ? { sender_fax: parent.sender_fax } : {}),
+      ...(part.ocr ? { ocr: part.ocr } : {}),
+      page_count: part.pages.length,
+      parent_id: parent.id,
+      part: { index: part.index, of: part.of, pages: part.pages },
+      ...(dup ? { duplicate_of: dup.id } : {}),
+      history: [{ ts, action: `split from ${parent.id} (page${part.pages.length > 1 ? 's' : ''} ${range}, part ${part.index + 1} of ${part.of})`, by: 'drawbridge' }],
+    };
+    this.load().push(item);
+    this.persist();
+    return { item, duplicate: false };
+  }
+
+  /** Attach the original to an existing item (fax download). Flags, never drops, a same-hash file. */
+  attachFile(id: string, data: Buffer, name: string, mime: string): IntakeItem {
+    const item = this.require(id);
+    const hash = sha256(data);
+    const dup = this.findBySha(hash);
+    const m = ALLOWED_MIME.has(mime) ? mime : 'application/octet-stream';
+    const storedAs = `${id}${EXT_BY_MIME[m] || '.bin'}`;
+    this.writeBlob(storedAs, data);
+    return this.update(
+      id,
+      {
+        file: { name: safeFileName(name), mime: m, sha256: hash, size: data.length, stored_as: storedAs },
+        ...(dup && dup.id !== item.id ? { duplicate_of: dup.id } : {}),
+      },
+      dup && dup.id !== item.id ? `file downloaded (same file as ${dup.id})` : 'file downloaded'
+    );
+  }
+
+  saveText(id: string, text: string): void {
+    this.require(id);
+    this.writeBlob(`${id}.txt`, redactSsn(text));
+    this.update(id, { has_text: !!text.trim() });
+  }
+
+  readText(id: string): string {
+    if (!ID_RE.test(id)) return '';
+    try {
+      return fs.readFileSync(path.join(this.filesDir, `${id}.txt`), 'utf8');
+    } catch {
+      return '';
+    }
+  }
+
+  /** Absolute path of an item's original, or '' when it's gone. */
+  filePath(item: IntakeItem): string {
+    if (!item.file || !/^[\w.-]+$/.test(item.file.stored_as)) return '';
+    const p = path.resolve(this.filesDir, item.file.stored_as);
+    return fs.existsSync(p) ? p : '';
+  }
+
+  private require(id: string): IntakeItem {
+    const item = this.get(id);
+    if (!item) throw Object.assign(new Error('intake item not found'), { code: 'NOT_FOUND' });
+    return item;
+  }
+
+  /** Merge fields, append a history line when `action` is given, persist. */
+  update(id: string, patch: Partial<Omit<IntakeItem, 'id' | 'history'>>, action?: string, by = 'drawbridge'): IntakeItem {
+    const item = this.require(id);
+    const ts = this.now().toISOString();
+    Object.assign(item, patch, { updated_at: ts });
+    if (action) item.history.push({ ts, action, by });
+    this.persist();
+    return item;
+  }
+
+  /**
+   * Delete originals (and text) of items filed or sent to indexing more than `days` ago; the chart
+   * copy is the record. A split file's original goes once every part is filed or sent to indexing
+   * and the last of them is that old. The item and its audit history stay. Returns files removed.
+   */
+  pruneFiled(days: number): number {
+    const cutoff = this.now().getTime() - days * 86_400_000;
+    const done = (i: IntakeItem | undefined) => !!i && (i.status === 'filed' || i.status === 'sent_to_indexing') && Date.parse(i.updated_at) <= cutoff;
+    let removed = 0;
+    for (const item of this.load()) {
+      const parentDone = item.status === 'split' && !!item.split?.children.length && item.split.children.every((c) => done(this.get(c)));
+      if (!parentDone && !done(item)) continue;
+      for (const name of [item.file?.stored_as, `${item.id}.txt`]) {
+        if (!name || !/^[\w.-]+$/.test(name)) continue;
+        try {
+          fs.unlinkSync(path.join(this.filesDir, name));
+          removed++;
+        } catch {
+          // already gone
+        }
+      }
+    }
+    return removed;
+  }
+}
+
+let shared: IntakeStore | null = null;
+/** The process-wide store under intakeDir(). */
+export function intakeStore(): IntakeStore {
+  if (!shared || shared.dir !== intakeDir()) shared = new IntakeStore();
+  return shared;
+}

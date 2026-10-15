@@ -121,19 +121,16 @@ export class PatientTools {
     patient?: ParsedPatient;
     matchScore?: number;
     suggestions?: ParsedPatient[];
+    message?: string;
   }> {
     try {
-      if (
-        !args.firstName &&
-        !args.lastName &&
-        !args.birthDate &&
-        !args.phone &&
-        !args.email &&
-        !args.mrn
-      ) {
-        throw ErrorHandler.createValidationError(
-          "At least one search criterion is required",
-        );
+      // Identity gate (spec §4 rule 1): full name AND date of birth, every time.
+      if (!args.firstName || !args.lastName || !args.birthDate) {
+        return {
+          verified: false,
+          message:
+            "Not verified. Ask the caller for their first name, last name and date of birth.",
+        };
       }
 
       // Search for potential matches
@@ -147,22 +144,36 @@ export class PatientTools {
         limit: 10,
       });
 
-      if (searchResult.patients.length === 0) {
+      // Exact match on first name, last name and birth date; exactly one patient.
+      const norm = (v?: string) => (v || "").trim().toLowerCase();
+      const dob = (v?: string) => {
+        const d = norm(v);
+        const m = d.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/); // MM/DD/YYYY → YYYY-MM-DD
+        return m ? `${m[3]}-${m[1].padStart(2, "0")}-${m[2].padStart(2, "0")}` : d.slice(0, 10);
+      };
+      const matches = searchResult.patients.filter(
+        (p) =>
+          norm(p.firstName).split(/\s+/)[0] === norm(args.firstName).split(/\s+/)[0] &&
+          norm(p.lastName) === norm(args.lastName) &&
+          dob(p.birthDate) === dob(args.birthDate),
+      );
+
+      // Not verified: return nothing from the record, and never other patients as suggestions.
+      if (matches.length !== 1) {
         return {
           verified: false,
-          suggestions: [],
+          message:
+            matches.length > 1
+              ? "More than one patient matches. Transfer the caller to staff."
+              : "No patient matches that name and date of birth.",
         };
       }
 
-      // Calculate match score for the first result
-      const bestMatch = searchResult.patients[0];
-      const matchScore = this.calculateMatchScore(bestMatch, args);
-
       return {
-        verified: matchScore >= 0.8, // 80% match threshold
-        patient: bestMatch,
-        matchScore,
-        suggestions: searchResult.patients.slice(1, 5), // Top 4 additional suggestions
+        verified: true,
+        patient: matches[0],
+        matchScore: this.calculateMatchScore(matches[0], args),
+        message: "Identity verified.",
       };
     } catch (error) {
       throw ErrorHandler.handleUnknownError(error);

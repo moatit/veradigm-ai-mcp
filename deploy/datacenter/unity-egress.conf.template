@@ -1,0 +1,28 @@
+# The only outbound path of the shadow intake stack: raw TLS to the Veradigm Unity host.
+# The TLS session runs end to end between the intake container and Veradigm (no decryption here).
+# A connection whose TLS server name (SNI) is not exactly ${VERADIGM_UNITY_HOST} goes nowhere.
+worker_processes 1;
+error_log /dev/stderr warn;
+pid /tmp/nginx.pid;
+
+events {
+    worker_connections 256;
+}
+
+stream {
+    resolver ${EGRESS_DNS} valid=300s ipv6=off;
+    resolver_timeout 5s;
+
+    map $ssl_preread_server_name $unity_upstream {
+        ${VERADIGM_UNITY_HOST}  ${VERADIGM_UNITY_HOST}:443;
+        default                 127.0.0.1:1;
+    }
+
+    server {
+        listen 443;
+        ssl_preread on;
+        proxy_pass $unity_upstream;
+        proxy_connect_timeout 10s;
+        proxy_timeout 120s;
+    }
+}

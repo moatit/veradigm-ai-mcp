@@ -2,7 +2,33 @@ import { Tool } from "@modelcontextprotocol/sdk/types.js";
 import { UnityActions } from "../config/unity-endpoints";
 import { UnityService } from "../services/unity.service";
 import { UnityErrorHandler, UnityMCPError } from "../utils/error-handler";
+import { pick, unityRows } from "../utils/unity-rows";
 
+/** Printable single-line text (sandbox rows can carry control characters and line breaks). */
+function cleanText(v: string): string {
+  return String(v || "").replace(/[^ -~]+/g, " ").replace(/\s+/g, " ").trim();
+}
+
+/** "PT (PROTHROMBIN TIME), 12 seconds Normal (11.5-13.5)" → "12 seconds Normal (11.5-13.5)"; max 120 chars. */
+function resultValue(name: string, detail: string): string {
+  let v = cleanText(detail);
+  const base = cleanText(name).replace(/\s*\(\d{4,5}\)$/, "");
+  if (base && v.toLowerCase().startsWith(base.toLowerCase())) v = v.slice(base.length).replace(/^[\s,:-]+/, "");
+  return v.length > 120 ? v.slice(0, 117) + "..." : v;
+}
+
+
+/**
+ * GetClinicalSummary takes the section name ("medications", "allergies", "problems") in Parameter1
+ * and returns only that section (verified on the EHR sandbox Oct 9). Other actions keep their own Parameter1.
+ */
+function summaryParams(action: string, section: string, otherParameter1: string) {
+  return {
+    Parameter1: action === "GetClinicalSummary" ? section : otherParameter1,
+    Parameter2: "",
+    Parameter3: "",
+  };
+}
 /**
  * Unity Clinical Tools
  *
@@ -37,29 +63,17 @@ export class UnityClinicalTools {
 
       const response = await this.unityService.executeAction<any>(
         UnityActions.Clinical.GET_PATIENT_PROBLEMS,
-        {
-          Parameter1: "problems",
-        },
+        summaryParams(UnityActions.Clinical.GET_PATIENT_PROBLEMS, "problems", args.status || "active"),
         args.patientId,
         "EHR",
       );
 
+      // A failed call is an error, never an empty problems list (CLAUDE.md rule 5).
       if (!response.success) {
-        return {
-          success: false,
-          problems: [],
-          total: 0,
-          message: response.error || "Failed to get problems",
-        };
+        throw UnityErrorHandler.createAPIError(response.error || "Failed to get problems");
       }
 
-      let problems = this.parseProblems(response.data);
-      if (args.status && args.status !== "all") {
-        const wanted = args.status.toLowerCase();
-        problems = problems.filter(
-          (item) => String(item.status || "active").toLowerCase() === wanted,
-        );
-      }
+      const problems = this.parseProblems(response.data);
 
       return {
         success: true,
@@ -98,28 +112,17 @@ export class UnityClinicalTools {
 
       const response = await this.unityService.executeAction<any>(
         UnityActions.Clinical.GET_PATIENT_MEDICATIONS,
-        {
-          Parameter1: "medications",
-        },
+        summaryParams(UnityActions.Clinical.GET_PATIENT_MEDICATIONS, process.env.UNITY_MEDS_SECTION || "medications", args.status || "active"),
         args.patientId,
         "EHR",
       );
 
+      // A failed call is an error, never an empty medications list (CLAUDE.md rule 5).
       if (!response.success) {
-        return {
-          success: false,
-          medications: [],
-          total: 0,
-          message: response.error || "Failed to get medications",
-        };
+        throw UnityErrorHandler.createAPIError(response.error || "Failed to get medications");
       }
 
-      let medications = this.parseMedications(response.data);
-      if (args.status === "active") {
-        medications = medications.filter(
-          (item) => String(item.status || "active").toLowerCase() === "active",
-        );
-      }
+      const medications = this.parseMedications(response.data);
 
       return {
         success: true,
@@ -158,20 +161,14 @@ export class UnityClinicalTools {
 
       const response = await this.unityService.executeAction<any>(
         UnityActions.Clinical.GET_PATIENT_ALLERGIES,
-        {
-          Parameter1: "allergies",
-        },
+        summaryParams(UnityActions.Clinical.GET_PATIENT_ALLERGIES, "allergies", ""),
         args.patientId,
         "EHR",
       );
 
+      // A failed call is an error, never an empty allergies list (CLAUDE.md rule 5).
       if (!response.success) {
-        return {
-          success: false,
-          allergies: [],
-          total: 0,
-          message: response.error || "Failed to get allergies",
-        };
+        throw UnityErrorHandler.createAPIError(response.error || "Failed to get allergies");
       }
 
       const allergies = this.parseAllergies(response.data);
@@ -187,6 +184,63 @@ export class UnityClinicalTools {
         throw error;
       }
       throw UnityErrorHandler.handleUnknownError(error, "GetPatientAllergies");
+    }
+  }
+
+  /**
+   * Recent lab/test results and vitals (GetClinicalSummary "results" and "vitals" sections,
+   * Veradigm EHR). Newest first. Read only; never interprets values for the caller.
+   */
+  async getRecentResults(args: { patientId: string; limit?: number }): Promise<{
+    success: boolean;
+    results: Array<{ name: string; value: string; date: string; kind: string; status: string }>;
+    total: number;
+    message: string;
+  }> {
+    try {
+      if (!args.patientId) {
+        throw UnityErrorHandler.createValidationError("Patient ID is required");
+      }
+      const sections = ["results", "vitals"];
+      const responses = await Promise.all(
+        sections.map((section) =>
+          this.unityService.executeAction<any>("GetClinicalSummary", { Parameter1: section }, args.patientId, "EHR"),
+        ),
+      );
+      // A failed call is an error, never "no results" (CLAUDE.md rule 5).
+      const failed = responses.find((r) => !r.success);
+      if (failed) {
+        throw UnityErrorHandler.createAPIError(failed.error || "Failed to get results", "GetClinicalSummary");
+      }
+      const results = responses
+        .flatMap((r, i) =>
+          unityRows(r.data)
+            .filter((item) => {
+              const section = pick(item, "Section").toLowerCase();
+              return !section || section === sections[i];
+            })
+            .map((item) => ({
+              name: cleanText(pick(item, "Description", "Name")).replace(/\s*\(\d{4,5}\)$/, ""),
+              value: resultValue(pick(item, "Description", "Name"), pick(item, "Detail", "Value", "Result")),
+              date: pick(item, "DisplayDate", "Date"),
+              kind: sections[i] === "vitals" ? "vital" : "result",
+              status: pick(item, "Status"),
+            })),
+        )
+        .filter((x) => x.name)
+        .sort((a, b) => (Date.parse(b.date) || 0) - (Date.parse(a.date) || 0))
+        .slice(0, Number(args.limit) > 0 ? Number(args.limit) : 10);
+      return {
+        success: true,
+        results,
+        total: results.length,
+        message: `Found ${results.length} recent result(s)`,
+      };
+    } catch (error) {
+      if (error instanceof UnityMCPError) {
+        throw error;
+      }
+      throw UnityErrorHandler.handleUnknownError(error, "GetClinicalSummary");
     }
   }
 
@@ -211,35 +265,20 @@ export class UnityClinicalTools {
         `[Unity Clinical] Getting diagnoses for patient ${args.patientId}`,
       );
 
-      const encounterId = await this.resolveEncounterId(
-        args.patientId,
-        args.encounterId,
-      );
-      if (!encounterId) {
-        return {
-          success: false,
-          diagnoses: [],
-          total: 0,
-          message: "No encounter was found for this patient.",
-        };
-      }
-
       const response = await this.unityService.executeAction<any>(
         UnityActions.Clinical.GET_PATIENT_DIAGNOSIS,
         {
-          Parameter1: encounterId,
+          Parameter1: args.encounterId || "",
+          Parameter2: "",
+          Parameter3: "",
         },
         args.patientId,
         "EHR",
       );
 
+      // A failed call is an error, never an empty diagnoses list (CLAUDE.md rule 5).
       if (!response.success) {
-        return {
-          success: false,
-          diagnoses: [],
-          total: 0,
-          message: response.error || "Failed to get diagnoses",
-        };
+        throw UnityErrorHandler.createAPIError(response.error || "Failed to get diagnoses");
       }
 
       const diagnoses = this.parseDiagnoses(response.data);
@@ -262,132 +301,84 @@ export class UnityClinicalTools {
   // Helper Methods
   // ============================================
 
-  private async resolveEncounterId(
-    patientId: string,
-    encounterId?: string,
-  ): Promise<string> {
-    if (encounterId) return encounterId;
-
-    const response = await this.unityService.executeAction<any>(
-      "GetEncounter",
-      {},
-      patientId,
-      "EHR",
-    );
-    if (!response.success) return "";
-
-    const rows = this.rows(response.data, "getencounterinfo");
-    return String(rows[0]?.EncounterID || rows[0]?.encounterID || "");
-  }
-
-  private rows(data: any, ...keys: string[]): any[] {
-    if (!data) return [];
-
-    let node = data;
-    if (Array.isArray(node) && node[0] && typeof node[0] === "object") {
-      const key = keys.find((name) => node[0][name] != null);
-      if (key) node = node[0][key];
-    } else if (node && typeof node === "object") {
-      const key = keys.find((name) => node[name] != null);
-      if (key) node = node[key];
-    }
-
-    if (!node) return [];
-    return Array.isArray(node) ? node : [node];
-  }
+  // Parsers flatten Unity's [{ "<action>info": [rows] }] wrapper and read fields
+  // case-insensitively, so they work with both the repo action names and the
+  // Veradigm reference actions (GetProblems, GetAllergies, GetClinicalSummary).
 
   private parseProblems(data: any): any[] {
-    const items = this.rows(
-      data,
-      "getclinicalsummaryinfo",
-      "getproblemsinfo",
-      "problems",
-    );
-
-    return items
-      .map((item: any) => ({
-        id: item.transid || item.ProblemID || item.ID,
-        code: item.code || item.Code || item.entrycode || item.ICD10Code,
-        description:
-          item.description || item.Description || item.detail || item.Name,
-        status: item.status || item.Status || "active",
-        onsetDate: item.displaydate || item.OnsetDate || item.StartDate,
-        resolvedDate: item.ResolvedDate || item.EndDate,
-        severity: item.Severity,
-        type: item.section || item.Type || item.ProblemType,
+    return unityRows(data)
+      .filter((item) => {
+        const section = pick(item, "Section", "SectionName").toLowerCase();
+        return !section || section.includes("problem");
+      })
+      .map((item) => ({
+        id: pick(item, "ProblemID", "ID"),
+        code: pick(item, "Code", "ICD10Code", "ICD9Code"),
+        description: pick(item, "Description", "ProblemDescription", "Name", "DisplayName"),
+        status: pick(item, "Status") || "active",
+        onsetDate: pick(item, "OnsetDate", "StartDate", "DisplayDate"),
+        resolvedDate: pick(item, "ResolvedDate", "EndDate"),
+        severity: pick(item, "Severity"),
+        type: pick(item, "Type", "ProblemType"),
       }))
-      .filter((p: any) => p.id || p.code || p.description);
+      .filter((p) => p.id || p.code || p.description);
   }
 
   private parseMedications(data: any): any[] {
-    const items = this.rows(
-      data,
-      "getclinicalsummaryinfo",
-      "getmedicationsinfo",
-      "medications",
-    );
-
-    return items
-      .map((item: any) => ({
-        id: item.transid || item.MedicationID || item.ID,
-        name:
-          item.description || item.MedicationName || item.DrugName || item.Name,
-        dose: item.Dose || item.Dosage || item.detail,
-        unit: item.Unit || item.DoseUnit,
-        frequency: item.Frequency || item.Sig,
-        route: item.Route,
-        status: item.status || item.Status || "active",
-        startDate: item.displaydate || item.StartDate || item.OrderDate,
-        endDate: item.EndDate || item.StopDate,
-        prescriber: item.Prescriber || item.OrderingProvider,
-        pharmacy: item.Pharmacy,
-        refillsRemaining: item.RefillsRemaining || item.RefillsLeft,
+    return unityRows(data)
+      // GetClinicalSummary returns every section; keep medication rows only when a section is labelled.
+      .filter((item) => {
+        const section = pick(item, "Section", "SectionName").toLowerCase();
+        return !section || section.includes("med");
+      })
+      .map((item) => ({
+        id: pick(item, "MedicationID", "ID", "TransID"),
+        name: pick(item, "MedicationName", "DrugName", "Name", "Description", "DisplayName"),
+        dose: pick(item, "Dose", "Dosage"),
+        unit: pick(item, "Unit", "DoseUnit"),
+        frequency: pick(item, "Frequency", "Sig", "Detail"),
+        route: pick(item, "Route"),
+        status: pick(item, "Status") || "active",
+        startDate: pick(item, "StartDate", "OrderDate", "DisplayDate"),
+        endDate: pick(item, "EndDate", "StopDate"),
+        prescriber: pick(item, "Prescriber", "OrderingProvider"),
+        pharmacy: pick(item, "Pharmacy"),
+        refillsRemaining: pick(item, "RefillsRemaining", "RefillsLeft"),
       }))
-      .filter((m: any) => m.id || m.name);
+      .filter((m) => m.id || m.name);
   }
 
   private parseAllergies(data: any): any[] {
-    const items = this.rows(
-      data,
-      "getclinicalsummaryinfo",
-      "getallergiesinfo",
-      "allergies",
-    );
-
-    return items
-      .map((item: any) => ({
-        id: item.transid || item.AllergyID || item.ID,
-        allergen:
-          item.description || item.Allergen || item.AllergyName || item.Name,
-        type: item.section || item.Type || item.AllergyType,
-        severity: item.Severity,
-        reaction: item.detail || item.Reaction || item.ReactionDescription,
-        status: item.status || item.Status || "active",
-        onsetDate: item.displaydate || item.OnsetDate,
-        source: item.Source || item.ReportedBy,
+    return unityRows(data)
+      .filter((item) => {
+        const section = pick(item, "Section", "SectionName").toLowerCase();
+        return !section || section.includes("allerg");
+      })
+      .map((item) => ({
+        id: pick(item, "AllergyID", "ID"),
+        allergen: pick(item, "Allergen", "AllergyName", "Name", "Description", "DisplayName"),
+        type: pick(item, "Type", "AllergyType"),
+        severity: pick(item, "Severity"),
+        reaction: pick(item, "Reaction", "ReactionDescription"),
+        status: pick(item, "Status") || "active",
+        onsetDate: pick(item, "OnsetDate"),
+        source: pick(item, "Source", "ReportedBy"),
       }))
-      .filter((a: any) => a.id || a.allergen);
+      .filter((a) => a.id || a.allergen);
   }
 
   private parseDiagnoses(data: any): any[] {
-    const items = this.rows(data, "getpatientdiagnosisinfo", "diagnoses");
-
-    return items
-      .map((item: any) => ({
-        id: item.DiagnosisID || item.AssessmentId || item.ID,
-        code: item.ICD10 || item.Code || item.ICD10Code || item.DiagnosisCode,
-        description: item.Diagnosis || item.Description || item.DiagnosisDescription,
-        type: item.Source || item.Type || item.DiagnosisType,
-        status: item.Status,
-        date: item.Date || item.DiagnosisDate,
-        provider: item.Provider || item.DiagnosingProvider,
-        encounterId: item.encounterID || item.EncounterID,
+    return unityRows(data)
+      .map((item) => ({
+        id: pick(item, "DiagnosisID", "ID"),
+        code: pick(item, "Code", "ICD10Code", "DiagnosisCode"),
+        description: pick(item, "Description", "DiagnosisDescription"),
+        type: pick(item, "Type", "DiagnosisType"),
+        status: pick(item, "Status"),
+        date: pick(item, "Date", "DiagnosisDate"),
+        provider: pick(item, "Provider", "DiagnosingProvider"),
       }))
-      .filter(
-        (d: any) =>
-          (d.id || d.code || d.description) &&
-          !String(d.status || "").toLowerCase().includes("problem getting"),
-      );
+      .filter((d) => d.id || d.code || d.description);
   }
 
   /**
@@ -404,7 +395,7 @@ export class UnityClinicalTools {
           properties: {
             patientId: {
               type: "string",
-              description: "Patient ID to retrieve problems for",
+              description: "chartPatientId (Veradigm EHR ID) from unity_search_patients",
             },
             status: {
               type: "string",
@@ -425,7 +416,7 @@ export class UnityClinicalTools {
           properties: {
             patientId: {
               type: "string",
-              description: "Patient ID to retrieve medications for",
+              description: "chartPatientId (Veradigm EHR ID) from unity_search_patients",
             },
             status: {
               type: "string",
@@ -446,8 +437,24 @@ export class UnityClinicalTools {
           properties: {
             patientId: {
               type: "string",
-              description: "Patient ID to retrieve allergies for",
+              description: "chartPatientId (Veradigm EHR ID) from unity_search_patients",
             },
+          },
+          required: ["patientId"],
+        },
+      },
+      {
+        name: "unity_get_recent_results",
+        description:
+          "Recent lab/test results and vitals on file in Veradigm EHR, newest first. Read results back as recorded; never interpret them or give medical advice.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            patientId: {
+              type: "string",
+              description: "chartPatientId (Veradigm EHR ID) from unity_search_patients",
+            },
+            limit: { type: "number", description: "Most items to return (default 10)" },
           },
           required: ["patientId"],
         },
@@ -461,7 +468,7 @@ export class UnityClinicalTools {
           properties: {
             patientId: {
               type: "string",
-              description: "Patient ID to retrieve diagnoses for",
+              description: "chartPatientId (Veradigm EHR ID) from unity_search_patients",
             },
             encounterId: {
               type: "string",

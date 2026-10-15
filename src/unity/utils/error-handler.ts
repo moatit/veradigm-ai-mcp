@@ -81,6 +81,16 @@ export class UnityErrorHandler {
       return error;
     }
 
+    // UnityAPIError from UnityService already carries a classified code.
+    if (error?.name === 'UnityAPIError' && typeof error.code === 'string') {
+      const known: UnityErrorCode[] = [
+        'VALIDATION_ERROR', 'AUTH_ERROR', 'API_ERROR', 'NOT_FOUND', 'FORBIDDEN',
+        'SERVER_ERROR', 'NETWORK_ERROR', 'TIMEOUT_ERROR', 'UNKNOWN_ERROR',
+      ];
+      const code = known.includes(error.code) ? (error.code as UnityErrorCode) : 'API_ERROR';
+      return new UnityMCPError(error.message, code, error.details, action);
+    }
+
     // Check for common error types
     if (error.code === 'ECONNREFUSED' || error.code === 'ENOTFOUND') {
       return new UnityMCPError(

@@ -40,7 +40,7 @@ COPY --from=builder /app/dist ./dist
 COPY .env.example ./.env.example
 
 # Change ownership to non-root user
-RUN chown -R mcp:nodejs /app
+RUN mkdir -p /app/data && chown -R mcp:nodejs /app
 USER mcp
 
 # Expose port (if needed for health checks)
