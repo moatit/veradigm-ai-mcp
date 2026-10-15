@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { PlatformModule } from '../../platform/registry';
 import { APP_BASE, esc, fmtTime, page } from '../../platform/shell';
 import { callRecords, CallRecord } from './call-records';
+import { retentionDaysFrom, startDailyRetention } from '../../platform/retention';
 import { currentMode, getOverride, scheduledMode, setOverride } from './call-mode';
 import { OnCallTools } from './oncall.tools';
 
@@ -90,5 +91,9 @@ ${override ? `<form method="post" action="${APP_BASE}/oncall/mode" style="margin
     });
 
     return router;
+  },
+
+  start() {
+    startDailyRetention('call records', () => callRecords.prune(retentionDaysFrom('CALL_RECORDS_RETENTION_DAYS')));
   },
 };

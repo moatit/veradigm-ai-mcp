@@ -10,6 +10,8 @@ import { OutreachEvent, OutreachJob, OutreachStatus } from './types';
  * must live on the MOATiT-controlled host only (CALL_RECORDS_DIR), never in the repo, logs or
  * a shared drive. Written with mode 0600 via temp file + rename (atomic on the same volume).
  * Replace with the production database once open question Q5/Q6 is decided.
+ * Jobs not updated for OUTREACH_RETENTION_DAYS (default 30) are deleted by prune(), run at startup
+ * and daily (src/platform/retention.ts). The opt-out list (patient IDs only) is kept.
  */
 interface StoreFile {
   jobs: OutreachJob[];
@@ -103,6 +105,22 @@ export const outreachJobs = {
     job.updated_at = ev.at;
     persist();
     return job;
+  },
+
+  /** Delete jobs whose last update is older than `days` days. Returns how many were removed. */
+  prune(days: number, now: number = Date.now()): number {
+    const cutoff = now - days * 86_400_000;
+    const c = load();
+    let removed = 0;
+    for (const [id, j] of c.jobs) {
+      const t = Date.parse(j.updated_at || j.created_at);
+      if (Number.isFinite(t) && t < cutoff) {
+        c.jobs.delete(id);
+        removed++;
+      }
+    }
+    if (removed) persist();
+    return removed;
   },
 
   isOptedOut(patientId: string): boolean {

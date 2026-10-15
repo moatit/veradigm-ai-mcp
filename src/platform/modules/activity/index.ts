@@ -4,6 +4,7 @@ import { APP_BASE, esc, fmtTime, page } from '../../shell';
 import { AuditEntry, auditDays, dayKey, isDayKey, pruneAudit, readAuditDay, safeId, toolMetrics } from '../../audit';
 import { callRecords } from '../../../unity/oncall/call-records';
 import { handleRetellEvent, recentCalls, verifyWebhook } from './retell-events';
+import { startDailyRetention } from '../../retention';
 
 /**
  * Drawbridge module: activity.
@@ -183,6 +184,7 @@ export const activityModule: PlatformModule = {
   },
 
   start() {
-    pruneAudit().then((n) => n && console.log(`[Drawbridge] audit retention: removed ${n} old day file(s)`));
+    // Also pruned at the first write of each day (audit.ts); this covers days without traffic.
+    startDailyRetention('audit day files', () => pruneAudit());
   },
 };

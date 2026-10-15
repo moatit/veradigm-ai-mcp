@@ -9,6 +9,8 @@ import * as path from 'path';
  * chart context, so the file must live on the MOATiT-controlled host only (CALL_RECORDS_DIR),
  * never in the repo, logs or a shared drive. Replace with the production database once
  * open question Q5/Q6 (where call records live) is decided.
+ * Records not updated for CALL_RECORDS_RETENTION_DAYS (default 30) are deleted by prune(), which the
+ * on-call module runs at startup and daily (src/platform/retention.ts).
  */
 export type CallMode = 'business_hours' | 'after_hours';
 export type Urgency = 'urgent' | 'routine';
@@ -118,6 +120,22 @@ export const callRecords = {
     store.set(id, next);
     persist();
     return next;
+  },
+
+  /** Delete records whose last update is older than `days` days. Returns how many were removed. */
+  prune(days: number, now: number = Date.now()): number {
+    const cutoff = now - days * 86_400_000;
+    const store = load();
+    let removed = 0;
+    for (const [id, r] of store) {
+      const t = Date.parse(r.updated_at || r.started_at);
+      if (Number.isFinite(t) && t < cutoff) {
+        store.delete(id);
+        removed++;
+      }
+    }
+    if (removed) persist();
+    return removed;
   },
 
   /** Append a tool call to the record for this call (no chart contents, outcome only). */

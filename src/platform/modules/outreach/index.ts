@@ -1,4 +1,6 @@
 import { PlatformModule } from '../../registry';
+import { retentionDaysFrom, startDailyRetention } from '../../retention';
+import { outreachJobs } from './store';
 import { outreachRouter } from './screen';
 import { OutreachTools } from './tools';
 
@@ -21,4 +23,8 @@ export const outreachModule: PlatformModule = {
   },
 
   appRouter: (deps) => outreachRouter(deps),
+
+  start() {
+    startDailyRetention('outreach jobs', () => outreachJobs.prune(retentionDaysFrom('OUTREACH_RETENTION_DAYS')));
+  },
 };

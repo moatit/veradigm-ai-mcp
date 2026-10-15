@@ -25,6 +25,7 @@ import {
   type ShadowPanelContext,
 } from './shadow-ui';
 import { ALLOWED_MIME, INTAKE_STATUSES, IntakeItem, IntakeStatus, intakeStore, sniffMime } from './store';
+import { retentionDaysFrom, startDailyRetention } from '../../retention';
 
 export { mountFaxWebhook } from './moatit-fax';
 
@@ -573,12 +574,7 @@ export const intakeModule: PlatformModule = {
     stopWatchDirs = startWatchFolders(intakeStore, (id) => intakePipeline.enqueue(id));
     const resumed = intakePipeline.resumePending();
     if (resumed) console.log(`[Intake] resumed ${resumed} unfinished document(s)`);
-    const days = Number(process.env.INTAKE_RETENTION_DAYS);
-    try {
-      const removed = intakeStore().pruneFiled(Number.isFinite(days) && days >= 1 ? days : 30);
-      if (removed) console.log(`[Intake] retention: removed ${removed} filed original(s)`);
-    } catch (e: any) {
-      console.error(`[Intake] retention failed: ${e?.code || 'error'}`);
-    }
+    // Originals of filed documents: at startup and daily (INTAKE_RETENTION_DAYS, default 30).
+    startDailyRetention('intake originals', () => intakeStore().pruneFiled(retentionDaysFrom('INTAKE_RETENTION_DAYS')));
   },
 };
