@@ -448,6 +448,8 @@ async function main(): Promise<void> {
     'It is NOT an error',
     'web_call',
     'never as a fallback',
+    '"NOT BOOKED" = nothing was saved',
+    'Never pick a type just to get the booking through',
   ]) {
     assert.ok(prompt.includes(line), `prompt keeps: ${line}`);
   }

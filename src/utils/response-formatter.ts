@@ -56,6 +56,11 @@ function slotLine(s: {
   );
 }
 
+/** Visit type names, compact: at most 4, then "+N more". */
+function typeList(names: string[]): string {
+  return names.slice(0, 4).join(", ") + (names.length > 4 ? ` +${names.length - 4} more` : "");
+}
+
 /** A successful lookup that found nothing: unmistakably not an error (v6 read "No appointments found." as a failure). */
 function successEmpty(what: string): string {
   return `SUCCESS: ${what} This is a real answer, not an error.`;
@@ -84,7 +89,14 @@ function appointmentLine(a: {
  * Text the agent gets when a tool failed. It must never sound like an empty result
  * (CLAUDE.md rule 5) and never carries raw error text to be read to a caller.
  */
-export function failureText(r: { error_code?: string; retryable?: boolean }): string {
+export function failureText(r: { error_code?: string; retryable?: boolean; agent_text?: string }): string {
+  if (r.error_code === "APPOINTMENT_TYPE_NOT_ALLOWED") {
+    // Not a system problem: the time takes other visit types. agent_text is Drawbridge's own wording.
+    return (
+      "NOT BOOKED (APPOINTMENT_TYPE_NOT_ALLOWED; the booking system worked, nothing was saved; not an error to apologize for). " +
+      (r.agent_text || "That time does not allow that visit type. Ask the caller which visit type fits, or offer other times.")
+    );
+  }
   if (r.error_code === "RECORDS_UNAVAILABLE") {
     return (
       "TOOL_ERROR (RECORDS_UNAVAILABLE, retryable=no). The clinic's records system is down right now; nothing was looked up or changed. " +
@@ -115,7 +127,7 @@ export function toVoiceSummary(
 
   // Structured tool failure (Veradigm call failed): never an empty-sounding answer.
   if (r.success === false && typeof r.error_code === "string") {
-    return failureText(r as { error_code: string; retryable?: boolean });
+    return failureText(r as { error_code: string; retryable?: boolean; agent_text?: string });
   }
 
   // Withheld (redacted) data: never "none on file" (spec §4 rule 6).
@@ -225,12 +237,18 @@ export function toVoiceSummary(
   if (Array.isArray(r.slots) && typeof r.total === "number") {
     const n = r.total;
     if (n === 0) return successEmpty("no open times in that range. Offer to look at other dates.");
-    const list = (r.slots as Array<Parameters<typeof slotLine>[0]>)
-      .slice(0, 5)
-      .map(slotLine);
+    const shown = (r.slots as Array<Parameters<typeof slotLine>[0] & { appointmentTypes?: string[] }>).slice(0, 5);
+    // Visit types a block allows: once when every listed time has the same list, else per time.
+    const typeKey = (s: { appointmentTypes?: string[] }) => (s.appointmentTypes || []).join("|");
+    const sameTypes = shown.every((s) => typeKey(s) === typeKey(shown[0]));
+    const list = shown.map((s) => slotLine(s) + (!sameTypes && s.appointmentTypes?.length ? ` (types: ${typeList(s.appointmentTypes)})` : ""));
     const andMore = n > 5 ? ` and ${n - 5} more` : "";
+    const types = sameTypes && shown[0]?.appointmentTypes?.length ? ` These times only allow: ${typeList(shown[0].appointmentTypes)}.` : "";
+    const typed = shown.some((s) => s.appointmentTypes?.length)
+      ? " Pass an appointmentType the picked time allows; ask the caller if unsure."
+      : "";
     return truncate(
-      `Found ${n} slot(s): ${list.join("; ")}${andMore}. When booking, pass the providerId, locationId and departmentId of the slot the caller picked.`,
+      `Found ${n} slot(s): ${list.join("; ")}${andMore}.${types} When booking, pass the providerId, locationId and departmentId of the slot the caller picked.${typed}`,
       maxLength * 2,
     );
   }

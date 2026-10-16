@@ -12,6 +12,10 @@ export interface ToolFailure {
   retryable: boolean;
   tool: string;
   message: string;
+  /** Instruction written by Drawbridge for the agent (never raw Veradigm text), e.g. which visit types a time allows. */
+  agent_text?: string;
+  /** APPOINTMENT_TYPE_NOT_ALLOWED: the visit type names the chosen time allows. */
+  allowed_types?: string[];
 }
 
 // AUTH_ERROR is not retryable: it is usually expired credentials, which a retry won't fix.
@@ -27,6 +31,8 @@ export function toToolFailure(error: unknown, tool: string): ToolFailure {
     tool,
     // Internal detail for logs only; never read to the caller.
     message: e.message,
+    ...(typeof e.details?.agentText === 'string' ? { agent_text: e.details.agentText } : {}),
+    ...(Array.isArray(e.details?.allowedTypes) ? { allowed_types: e.details.allowedTypes.map(String) } : {}),
   };
 }
 

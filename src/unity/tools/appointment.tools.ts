@@ -13,7 +13,17 @@ export interface OpenSlot {
   providerName?: string;
   locationId?: string; // Scheduling_Location_ID
   departmentId?: string; // Scheduling_Department_ID
+  /** Appointment types this block allows (GetAppointmentTypes descriptions); absent = no restriction. */
+  appointmentTypes?: string[];
   sortKey: number;
+  /** Internal: the schedule row's category rule (not returned). */
+  rule?: CategoryRule;
+}
+
+/** A GetAvailableSchedule row's appointment-category rule (Elig/Inelig_Appointment_Category_ID). */
+export interface CategoryRule {
+  elig: string[];
+  inelig: string[];
 }
 
 interface Resource {
@@ -230,6 +240,49 @@ function rowCovers(row: Record<string, any>, from: number, to: number): boolean 
   return to > from;
 }
 
+/** The row's appointment-category rule: eligible / ineligible category IDs ('' lists = no restriction). */
+export function categoryRule(row: Record<string, any> | undefined): CategoryRule {
+  return { elig: ids(pick(row, 'Elig_Appointment_Category_ID')), inelig: ids(pick(row, 'Inelig_Appointment_Category_ID')) };
+}
+
+const restricted = (rule: CategoryRule | undefined): boolean => !!rule && (rule.elig.length > 0 || rule.inelig.length > 0);
+
+/** Does the rule allow this appointment category? */
+export function categoryAllowed(rule: CategoryRule, categoryId: string): boolean {
+  if (rule.elig.length && !rule.elig.includes(categoryId)) return false;
+  return !rule.inelig.includes(categoryId);
+}
+
+/** The appointment types a rule allows; undefined when the row has no restriction (any type). */
+export function allowedTypes(rule: CategoryRule | undefined, types: AppointmentTypeRow[]): AppointmentTypeRow[] | undefined {
+  if (!restricted(rule)) return undefined;
+  return types.filter((t) => t.categoryId && categoryAllowed(rule!, t.categoryId));
+}
+
+/**
+ * The GetAvailableSchedule rows in which [startMin, startMin + duration) on `date` is open: the row's
+ * template marks every cell bookable and no row for the day marks any of them booked.
+ */
+function rowsForSlot(rows: Record<string, any>[], date: string, startMin: number, duration: number): Record<string, any>[] {
+  const day = rows.filter((r) => mdy(pick(r, 'Available_Date', 'AvailableDate')) === mdy(date));
+  const [from, to] = cellRange(startMin, duration);
+  if (from < 0 || to > 288) return [];
+  for (const r of day) {
+    const booked = pick(r, 'Booked_Slots1') + pick(r, 'Booked_Slots2');
+    for (let i = from; i < to; i++) if (booked[i] === '1') return [];
+  }
+  return day.filter((r) => rowCovers(r, from, to));
+}
+
+function slotPlace(r: Record<string, any>): SlotPlace {
+  return {
+    locationId: pick(r, 'Scheduling_Location_ID'),
+    locationAbbreviation: pick(r, 'Scheduling_Location_Abbreviation'),
+    departmentId: pick(r, 'Scheduling_Department_ID'),
+    departmentAbbreviation: pick(r, 'Scheduling_Department_Abbreviation'),
+  };
+}
+
 /**
  * The places (location + department) where [startMin, startMin + duration) on `date` can be booked,
  * from GetAvailableSchedule rows: the row's template marks every cell bookable, no row for the day
@@ -242,38 +295,78 @@ export function placesForSlot(
   duration: number,
   categoryId = ''
 ): SlotPlace[] {
-  const day = rows.filter((r) => mdy(pick(r, 'Available_Date', 'AvailableDate')) === mdy(date));
-  const [from, to] = cellRange(startMin, duration);
-  if (from < 0 || to > 288) return [];
-  for (const r of day) {
-    const booked = pick(r, 'Booked_Slots1') + pick(r, 'Booked_Slots2');
-    for (let i = from; i < to; i++) if (booked[i] === '1') return [];
+  return rowsForSlot(rows, date, startMin, duration)
+    .filter((r) => !categoryId || categoryAllowed(categoryRule(r), categoryId))
+    .map(slotPlace);
+}
+
+/**
+ * Veradigm's SaveAppointment refusal for a type the block does not allow:
+ * "Magic Error - Action: SaveAppointment - Appointment type is not valid for this day and time,
+ *  requested=ACUTE, available=FOLLOWUP|OV|MEDREC" → { requested: 'ACUTE', available: ['FOLLOWUP', 'OV', 'MEDREC'] }.
+ * null for any other error.
+ */
+export function parseTypeNotAllowed(error: string): { requested: string; available: string[] } | null {
+  const e = String(error || '');
+  if (!/appointment\s*type\s+is\s+not\s+valid/i.test(e)) return null;
+  const requested = (/requested\s*=\s*([^,;|\r\n]*)/i.exec(e)?.[1] || '').trim();
+  const available = (/available\s*=\s*([^,;\r\n]*)/i.exec(e)?.[1] || '')
+    .split('|')
+    .map((x) => x.trim())
+    .filter((x) => x && x !== '...' && /^[\w .\-\/&]{1,40}$/.test(x));
+  return { requested, available: [...new Set(available)] };
+}
+
+/**
+ * Abbreviations from Veradigm (type abbreviations, or category abbreviations) → the matching
+ * GetAppointmentTypes rows; an unknown abbreviation is kept with itself as the name.
+ */
+export function typesForAbbreviations(abbrs: string[], types: AppointmentTypeRow[]): Array<{ abbreviation: string; name: string }> {
+  const out = new Map<string, { abbreviation: string; name: string }>();
+  const norm = (v: string) => v.trim().toLowerCase();
+  for (const a of abbrs) {
+    const exact = types.find((t) => norm(t.abbreviation) === norm(a));
+    const hits = exact ? [exact] : types.filter((t) => norm(t.categoryAbbreviation) === norm(a));
+    if (!hits.length) out.set(norm(a), { abbreviation: a, name: a });
+    for (const t of hits) out.set(norm(t.abbreviation), { abbreviation: t.abbreviation, name: t.description || t.abbreviation });
   }
-  const out: SlotPlace[] = [];
-  for (const r of day) {
-    if (!rowCovers(r, from, to)) continue;
-    if (categoryId) {
-      const elig = ids(pick(r, 'Elig_Appointment_Category_ID'));
-      const inelig = ids(pick(r, 'Inelig_Appointment_Category_ID'));
-      if (elig.length && !elig.includes(categoryId)) continue;
-      if (inelig.includes(categoryId)) continue;
-    }
-    out.push({
-      locationId: pick(r, 'Scheduling_Location_ID'),
-      locationAbbreviation: pick(r, 'Scheduling_Location_Abbreviation'),
-      departmentId: pick(r, 'Scheduling_Department_ID'),
-      departmentAbbreviation: pick(r, 'Scheduling_Department_Abbreviation'),
-    });
-  }
-  return out;
+  return [...out.values()];
+}
+
+/** Most type names in one agent message; the rest are counted. */
+const TYPE_NAMES_MAX = 6;
+
+/**
+ * The failure the agent acts on when the chosen time does not allow the requested appointment type:
+ * nothing was booked, another type is never picked silently, the agent asks the caller and books again.
+ */
+export function typeNotAllowedError(
+  requested: string,
+  allowed: Array<{ abbreviation: string; name: string }>,
+  source: 'schedule' | 'veradigm'
+): UnityMCPError {
+  const names = allowed.map((t) => t.name);
+  const list = names.slice(0, TYPE_NAMES_MAX).join(', ') + (names.length > TYPE_NAMES_MAX ? `, and ${names.length - TYPE_NAMES_MAX} more` : '');
+  const agentText = names.length
+    ? `That time does not allow ${requested || 'that visit type'}. That time only allows: ${list}. ` +
+      'Ask the caller which one fits their visit, then book again with that appointmentType. If none fits, offer other times.'
+    : `That time does not allow ${requested || 'that visit type'}. Offer other times from unity_get_open_slots.`;
+  return new UnityMCPError(
+    `Appointment type ${requested || '?'} not allowed at that time (${source}); allowed: ${allowed.map((t) => t.abbreviation).join('|') || 'none known'}`,
+    'APPOINTMENT_TYPE_NOT_ALLOWED',
+    { agentText, allowedTypes: names },
+    UnityActions.Scheduling.SAVE_APPOINTMENT
+  );
 }
 
 /**
  * Turn GetAvailableSchedule day rows into open start times. Rows for the same day (one per
  * department/location) are combined: bookable if any row marks the cell bookable, booked if any
- * row marks it booked. Location and department come from the first row whose template covers the slot.
+ * row marks it booked. Location and department come from the first row whose template covers the slot
+ * (with `categoryId`: the first such row that allows that appointment category; none = slot left out).
+ * The row's category rule rides along (`rule`) so the slot can list the appointment types it allows.
  */
-function decodeAvailability(rows: Record<string, any>[], r: Resource, duration: number, now: Date, partOfDay?: string): OpenSlot[] {
+function decodeAvailability(rows: Record<string, any>[], r: Resource, duration: number, now: Date, partOfDay?: string, categoryId = ''): OpenSlot[] {
   const days = new Map<string, { open: boolean[]; booked: boolean[]; rows: Record<string, any>[] }>();
   for (const row of rows) {
     const date = mdy(pick(row, 'Available_Date', 'AvailableDate'));
@@ -301,7 +394,11 @@ function decodeAvailability(rows: Record<string, any>[], r: Resource, duration: 
       if (partOfDay === 'afternoon' && minutes < 12 * 60) continue;
       const at = mdyTime(date, minutes);
       if (at <= earliest) continue;
-      const place = d.rows.find((row) => rowCovers(row, i, i + cells)) || d.rows.find((row) => rowCovers(row, i, i + 1));
+      const fits = (row: Record<string, any>) => !categoryId || categoryAllowed(categoryRule(row), categoryId);
+      const place =
+        d.rows.find((row) => rowCovers(row, i, i + cells) && fits(row)) ||
+        d.rows.find((row) => rowCovers(row, i, i + 1) && fits(row));
+      if (categoryId && !place) continue;
       out.push({
         date,
         time: spokenTime(minutes),
@@ -311,6 +408,7 @@ function decodeAvailability(rows: Record<string, any>[], r: Resource, duration: 
         locationId: pick(place, 'Scheduling_Location_ID') || undefined,
         departmentId: pick(place, 'Scheduling_Department_ID') || undefined,
         sortKey: at,
+        rule: place ? categoryRule(place) : undefined,
       });
     }
   }
@@ -476,8 +574,12 @@ export class UnityAppointmentTools {
    *    resource's Default_Appointment_Type_ID, then UNITY_DEFAULT_APPOINTMENT_TYPE.
    * 3. GetAvailableSchedule for that day (Veradigm: validate the slot and allowed categories first):
    *    the row that covers the time gives Scheduling_Location_ID / Scheduling_Department_ID, mapped
-   *    to abbreviations with GetSchedulingLocations / GetSchedulingDepartments.
+   *    to abbreviations with GetSchedulingLocations / GetSchedulingDepartments. If the time is open but
+   *    its block does not allow the type's category: APPOINTMENT_TYPE_NOT_ALLOWED with the allowed types.
    * 4. SaveAppointment → saveappointmentinfo { Appointment_ID, Encounter_Number }. No ID = failure.
+   *    Veradigm's "Appointment type is not valid for this day and time, requested=X, available=A|B" →
+   *    APPOINTMENT_TYPE_NOT_ALLOWED with A, B named from GetAppointmentTypes. Another type is never
+   *    picked silently: the agent asks the caller and books again.
    * 5. Read back with GetScheduleByPatientID (best effort; a failed read-back never undoes the booking).
    */
   async saveAppointment(args: AppointmentData): Promise<{
@@ -538,6 +640,18 @@ export class UnityAppointmentTools {
       console.error(`[Unity Appointment] Saving appointment for patient ${patientId}`);
       const response = await this.unityService.executeAction<any>(action, { Parameter1: xml }, patientId, 'PM');
       if (!response.success) {
+        // "Appointment type is not valid for this day and time, requested=ACUTE, available=FOLLOWUP|OV|...":
+        // tell the agent which types the time takes (names from GetAppointmentTypes) so it asks the caller.
+        const refusal = parseTypeNotAllowed(response.error || '');
+        if (refusal) {
+          let allowed: Array<{ abbreviation: string; name: string }>;
+          try {
+            allowed = typesForAbbreviations(refusal.available, await this.appointmentTypes());
+          } catch {
+            allowed = refusal.available.map((a) => ({ abbreviation: a, name: a }));
+          }
+          throw typeNotAllowedError(type.description || type.abbreviation, allowed, 'veradigm');
+        }
         throw UnityErrorHandler.createAPIError(response.error || 'Failed to save appointment', action);
       }
       const { appointmentId, encounterNumber } = parseSaveAppointmentResult(response.data);
@@ -720,7 +834,7 @@ export class UnityAppointmentTools {
     partOfDay?: string;
     maxPerDay?: number | string;
   }): Promise<{
-    slots: Omit<OpenSlot, 'sortKey'>[];
+    slots: Omit<OpenSlot, 'sortKey' | 'rule'>[];
     total: number;
     providers: string[];
   }> {
@@ -762,20 +876,44 @@ export class UnityAppointmentTools {
 
       console.error(`[Unity Appointment] Open slots ${start}-${end} for ${chosen.map((r) => r.abbreviation).join(',')}`);
 
+      // Appointment types: only looked up when needed (a type filter, or a block that restricts categories).
+      // A failed lookup never hides open times; the slots then carry no type list and booking still validates.
+      let types: AppointmentTypeRow[] | null = null;
+      const loadTypes = async () => {
+        if (types === null) {
+          try {
+            types = await this.appointmentTypes();
+          } catch {
+            types = [];
+          }
+        }
+        return types;
+      };
+      const wanted = args.appointmentType && String(args.appointmentType).trim()
+        ? matchAppointmentType(await loadTypes(), String(args.appointmentType))
+        : undefined;
+
       const perProvider = await Promise.all(
         chosen.map(async (r) => {
           const lastDay = mdyTime(end);
           const rows = (await this.availabilityRows(r, start, end)).filter((row) => mdyTime(pick(row, 'Available_Date', 'AvailableDate')) <= lastDay);
-          return decodeAvailability(rows, r, duration, now, args.partOfDay);
+          return decodeAvailability(rows, r, duration, now, args.partOfDay, wanted?.categoryId || '');
         })
       );
 
       let slots = perProvider.flat().sort((a, b) => a.sortKey - b.sortKey);
       if (args.locationId) slots = slots.filter((x) => !x.locationId || x.locationId === String(args.locationId));
       if (maxPerDay > 0) slots = spreadPerDay(slots, maxPerDay);
+      if (slots.some((s) => restricted(s.rule))) {
+        const all = await loadTypes();
+        for (const s of slots) {
+          const allowed = all.length ? allowedTypes(s.rule, all) : undefined;
+          if (allowed?.length) s.appointmentTypes = [...new Set(allowed.map((t) => t.description || t.abbreviation))];
+        }
+      }
 
       return {
-        slots: slots.map(({ sortKey: _sortKey, ...rest }) => rest),
+        slots: slots.map(({ sortKey: _sortKey, rule: _rule, ...rest }) => rest),
         total: slots.length,
         providers: chosen.map((r) => r.name),
       };
@@ -1219,14 +1357,29 @@ export class UnityAppointmentTools {
     departmentHint?: string
   ): Promise<SlotPlace> {
     const rows = await this.availabilityRows(resource, date, date);
+    const is = (hint: string, id: string, abbr: string) =>
+      hint.trim() === id || hint.trim().toLowerCase() === abbr.trim().toLowerCase();
     let places = placesForSlot(rows, date, startMin, duration, type.categoryId);
     if (places.length === 0) {
+      // Open, but not for this appointment type (the block's eligible categories): say which types it takes,
+      // never book another type silently.
+      const open = rowsForSlot(rows, date, startMin, duration).filter((r) => {
+        const p = slotPlace(r);
+        return (!locationHint || is(String(locationHint), p.locationId, p.locationAbbreviation)) &&
+          (!departmentHint || is(String(departmentHint), p.departmentId, p.departmentAbbreviation));
+      });
+      if (open.length) {
+        const types = await this.appointmentTypes();
+        const allowed = new Map<string, { abbreviation: string; name: string }>();
+        for (const r of open) {
+          for (const t of allowedTypes(categoryRule(r), types) || []) allowed.set(t.abbreviation, { abbreviation: t.abbreviation, name: t.description || t.abbreviation });
+        }
+        throw typeNotAllowedError(type.description || type.abbreviation, [...allowed.values()], 'schedule');
+      }
       throw UnityErrorHandler.createValidationError(
         `${spokenTime(startMin)} on ${date} is not open for ${resource.name} (${type.abbreviation}). Offer a time from unity_get_open_slots.`
       );
     }
-    const is = (hint: string, id: string, abbr: string) =>
-      hint.trim() === id || hint.trim().toLowerCase() === abbr.trim().toLowerCase();
     if (locationHint && String(locationHint).trim()) {
       places = places.filter((p) => is(String(locationHint), p.locationId, p.locationAbbreviation));
       if (!places.length) throw UnityErrorHandler.createValidationError(`That time is not open at location ${locationHint}.`);
@@ -1351,7 +1504,7 @@ export class UnityAppointmentTools {
             },
             appointmentType: {
               type: 'string',
-              description: 'Appointment type name or code from unity_get_appointment_types (e.g. "Office Visit"); optional, default the provider\'s usual type'
+              description: 'Appointment type name or code (e.g. "Office Visit"): one the chosen slot allows (its appointmentTypes from unity_get_open_slots). Optional, default the provider\'s usual type. If the time does not allow it, nothing is booked and the allowed types come back.'
             },
             reasonForVisit: {
               type: 'string',
@@ -1391,7 +1544,7 @@ export class UnityAppointmentTools {
         name: 'unity_get_open_slots',
         description:
           "Find open appointment times in Veradigm Practice Management for one provider (or the patient's usual provider when patientId is given). " +
-          'Returns up to maxPerDay times per day (default 3), soonest first.',
+          'Returns up to maxPerDay times per day (default 3), soonest first. A time whose block takes only some visit types lists them (appointmentTypes).',
         inputSchema: {
           type: 'object',
           properties: {
@@ -1426,7 +1579,7 @@ export class UnityAppointmentTools {
             },
             appointmentType: {
               type: 'string',
-              description: 'Filter by appointment type (optional)'
+              description: 'Only times whose block allows this appointment type (name or code; optional)'
             },
             duration: {
               type: 'number',

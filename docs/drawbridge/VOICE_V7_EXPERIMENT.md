@@ -110,6 +110,7 @@ The sample is small (3 web calls per variant, 39 turns per variant). Web calls h
 - `src/scripts/dump-agent-tools.ts` prints the agent tool list.
 - `deploy/local/retell/build_v7.py` creates or updates the v7 agents.
 - `nodemailer` 10.0.13 is pinned, released Sep 30. `npm audit --omit=dev` reports 0 vulnerabilities.
+- **Appointment type per time block** (after the first live booking failed with "Appointment type is not valid for this day and time, requested=ACUTE, available=FOLLOWUP|OV|MEDREC|..."). `unity_get_open_slots` lists the visit types a time allows when its schedule block restricts appointment categories (`Elig_Appointment_Category_ID` / `Inelig_Appointment_Category_ID` mapped through `GetAppointmentTypes`), and its `appointmentType` filter now works. `unity_save_appointment` never swaps the type: when the block (or Veradigm's refusal) does not allow it, nothing is booked and the agent gets `NOT BOOKED (APPOINTMENT_TYPE_NOT_ALLOWED)` with "That time only allows: Follow-up Visit, Office Visit. Ask the caller which one fits, then book again". The prompt source (`retell-prompts/unity-healthcare-agent.md`, plus the compact tool text in `src/platform/agent-tools.ts`) says to choose from the allowed types and ask when unsure. **The Retell agents were not updated or published**; run `build_v7.py` to push the prompt to `agent_243e4907285fbfc2386832f3d8` when Ali decides.
 
 ### 2.7 Tests
 - `npm run smoke:voice` passes 9 groups: status, transports, health, keep-warm, agent edge, inbound webhook, take-message, spelling variant, and tool list + prompt.
@@ -272,7 +273,7 @@ At 1,000 call minutes a month: v6 about $175, cascade about $165, realtime about
    - the inbound webhook;
    - the health checker.
 
-   Set `HELPDESK_SMTP_URL` (or `HELPDESK_WEBHOOK_URL`), `HELPDESK_ALERT_FROM` and `DRAWBRIDGE_PUBLIC_URL` in `.env` / SSM.
+   Set `HELPDESK_SMTP_URL` (or `HELPDESK_WEBHOOK_URL`), `HELPDESK_ALERT_FROM` and `DRAWBRIDGE_PUBLIC_URL` in `.env` / SSM, and `RETELL_WEBHOOK_API_KEY` (the Retell API key with the "webhook" badge; without it the inbound webhook answers 401 unless that key is `RETELL_API_KEY`).
 2. **Re-test over the PSTN**: at least 20 calls with the same scripts, per review section 8. Web calls hide telephony latency, and the review's pass rule needs PSTN numbers. Use a separate test number, not 208-904-3641, or a weighted split (step 4).
 3. Blind-listen 5 recordings per variant (2 to 3 staff).
 4. **Realtime only**: get written confirmation that Retell's BAA covers OpenAI Realtime processing before any real patient call.

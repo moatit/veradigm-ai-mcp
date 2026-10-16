@@ -403,6 +403,96 @@ async function main(): Promise<void> {
     ok('cancellation reason IDs (Cancellation_Reason_ID); open slots carry location and department IDs');
   }
 
+  // ---------------------------------------------------------------- appointment type not allowed for the time
+  {
+    const { parseTypeNotAllowed, typesForAbbreviations } = mod;
+    const { toVoiceSummary } = await import('../utils/response-formatter');
+    // The live refusal (Oct 15, 2026), verbatim apart from the elided tail.
+    const LIVE = 'Magic Error - Action: SaveAppointment - Appointment type is not valid for this day and time, requested=ACUTE, available=FOLLOWUP|OV|MEDREC';
+    assert.deepStrictEqual(parseTypeNotAllowed(LIVE), { requested: 'ACUTE', available: ['FOLLOWUP', 'OV', 'MEDREC'] });
+    assert.deepStrictEqual(parseTypeNotAllowed(LIVE + '|...')?.available, ['FOLLOWUP', 'OV', 'MEDREC']);
+    assert.strictEqual(parseTypeNotAllowed('Magic Error - Action: SaveAppointment - Invalid scheduling location=blank'), null);
+    const TYPE_ROWS = [
+      { id: '1', abbreviation: 'ACUTE', description: 'Acute Visit', duration: 15, categoryId: '4', categoryAbbreviation: 'ACUTE' },
+      { id: '4', abbreviation: 'OV', description: 'Office Visit', duration: 15, categoryId: '2', categoryAbbreviation: 'OV' },
+      { id: '27', abbreviation: 'OV30', description: 'Office Visit 30 minutes', duration: 30, categoryId: '2', categoryAbbreviation: 'OV' },
+      { id: '9', abbreviation: 'FU', description: 'Follow-up Visit', duration: 15, categoryId: '7', categoryAbbreviation: 'FOLLOWUP' },
+    ];
+    assert.deepStrictEqual(typesForAbbreviations(['FOLLOWUP', 'OV', 'MEDREC'], TYPE_ROWS), [
+      { abbreviation: 'FU', name: 'Follow-up Visit' }, // by category abbreviation
+      { abbreviation: 'OV', name: 'Office Visit' }, // by type abbreviation
+      { abbreviation: 'MEDREC', name: 'MEDREC' }, // unknown: kept as is
+    ]);
+    ok('Veradigm "Appointment type is not valid for this day and time" parsed; available= abbreviations named from GetAppointmentTypes');
+
+    // 1. Veradigm refuses the type at save time: a clear failure the agent can act on, no second save with another type.
+    const TYPES_FU = [{ getappointmenttypesinfo: [
+      ...TYPES[0].getappointmenttypesinfo,
+      { Appointment_Type_ID: '9', Abbreviation: 'FU', Description: 'Follow-up Visit', Duration: '15', Appointment_Category_ID: '7', Appt_Category_Abbreviation: 'FOLLOWUP' },
+    ] }];
+    const unity = fakeUnity({
+      [A.GET_APPOINTMENT_TYPES]: () => ok200(TYPES_FU),
+      [A.SAVE_APPOINTMENT]: () => ({ success: false, error: LIVE }),
+    });
+    const r = await run('unity_save_appointment', () =>
+      new UnityAppointmentTools(unity).saveAppointment({ patientId: '51389', appointmentDate: DAY, appointmentTime: '10:00', duration: 15, providerId: 'MARFEE', appointmentType: 'ACUTE' })
+    );
+    assert.strictEqual(r.error_code, 'APPOINTMENT_TYPE_NOT_ALLOWED', r.message);
+    assert.strictEqual(r.retryable, false);
+    assert.deepStrictEqual(r.allowed_types, ['Follow-up Visit', 'Office Visit', 'MEDREC']);
+    assert.strictEqual(callsOf(A.SAVE_APPOINTMENT).length, 1, 'never re-booked with another type');
+    assert.match(r.agent_text!, /That time only allows: Follow-up Visit, Office Visit, MEDREC\. Ask the caller which one fits/);
+    const said = toVoiceSummary('unity_save_appointment', r);
+    assert.ok(said.startsWith('NOT BOOKED (APPOINTMENT_TYPE_NOT_ALLOWED') && said.includes('Follow-up Visit, Office Visit') && !/TOOL_ERROR|having trouble|Magic Error/.test(said), said);
+    ok('save: Veradigm type refusal → APPOINTMENT_TYPE_NOT_ALLOWED with the allowed type names; nothing re-booked; agent text says ask the caller');
+
+    // 2. Known from the schedule row (eligible categories): refused before SaveAppointment.
+    const OV_ONLY = [availRow('4', 'HOSINP', [[600, 720]], [], { Elig_Appointment_Category_ID: '2' })];
+    const u2 = fakeUnity({ [A.GET_OPEN_SLOTS]: () => ok200([{ getavailablescheduleinfo: OV_ONLY }]) });
+    const r2 = await run('unity_save_appointment', () =>
+      new UnityAppointmentTools(u2).saveAppointment({ patientId: '51389', appointmentDate: DAY, appointmentTime: '10:00', duration: 15, providerId: 'MARFEE', appointmentType: 'Acute Visit' })
+    );
+    assert.strictEqual(r2.error_code, 'APPOINTMENT_TYPE_NOT_ALLOWED', r2.message);
+    assert.deepStrictEqual(r2.allowed_types, ['Office Visit', 'Office Visit 30 minutes']);
+    assert.match(r2.agent_text!, /does not allow Acute Visit\. That time only allows: Office Visit, Office Visit 30 minutes\./);
+    assert.strictEqual(callsOf(A.SAVE_APPOINTMENT).length, 0, 'no SaveAppointment for a type the block does not take');
+    // Default type (ACUTE for MARFEE) is not swapped for an allowed one either.
+    const r3 = await run('unity_save_appointment', () =>
+      new UnityAppointmentTools(u2).saveAppointment({ patientId: '51389', appointmentDate: DAY, appointmentTime: '10:00', duration: 15, providerId: 'MARFEE' })
+    );
+    assert.strictEqual(r3.error_code, 'APPOINTMENT_TYPE_NOT_ALLOWED');
+    // An allowed type books.
+    const r4 = await new UnityAppointmentTools(u2).saveAppointment({ patientId: '51389', appointmentDate: DAY, appointmentTime: '10:00', duration: 15, providerId: 'MARFEE', appointmentType: 'Office Visit' });
+    assert.strictEqual(r4.success, true);
+    ok('save: schedule row allows only category OV → requested or default ACUTE refused before SaveAppointment with the allowed names; Office Visit books');
+
+    // 3. Open slots list the types a restricted block allows; a type filter keeps only times that take it.
+    const MIXED = [availRow('4', 'HOSINP', [[600, 720]], [], { Elig_Appointment_Category_ID: '2' }), availRow('2', 'SURGI', [[780, 900]])];
+    const u3 = fakeUnity({ [A.GET_OPEN_SLOTS]: () => ok200([{ getavailablescheduleinfo: MIXED }]) });
+    const all = await new UnityAppointmentTools(u3).getOpenSlots({ startDate: DAY, endDate: DAY, providerId: 'MARFEE', maxPerDay: 0 });
+    const at = (t: string) => all.slots.find((s) => s.time === t);
+    assert.deepStrictEqual(at('10:00 AM')?.appointmentTypes, ['Office Visit', 'Office Visit 30 minutes']);
+    assert.strictEqual(at('1:00 PM')?.appointmentTypes, undefined, 'unrestricted block: no list');
+    assert.ok(!('rule' in (at('10:00 AM') as any)), 'internal rule not returned');
+    const acute = await new UnityAppointmentTools(u3).getOpenSlots({ startDate: DAY, endDate: DAY, providerId: 'MARFEE', maxPerDay: 0, appointmentType: 'ACUTE' });
+    assert.ok(acute.slots.length > 0 && acute.slots.every((s) => s.departmentId === '2'), 'ACUTE only where the block takes it');
+    const morning = { slots: all.slots.filter((s) => s.departmentId === '4').slice(0, 3), total: 3 };
+    const spoken = toVoiceSummary('unity_get_open_slots', morning);
+    assert.ok(spoken.includes('These times only allow: Office Visit, Office Visit 30 minutes.') && spoken.includes('ask the caller if unsure'), spoken);
+    const mixed = toVoiceSummary('unity_get_open_slots', { slots: [at('10:00 AM'), at('1:00 PM')], total: 2 });
+    assert.ok(mixed.includes('(types: Office Visit, Office Visit 30 minutes)') && !mixed.includes('These times only allow'), mixed);
+    const plain = toVoiceSummary('unity_get_open_slots', { slots: [at('1:00 PM')], total: 1 });
+    assert.ok(!/types|allow/.test(plain), plain);
+    // Unrestricted rows never trigger a GetAppointmentTypes read.
+    const u4 = fakeUnity({ [A.GET_APPOINTMENT_TYPES]: () => { throw new Error('must not be called'); } });
+    await new UnityAppointmentTools(u4).getOpenSlots({ startDate: DAY, endDate: DAY, providerId: 'MARFEE', maxPerDay: 0 });
+    // A failed type lookup never hides open times.
+    const u5 = fakeUnity({ [A.GET_OPEN_SLOTS]: () => ok200([{ getavailablescheduleinfo: MIXED }]), [A.GET_APPOINTMENT_TYPES]: () => ({ success: false, error: 'Magic Error - boom' }) });
+    const s5 = await new UnityAppointmentTools(u5).getOpenSlots({ startDate: DAY, endDate: DAY, providerId: 'MARFEE', maxPerDay: 0 });
+    assert.strictEqual(s5.slots.length, all.slots.length);
+    ok('open slots: allowed visit types per restricted block (compact voice line, once or per time), appointmentType filter, no extra lookup when unrestricted, lookup failure keeps the times');
+  }
+
   console.log(`\n${passed} checks passed`);
 }
 

@@ -10,6 +10,7 @@ export type UnityErrorCode =
   | 'SERVER_ERROR'
   | 'NETWORK_ERROR'
   | 'TIMEOUT_ERROR'
+  | 'APPOINTMENT_TYPE_NOT_ALLOWED'
   | 'UNKNOWN_ERROR';
 
 /**
