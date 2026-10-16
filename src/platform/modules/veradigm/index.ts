@@ -31,7 +31,7 @@ function infoCard(i: ServerInfoSummary): string {
 
 function latchCard(l: AuthLatch): string {
   return `<div class="card" style="border-color:var(--urgent)"><div class="row"><strong>${esc(SYSTEM_LABEL[l.target] || l.target)}: sign-in stopped</strong><span class="pill urgent">STOPPED</span></div>
-<p style="margin:8px 0">Veradigm refused ${esc(l.stage)} at ${esc(fmtTime(l.at))} (${esc(l.reason)}). Drawbridge sends nothing more for this system, so the account can't be locked out. Fix the credentials (a server restart loads new ones), then retry.</p>
+<p style="margin:8px 0">Veradigm refused ${esc(l.stage)} at ${esc(fmtTime(l.at))} (${esc(l.reason)}). Drawbridge sends nothing more for this system, so the account can't be locked out. Fix the credentials (a server restart loads new ones and clears this), or retry once Veradigm has unlocked the account.</p>
 <form method="post" action="${APP_BASE}/veradigm/retry-sign-in" style="margin:0"><input type="hidden" name="target" value="${esc(l.target)}"><button>Retry sign-in</button> <span class="muted" style="font-size:13px">Administrators only. The next Veradigm call signs in once.</span></form></div>`;
 }
 
@@ -62,10 +62,11 @@ ${(() => {
         : '<div class="card muted">This server does not connect to Veradigm.</div>';
       res.send(page('Veradigm connection · Drawbridge', body, { user: (req as any).drawbridgeUser, active: '/veradigm' }));
     });
-    // Clear the auth latch for one system (administrators; same-origin and staff audit apply to every POST).
+    // Clear the auth latch for one system (administrators; the shell refuses cross-site POSTs, the staff audit logs
+    // the action and the auth service writes the security event unity_signin_retry with the user).
     router.post('/retry-sign-in', requireAdmin, (req, res) => {
       const target = String(req.body?.target || '');
-      if (target === 'PM' || target === 'EHR') getUnityAuth()?.retrySignIn(target, `staff:${(req as any).drawbridgeUser || '?'}`);
+      if (target === 'PM' || target === 'EHR') getUnityAuth()?.retrySignIn(target, String((req as any).drawbridgeUser || ''));
       res.redirect(303, `${APP_BASE}/veradigm`);
     });
     return router;

@@ -40,6 +40,8 @@ async function main(): Promise<void> {
   const { SystemStatus, setSystemStatus } = await import('../platform/system-status');
   const helpdesk = await import('../platform/helpdesk');
   const health = await import('../unity/services/unity-health');
+  const { BackgroundContact } = await import('../unity/services/background-contact');
+  const { UnityDiagnostics } = await import('../unity/services/unity-diagnostics');
   const edge = await import('../unity/agent-edge');
   const { toVoiceSummary } = await import('../utils/response-formatter');
   const inbound = await import('../platform/modules/activity/retell-inbound');
@@ -249,6 +251,7 @@ async function main(): Promise<void> {
     targets: () => ['EHR'],
     now: () => hnow,
     log: () => undefined,
+    contact: new BackgroundContact(),
   });
   const r1 = await quiet(() => checker.runOnce());
   assert.deepStrictEqual([r1[0].ok, r1[0].error_class, r1[0].detail], [false, 'AUTH_ERROR', 'GetToken: Access is denied']);
@@ -296,6 +299,7 @@ async function main(): Promise<void> {
     targets: () => ['EHR'],
     now: () => hnow,
     log: () => undefined,
+    contact: new BackgroundContact(),
   });
   let firstCheckDone!: () => void;
   const stopStarter = starter.start(new Promise<void>((r) => (firstCheckDone = r)));
@@ -306,7 +310,55 @@ async function main(): Promise<void> {
   await new Promise((r) => setTimeout(r, 20));
   stopStarter();
   assert.strictEqual(startActions.length, 0, 'start-up: one GetServerInfo per system, not two');
-  ok('health checker: GetToken "Access is denied" -> AUTH_ERROR, timeout, network, service account masked, default 15 min with a 2-minute floor, early probe, floor guard per system (last probe or real answer), start-up probe after GetServerInfo, GetServerInfo read, DOWN then UP');
+  // Any background contact (a keep-warm renewal, a GetServerInfo refresh), success or not, keeps the probe
+  // away for 2 minutes.
+  const clock = new BackgroundContact();
+  let cnow = 50_000_000;
+  const cActions: string[] = [];
+  const cChecker = new health.UnityHealthChecker({
+    auth: { getSecurityToken: async () => 'tok', getAuthenticatedSession: async () => ({}) },
+    unity: { executeAction: async (a: string) => (cActions.push(a), { success: true, data: [] }) },
+    status: hst,
+    targets: () => ['EHR'],
+    now: () => cnow,
+    log: () => undefined,
+    contact: clock,
+  });
+  const ckw = new health.TokenKeepWarm(
+    {
+      tokenSecondsLeft: () => undefined,
+      refreshSession: async () => {
+        throw new Error('Unity authentication failed: connect ECONNREFUSED');
+      },
+      getAuthenticatedSession: async () => ({}),
+    },
+    () => ['EHR'],
+    { now: () => cnow, log: () => undefined, contact: clock }
+  );
+  ckw.noteActivity();
+  await ckw.tick();
+  cnow += 60_000;
+  assert.deepStrictEqual(await quiet(() => cChecker.runOnce()), [], 'a failed keep-warm renewal 1 minute ago: probe skipped');
+  cnow += 61_000;
+  assert.strictEqual((await quiet(() => cChecker.runOnce())).length, 1, '2 minutes later: probed');
+  const cdiag = new UnityDiagnostics({
+    unity: {
+      executeAction: async () => {
+        throw Object.assign(new Error('timed out'), { code: 'TIMEOUT_ERROR' });
+      },
+    },
+    targets: () => ['EHR'],
+    now: () => cnow,
+    dir: '',
+    log: () => undefined,
+    contact: clock,
+  });
+  cnow += 130_000;
+  await cdiag.refreshServerInfo(true);
+  cnow += 30_000;
+  assert.deepStrictEqual(await quiet(() => cChecker.runOnce()), [], 'a failed GetServerInfo refresh 30 s ago: probe skipped');
+  assert.strictEqual(cActions.length, 1, 'one probe read in all');
+  ok('health checker: GetToken "Access is denied" -> AUTH_ERROR, timeout, network, service account masked, default 15 min with a 2-minute floor, early probe, floor guard per system (any background contact or a real answer), start-up probe after GetServerInfo, GetServerInfo read, DOWN then UP');
 
   // ── 4. Keep-warm ───────────────────────────────────────────────────────────
   let know = 1_000_000;

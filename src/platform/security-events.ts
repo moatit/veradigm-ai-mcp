@@ -16,7 +16,9 @@ import { auditToolCall, AuditServer, defaultAuditServer, safeUser } from './audi
  * system_recovered (Veradigm connection status, system-status.ts), helpdesk_alert and
  * helpdesk_alert_failed (MOATiT help-desk notification sent / not sent), and the phone-agent call-binding
  * refusals (src/platform/call-binding.ts): agent_not_verified, agent_verified_limit, agent_search_limit
- * (POSSIBLE_ENUMERATION) and agent_no_call_id, each with the call ID and the tool, never a name.
+ * (POSSIBLE_ENUMERATION) and agent_no_call_id, each with the call ID and the tool, never a name, and the
+ * Veradigm sign-in latch (unity-auth.service.ts): unity_signin_latched (Veradigm refused a login; no more
+ * logins for that system, code = PM/EHR) and unity_signin_retry (an operator cleared it, with the user).
  *
  *   DRAWBRIDGE_EXPORT_ALERT_PER_HOUR   exports (document downloads, disclosure reports) by one user in
  *                                      60 minutes before an export_volume_alert (default 20)
@@ -46,7 +48,9 @@ export type SecurityEvent =
   | 'agent_verified_limit'
   | 'agent_search_limit'
   | 'agent_no_call_id'
-  | 'cross_site_request';
+  | 'cross_site_request'
+  | 'unity_signin_latched'
+  | 'unity_signin_retry';
 
 /** Events that are failures or alerts (success=false in the audit line, console.warn in the log). */
 const ALERTS = new Set<SecurityEvent>([
@@ -68,6 +72,7 @@ const ALERTS = new Set<SecurityEvent>([
   'agent_search_limit',
   'agent_no_call_id',
   'cross_site_request',
+  'unity_signin_latched',
 ]);
 
 export interface SecurityDetails {

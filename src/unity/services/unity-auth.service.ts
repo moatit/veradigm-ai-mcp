@@ -1,9 +1,13 @@
 import axios, { AxiosResponse } from 'axios';
 import NodeCache from 'node-cache';
 import { unityConfig } from '../config/environment';
-import { getUbiquityId, unityEndpoints, UnityActions, UnityTargetSystem } from '../config/unity-endpoints';
+import { getUbiquityId, isCertifiedAction, unityEndpoints, UnityActions, UnityTargetSystem } from '../config/unity-endpoints';
 import { errorSummary } from '../../utils/safe-log';
+import { securityEvent } from '../../platform/security-events';
 import { scrubLogText } from './unity-diagnostics';
+import { AuthLatch, AuthLatchStore } from './unity-auth-latch';
+
+export type { AuthLatch } from './unity-auth-latch';
 
 /**
  * Unity Security Token Response
@@ -29,17 +33,8 @@ export interface UserAuthResult {
   userId?: string;
   userName?: string;
   error?: string;
-  /** Veradigm answered ValidUser != YES (wrong or expired EHR/PM password, locked account). */
+  /** Veradigm refused the login itself: ValidUser != YES, or an error reply that says access is denied. */
   rejected?: boolean;
-}
-
-/** A system whose sign-in Veradigm refused: no login is sent for it until an operator retries (or a restart). */
-export interface AuthLatch {
-  target: UnityTargetSystem;
-  stage: 'GetToken' | 'GetUserAuthentication';
-  /** Veradigm's reason, short and scrubbed (no account name, dates or long numbers). */
-  reason: string;
-  at: string;
 }
 
 /** GetToken, GetUserAuthentication and RetireToken give up after this long (UNITY_AUTH_TIMEOUT_MS, default 30 s). */
@@ -69,22 +64,66 @@ export function isTokenRejection(message: unknown): boolean {
  * itself: its config carries the request body (service password, EHR/PM user password, token).
  */
 export function authErrorSummary(error: unknown): string {
-  return errorSummary(error);
+  return scrubAuthText(errorSummary(error), 200);
+}
+
+const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+/**
+ * Veradigm refusal text made safe for logs, thrown errors and the agent: the configured service, EHR and PM
+ * account names and any "prefix^n^user" account become [account]; e-mail addresses, dates and long numbers
+ * are masked (scrubLogText).
+ */
+export function scrubAuthText(text: unknown, max = 160): string {
+  let s = String(text ?? '').replace(/[A-Za-z0-9]+\^\d+\^[^\s,;()]+/g, '[account]');
+  for (const name of [unityConfig.svcUsername, unityConfig.ehrUsername, unityConfig.pmUsername]) {
+    const n = String(name || '').trim();
+    if (n.length >= 3) s = s.replace(new RegExp(`(?<![A-Za-z0-9])${escapeRe(n)}(?![A-Za-z0-9])`, 'gi'), '[account]');
+  }
+  return scrubLogText(s, max);
+}
+
+/** Text that says the credentials were refused (not a token problem, not an outage). */
+export function isDenialText(text: unknown): boolean {
+  return /access is denied|invalid (user ?name|password|credential)|(user ?name|password|credentials?)[^.]{0,30}(invalid|incorrect|not valid|expired)|not authori[sz]ed|account (is )?locked|locked out/i.test(String(text || ''));
+}
+
+/** The message of a JSON or WCF/SOAP fault body; '' for anything else (an HTML error page, a proxy's text). */
+function faultText(data: unknown): string {
+  if (data && typeof data === 'object') {
+    const d = data as any;
+    return String(d.error || d.Error || d.message || d.Message || d.ExceptionDetail?.Message || d.Fault?.Reason || '');
+  }
+  const s = typeof data === 'string' ? data.trim() : '';
+  if (/^[{[]/.test(s)) {
+    try {
+      const j = JSON.parse(s);
+      return faultText(Array.isArray(j) ? j[0] : j);
+    } catch {
+      return '';
+    }
+  }
+  if (/^</.test(s) && /Fault\b/i.test(s) && !/<html/i.test(s)) {
+    const m = s.match(/<(?:\w+:)?(?:faultstring|Text|Message)\b[^>]*>([^<]{1,300})</i);
+    return m ? m[1] : '';
+  }
+  return '';
 }
 
 /**
- * GetToken failed for a reason a retry will not fix: HTTP 401/403, or Veradigm's reply says access is denied
- * or the credentials are invalid (on any status; a WCF fault can come back as HTTP 500). No HTTP answer
- * (network error, timeout), 408, 429 and a 5xx without such a reason are transient: never latched.
+ * Veradigm refused the credentials and a retry will not fix it: HTTP 401/403 (Ubiquity), or a JSON/WCF fault
+ * that says access is denied or the credentials are invalid (on any status: a WCF fault can come back as HTTP
+ * 500; on a 4xx a short plain-text answer counts too). No HTTP answer (network error, timeout), 408, 429, an
+ * HTML error page and a 5xx without such a fault are transient: never latched.
  */
 export function isCredentialRejection(error: unknown): boolean {
   const e = error as any;
   const status = Number(e?.response?.status) || 0;
-  if (!status) return false;
+  if (!status || status === 408 || status === 429) return false;
   if (status === 401 || status === 403) return true;
   const data = e.response.data;
-  const said = typeof data === 'string' ? data : String(data?.error || data?.Error || data?.message || '');
-  return /access is denied|invalid (user ?name|password|credential)|(user ?name|password|credentials?)[^.]{0,30}(invalid|incorrect|not valid)|not authori[sz]ed|account (is )?locked/i.test(said);
+  const plain = status < 500 && typeof data === 'string' && !/^\s*</.test(data) ? data.slice(0, 300) : '';
+  return isDenialText(faultText(data) || plain);
 }
 
 /**
@@ -96,27 +135,35 @@ export function isCredentialRejection(error: unknown): boolean {
  * - RetireToken: Invalidate security token
  *
  * Concurrent callers share one GetToken / GetUserAuthentication per target (single flight), and
- * invalidate() drops a token Unity no longer accepts so the next call logs in again.
+ * invalidate() drops a token Unity no longer accepts so the next call logs in again. All logins of one
+ * system (GetToken and GetUserAuthentication, from tools, keep-warm or the health probe) run one at a time,
+ * and each checks the latch again before it is sent, so two refused logins can never go out together.
  *
  * Auth latch: when Veradigm refuses a sign-in for a reason a retry will not fix (GetUserAuthentication
- * ValidUser != YES, or GetToken denied: isCredentialRejection), that target is latched. While latched every
- * caller (health probe, keep-warm, phone-agent tools, intake, staff screens) gets an immediate local
- * AUTH_ERROR and nothing is sent to Veradigm, so repeated logins can't lock the account. The onLatch hook
- * (help-desk alert through the system status) fires once when it engages. It clears when an operator
- * retries (retrySignIn: "Veradigm connection" screen) or the process restarts, which is also how changed
- * credentials are loaded. Network errors, timeouts and 5xx never latch.
+ * ValidUser != YES or a denial reply, a GetToken denial: isCredentialRejection, or a token still refused
+ * after the one fresh-token retry), that target is latched. While latched every caller (health probe,
+ * keep-warm, phone-agent tools, intake, staff screens) gets an immediate local AUTH_ERROR and nothing is sent
+ * to Veradigm, so repeated logins can't lock the account. The latch is saved (AuthLatchStore,
+ * unity-auth-latch.ts), so a restart or a crash loop does not try again; it no longer applies once the
+ * credentials change, and an operator clears it with retrySignIn ("Veradigm connection" screen). Engaging
+ * it is a security event (unity_signin_latched) and calls the onLatch hook once (server: help-desk alert);
+ * a retry is a security event too (unity_signin_retry). Network errors, timeouts and 5xx never latch.
+ * Runbook: docs/drawbridge/VERADIGM_SIGNIN_LATCH.md.
  */
 export class UnityAuthService {
   private tokenCache: NodeCache;
   private userAuthCache: NodeCache;
   private inflight = new Map<string, Promise<any>>();
-  private latches = new Map<UnityTargetSystem, AuthLatch>();
+  private loginQueue = new Map<UnityTargetSystem, Promise<unknown>>();
+  private latches: AuthLatchStore;
   private latchHook: ((latch: AuthLatch) => unknown) | null = null;
 
   private readonly TOKEN_CACHE_KEY_PREFIX = 'unity_token_';
   private readonly USER_AUTH_CACHE_KEY_PREFIX = 'user_auth_';
 
-  constructor() {
+  /** `latchDir`: where the latch file lives (default CALL_RECORDS_DIR, else ./data; '' = memory only). */
+  constructor(opts: { latchDir?: string } = {}) {
+    this.latches = new AuthLatchStore(latchCredentials, opts.latchDir);
     // Token cache: entries are set with tokenLifetimeSeconds(), a little less than Unity's 20-minute expiry
     this.tokenCache = new NodeCache({
       stdTTL: tokenLifetimeSeconds(),
@@ -139,26 +186,41 @@ export class UnityAuthService {
     return p;
   }
 
+  /** One login request per system at a time (GetToken and GetUserAuthentication alike), in arrival order. */
+  private oneLoginAtATime<T>(target: UnityTargetSystem, fn: () => Promise<T>): Promise<T> {
+    const prev = this.loginQueue.get(target) || Promise.resolve();
+    const run = prev.then(fn, fn);
+    const tail = run.then(() => undefined, () => undefined);
+    this.loginQueue.set(target, tail);
+    void tail.then(() => {
+      if (this.loginQueue.get(target) === tail) this.loginQueue.delete(target);
+    });
+    return run;
+  }
+
   /** Register the latch hook (server: mark the system DOWN, which sends the help-desk alert). Must not throw. */
   onLatch(hook: ((latch: AuthLatch) => unknown) | null): void {
     this.latchHook = hook;
   }
 
-  /** The latch for a target, if Veradigm refused its sign-in. */
+  /** The latch for a target, if Veradigm refused its sign-in with the credentials configured now. */
   latched(target: UnityTargetSystem): AuthLatch | undefined {
     return this.latches.get(target);
   }
 
   latchedTargets(): AuthLatch[] {
-    return [...this.latches.values()];
+    return (['PM', 'EHR'] as UnityTargetSystem[]).map((t) => this.latches.get(t)).filter((l): l is AuthLatch => !!l);
   }
 
   private latch(target: UnityTargetSystem, stage: AuthLatch['stage'], reason: unknown): void {
-    if (this.latches.has(target)) return;
-    const clean = scrubLogText(String(reason || '').replace(/[A-Za-z0-9]+\^\d+\^[^\s,;]+/g, '[account]'), 100) || 'refused';
+    if (this.latches.get(target)) return;
+    const clean = scrubAuthText(reason, 100) || 'refused';
     const l: AuthLatch = { target, stage, reason: clean, at: new Date().toISOString() };
-    this.latches.set(target, l);
-    console.error(`[Unity Auth] ${target} sign-in STOPPED: Veradigm refused ${stage} (${clean}). No login is sent for ${target} until an operator retries sign-in or the server restarts with corrected credentials.`);
+    this.latches.set(l);
+    // No cached token for a latched system is used or retired.
+    this.invalidate(target);
+    console.error(`[Unity Auth] ${target} sign-in STOPPED: Veradigm refused ${stage} (${clean}). No login is sent for ${target} until an operator retries sign-in or the credentials change. Runbook: docs/drawbridge/VERADIGM_SIGNIN_LATCH.md`);
+    securityEvent('unity_signin_latched', { code: target, object: `veradigm_${target.toLowerCase()}:${stage}`, channel: 'veradigm' });
     try {
       Promise.resolve(this.latchHook?.(l)).catch(() => undefined);
     } catch {
@@ -174,15 +236,15 @@ export class UnityAuthService {
   }
 
   /**
-   * Operator: clear the latch for one target (or all) so the next call signs in again. Returns the
-   * targets cleared. `by` is the operator for the log line.
+   * Operator: clear the latch for one target (or both) so the next call signs in again. Returns the targets
+   * cleared. `user` is the operator (log line and security event unity_signin_retry).
    */
-  retrySignIn(target?: UnityTargetSystem, by = 'operator'): UnityTargetSystem[] {
-    const cleared = [...this.latches.keys()].filter((t) => !target || t === target);
+  retrySignIn(target?: UnityTargetSystem, user = 'operator'): UnityTargetSystem[] {
+    const cleared = (['PM', 'EHR'] as UnityTargetSystem[]).filter((t) => (!target || t === target) && this.latches.clear(t));
     for (const t of cleared) {
-      this.latches.delete(t);
       this.invalidate(t);
-      console.error(`[Unity Auth] ${t} sign-in retry requested by ${String(by).slice(0, 60)}; the next call signs in again`);
+      console.error(`[Unity Auth] ${t} sign-in retry requested by ${String(user).slice(0, 60)}; the next call signs in again`);
+      securityEvent('unity_signin_retry', { user, code: t, object: `veradigm_${t.toLowerCase()}`, channel: 'veradigm' });
     }
     return cleared;
   }
@@ -213,8 +275,15 @@ export class UnityAuthService {
    *
    * When using Ubiquity, the service username must be prefixed with the Ubiquity ID:
    * e.g., VHCP001PM:PMGA02^8^MyUnitySvcUsername
+   *
+   * One login per system at a time; the latch is checked again once it is this request's turn.
    */
   private async requestNewToken(target: UnityTargetSystem): Promise<string> {
+    this.assertNotLatched(target);
+    return this.oneLoginAtATime(target, () => this.sendGetToken(target));
+  }
+
+  private async sendGetToken(target: UnityTargetSystem): Promise<string> {
     this.assertNotLatched(target);
     try {
       const ubiquityId = getUbiquityId(target);
@@ -256,7 +325,7 @@ export class UnityAuthService {
 
       if (axios.isAxiosError(error)) {
         const authError = error.response?.data as UnityAuthError;
-        const reason = authError?.error || error.message;
+        const reason = scrubAuthText(authError?.error || error.message);
         // Bad service credentials / access denied: stop here (no retry can fix it; retries can lock the account).
         if (isCredentialRejection(error)) this.latch(target, 'GetToken', reason);
         throw new Error(
@@ -264,7 +333,7 @@ export class UnityAuthService {
         );
       }
 
-      throw new Error(`Unity authentication failed: ${error instanceof Error ? error.message : String(error)}`);
+      throw new Error(`Unity authentication failed: ${scrubAuthText(error instanceof Error ? error.message : String(error))}`);
     }
   }
 
@@ -298,7 +367,14 @@ export class UnityAuthService {
       return { authenticated: false, error: `${target} user not configured (set UNITY_${target}_USERNAME/PASSWORD)` };
     }
 
-    return this.singleFlight(`user_${target}_${token}`, async () => {
+    // One login per system at a time; once it is this login's turn the latch is checked again (another
+    // login may just have been refused), so two refused logins never go out together.
+    return this.singleFlight(`user_${target}_${token}`, () => this.oneLoginAtATime(target, async (): Promise<UserAuthResult> => {
+      const refused = this.latches.get(target);
+      if (refused) return { authenticated: false, error: `${target} sign-in stopped after Veradigm refused ${refused.stage} (${refused.reason})` };
+      if (!isCertifiedAction(UnityActions.Auth.GET_USER_AUTHENTICATION)) {
+        return { authenticated: false, error: `${UnityActions.Auth.GET_USER_AUTHENTICATION} is not a declared Veradigm action (UNITY_ACTION_GET_USER_AUTHENTICATION)` };
+      }
       try {
         console.error(`[Unity Auth] Authenticating EHR/PM user for ${target}...`);
 
@@ -338,24 +414,27 @@ export class UnityAuthService {
           this.userAuthCache.set(cacheKey, result, tokenLifetimeSeconds());
           console.error(`[Unity Auth] User authenticated successfully for ${target}`);
         } else {
-          console.error(`[Unity Auth] User authentication failed for ${target}: ${String(result.error || '').slice(0, 160)}`);
-          // ValidUser != YES: wrong/expired password or locked account. Stop (a token problem is retried instead).
+          // ValidUser != YES or a denial reply: wrong/expired password or locked account. Stop (a token
+          // problem is retried once with a fresh token instead).
           if (result.rejected && !isTokenRejection(result.error)) this.latch(target, 'GetUserAuthentication', result.error);
+          result.error = scrubAuthText(result.error);
+          console.error(`[Unity Auth] User authentication failed for ${target}: ${result.error}`);
         }
 
         return result;
       } catch (error) {
         // Status, code and message only: the axios error holds the request body with the user's password.
         console.error(`[Unity Auth] User authentication error for ${target}: ${authErrorSummary(error)}`);
+        const said = axios.isAxiosError(error) ? error.response?.data?.Error || error.message : String(error);
+        // HTTP 401/403 or a denial fault (not a token problem): refused, stop.
+        if (isCredentialRejection(error) && !isTokenRejection(said)) this.latch(target, 'GetUserAuthentication', said);
 
         return {
           authenticated: false,
-          error: axios.isAxiosError(error)
-            ? error.response?.data?.Error || error.message
-            : String(error)
+          error: scrubAuthText(said)
         };
       }
-    });
+    }));
   }
 
   /**
@@ -365,7 +444,8 @@ export class UnityAuthService {
     // Unity wraps results: [{ "Error": ... }] or [{ "getuserauthenticationinfo": [{ ValidUser, ErrorMessage, ... }] }]
     const first = Array.isArray(data) ? data[0] : data;
     if (first?.Error) {
-      return { authenticated: false, error: String(first.Error) };
+      const error = String(first.Error);
+      return { authenticated: false, error, rejected: isDenialText(error) && !isTokenRejection(error) };
     }
     const info = first?.getuserauthenticationinfo?.[0];
     if (info) {
@@ -382,10 +462,8 @@ export class UnityAuthService {
 
     // Check for error in response
     if (data?.Error) {
-      return {
-        authenticated: false,
-        error: data.Error
-      };
+      const error = String(data.Error);
+      return { authenticated: false, error, rejected: isDenialText(error) && !isTokenRejection(error) };
     }
 
     // Successful authentication returns user info
@@ -476,6 +554,8 @@ export class UnityAuthService {
         this.invalidate(target, token);
         continue;
       }
+      // A brand-new token refused as well: not a stale token, so stop like any other refusal.
+      if (attempt > 0 && isTokenRejection(userAuth.error)) this.latch(target, 'GetUserAuthentication', userAuth.error);
       throw new Error(`User authentication failed: ${userAuth.error}`);
     }
   }
@@ -543,6 +623,12 @@ export function configuredTargets(): UnityTargetSystem[] {
     const l = unityLogin(t);
     return !!l.user && !!l.password && !/^placeholder/i.test(l.user);
   });
+}
+
+/** What the sign-in latch fingerprint covers for a target (AuthLatchStore keeps only an scrypt of it). */
+function latchCredentials(target: UnityTargetSystem): string[] {
+  const l = unityLogin(target);
+  return [unityConfig.svcUsername, unityConfig.svcPassword, getUbiquityId(target), l.user, l.password];
 }
 
 /** EHR/PM login for a Unity target (AppUserID + password). */

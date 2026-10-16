@@ -49,9 +49,10 @@ export const unityEndpoints = getUnityEndpoints();
  * UNITY_ACTION_<KEY> (e.g. UNITY_ACTION_GET_APPOINTMENTS=GetScheduleByPatientID) so a
  * product difference between Veradigm environments is a config change, not a code change.
  *
- * Only actions the app calls are listed here (plus the documented GetTokenValidation);
- * docs/drawbridge/UNITY_ACTIONS_FOR_CERTIFICATION.md is the certified list.
- * Adding an action means updating that list (Veradigm recertification).
+ * Only actions the app calls are listed here; docs/drawbridge/UNITY_ACTIONS_FOR_CERTIFICATION.md is the
+ * certified list. An override can only pick another name from CERTIFIED_ACTIONS: anything else is refused
+ * at run time (UnityService.executeAction). Adding an action means updating both lists (Veradigm
+ * recertification).
  */
 function action(key: string, fallback: string): string {
   return process.env[`UNITY_ACTION_${key}`] || fallback;
@@ -71,11 +72,7 @@ export const UnityActions = {
 
   // Authentication Actions (GetToken / RetireToken are their own endpoints, above)
   Auth: {
-    GET_USER_AUTHENTICATION: action('GET_USER_AUTHENTICATION', 'GetUserAuthentication'),
-    // UNUSED, kept on purpose: GetTokenValidation validates a token handed to a *launched* app
-    // (Veradigm EHR opens the app with a token). Drawbridge is not launched from Veradigm EHR; it gets
-    // its own token with GetToken. See docs/drawbridge/UNITY_ACTIONS_FOR_CERTIFICATION.md.
-    GET_TOKEN_VALIDATION: action('GET_TOKEN_VALIDATION', 'GetTokenValidation')
+    GET_USER_AUTHENTICATION: action('GET_USER_AUTHENTICATION', 'GetUserAuthentication')
   },
 
   // Patient/Demographic Actions
@@ -167,6 +164,28 @@ export const UnityActions = {
     GET_PROVIDERS: action('GET_PROVIDERS', 'GetProviders')
   }
 } as const;
+
+/**
+ * The Veradigm Unity actions declared in the API Assessment (UNITY_ACTIONS_FOR_CERTIFICATION.md), as literal
+ * names: UNITY_ACTION_* overrides cannot add to it. GetToken and RetireToken are endpoints, not MagicJson
+ * actions, and are not listed here.
+ */
+export const CERTIFIED_ACTIONS: ReadonlySet<string> = new Set([
+  'GetUserAuthentication', 'GetServerInfo', 'LastLogs',
+  'SearchPatients', 'GetPatient', 'GetPatientByMRN', 'SavePatient',
+  'GetSchedule', 'GetScheduleByPatientID', 'GetAppointmentById', 'GetAvailableSchedule', 'GetResources',
+  'GetAppointmentTypes', 'GetAppointmentCancellationReasons', 'GetAppointmentConfirmationResults',
+  'GetSchedulingLocations', 'GetSchedulingDepartments', 'SaveAppointment', 'SetAppointmentStatus',
+  'GetAppointmentsByChangeDTTM', 'GetRecalls',
+  'GetPatientAccountBalance', 'GetPatientPolicy',
+  'GetClinicalSummary', 'GetPatientDiagnosis', 'GetLocation', 'GetProviders',
+  'GetDocumentType', 'GetDocuments', 'GetDocumentsByDocumentType', 'GetDocumentImage', 'SaveScanDocument', 'SaveTask',
+]);
+
+/** True when `action` is one of the declared Veradigm actions (exact name). */
+export function isCertifiedAction(action: string): boolean {
+  return CERTIFIED_ACTIONS.has(action);
+}
 
 /**
  * Target system type for Unity operations

@@ -3,6 +3,7 @@ import { scrubLogText } from './unity-diagnostics';
 import { auditToolCall } from '../../platform/audit';
 import type { SystemStatus } from '../../platform/system-status';
 import { errorSummary } from '../../utils/safe-log';
+import { BackgroundContact, backgroundContact } from './background-contact';
 
 /**
  * Veradigm health checker and token keep-warm.
@@ -12,14 +13,17 @@ import { errorSummary } from '../../utils/safe-log';
  *   1. GetToken (only when the cached token is due: the probe uses the same session as the tools, so it
  *      never mints a token per probe),
  *   2. GetUserAuthentication (same rule),
- *   3. one cheap read with no patient data: UNITY_HEALTH_ACTION (default GetServerInfo).
+ *   3. one cheap read with no patient data: GetServerInfo (always; it is a declared action).
  * Each probe gives up after UNITY_HEALTH_TIMEOUT_SEC (default 15). The result goes to SystemStatus
  * (src/platform/system-status.ts) with an error class and a scrubbed detail ("GetToken: Access is denied").
  * Successful probes are not audited (one line per probe per system would bury the audit log);
  * failed probes are audit lines (kind "action", channel "health"); status changes are security/ops events.
  * A real Veradigm call that fails with a network, timeout, auth or server error asks for an early probe.
- * Floor guard: a system is never probed when it was probed, or answered a real call, less than 2 minutes
- * ago, whatever starts the probe (start-up, interval tick or early probe).
+ * Floor guard: a system is never probed when Drawbridge contacted it in the background (a probe, a
+ * keep-warm renewal or the GetServerInfo refresh, success or not: BackgroundContact) or a real call got an
+ * answer less than 2 minutes ago, whatever starts the probe (start-up, interval tick or early probe).
+ * While a system's sign-in is latched (unity-auth.service.ts), a late success of a call that started
+ * before the latch does not mark it UP.
  *
  * Keep-warm: while a phone-agent tool ran in the last UNITY_KEEP_WARM_MINUTES (default 30; 0 = off), a
  * target's session is renewed UNITY_KEEP_WARM_LEAD_SEC (default 120) before the cached token is due, so
@@ -46,7 +50,8 @@ export function healthIntervalMs(env: NodeJS.ProcessEnv = process.env): number {
   return Math.max(MIN_POLL_MS, num(raw, 15, 0.01) * 60_000);
 }
 export const healthTimeoutMs = () => num(process.env.UNITY_HEALTH_TIMEOUT_SEC, 15, 2) * 1000;
-export const healthAction = () => String(process.env.UNITY_HEALTH_ACTION || '').trim() || UnityActions.Admin.GET_SERVER_INFO;
+/** The probe's read: always GetServerInfo (UNITY_HEALTH_ACTION was removed: only declared actions are sent). */
+export const healthAction = () => UnityActions.Admin.GET_SERVER_INFO;
 export const keepWarmWindowMs = () => num(process.env.UNITY_KEEP_WARM_MINUTES, 30, 0) * 60_000;
 export const keepWarmLeadSec = () => num(process.env.UNITY_KEEP_WARM_LEAD_SEC, 120, 10);
 
@@ -82,6 +87,8 @@ export function classifyProbeError(stage: string, err: unknown): { error_class: 
 export interface HealthAuth {
   getSecurityToken(target: UnityTargetSystem): Promise<string>;
   getAuthenticatedSession(target: UnityTargetSystem): Promise<unknown>;
+  /** Set while Veradigm refuses the target's sign-in (auth latch). */
+  latched?(target: UnityTargetSystem): unknown;
 }
 export interface HealthUnity {
   executeAction(action: string, params?: any, patientId?: string, target?: any): Promise<any>;
@@ -94,6 +101,8 @@ export interface HealthOptions {
   targets: () => UnityTargetSystem[];
   now?: () => number;
   log?: (l: string) => void;
+  /** Background-contact clock for the floor (default: the process-wide one). */
+  contact?: BackgroundContact;
 }
 
 function withTimeout<T>(p: Promise<T>, ms: number, stage: string): Promise<T> {
@@ -108,9 +117,9 @@ function withTimeout<T>(p: Promise<T>, ms: number, stage: string): Promise<T> {
 
 export class UnityHealthChecker {
   private lastRun = 0;
-  /** Per target: when the last probe started, and when a real call last got an answer (floor guard). */
-  private lastProbe = new Map<UnityTargetSystem, number>();
+  /** Per target: when a real call last got an answer (floor guard, with the background-contact clock). */
   private lastAnswer = new Map<UnityTargetSystem, number>();
+  private readonly contact: BackgroundContact;
   private running: Promise<ProbeResult[]> | null = null;
   private timer: NodeJS.Timeout | null = null;
   private readonly now: () => number;
@@ -119,6 +128,7 @@ export class UnityHealthChecker {
   constructor(private readonly opts: HealthOptions) {
     this.now = opts.now || Date.now;
     this.log = opts.log || ((l) => console.error(l));
+    this.contact = opts.contact || backgroundContact;
   }
 
   /** One probe of one target. Never throws. */
@@ -140,9 +150,9 @@ export class UnityHealthChecker {
     }
   }
 
-  /** True when the target was probed, or answered a real call, less than 2 minutes ago (Veradigm polling floor). */
+  /** True when Drawbridge contacted the target in the background, or a real call got an answer, less than 2 minutes ago. */
   private tooSoon(target: UnityTargetSystem): boolean {
-    const last = Math.max(this.lastProbe.get(target) || 0, this.lastAnswer.get(target) || 0);
+    const last = Math.max(this.contact.lastAt(target), this.lastAnswer.get(target) || 0);
     return last > 0 && this.now() - last < MIN_POLL_MS;
   }
 
@@ -157,7 +167,7 @@ export class UnityHealthChecker {
       const out: ProbeResult[] = [];
       for (const t of this.opts.targets()) {
         if (this.tooSoon(t)) continue;
-        this.lastProbe.set(t, this.now());
+        this.contact.note(t, this.now());
         const r = await this.probe(t);
         out.push(r);
         this.opts.status.recordProbe(t, r.ok, r.error_class, r.detail);
@@ -182,6 +192,8 @@ export class UnityHealthChecker {
   /** A real call finished: feed the status; an infrastructure failure may trigger an early probe. */
   onActionOutcome(action: string, target: UnityTargetSystem, ok: boolean, code: string): void {
     if (!this.opts.targets().includes(target)) return;
+    // A call that started before the sign-in was latched may still succeed: it must not mark the system UP.
+    if (ok && this.opts.auth.latched?.(target)) return;
     if (ok) this.lastAnswer.set(target, this.now());
     const wantProbe = this.opts.status.recordPassive(target, ok, code);
     if (!ok && wantProbe && INFRA.has(code)) this.requestEarlyProbe();
@@ -225,16 +237,18 @@ export class TokenKeepWarm {
   private backoff = new Map<UnityTargetSystem, { at: number; delay: number }>();
   private readonly now: () => number;
   private readonly log: (l: string) => void;
+  private readonly contact: BackgroundContact;
   /** Sessions renewed by keep-warm (status screen / tests). */
   refreshed = 0;
 
   constructor(
     private readonly auth: KeepWarmAuth,
     private readonly targets: () => UnityTargetSystem[],
-    opts: { now?: () => number; log?: (l: string) => void } = {}
+    opts: { now?: () => number; log?: (l: string) => void; contact?: BackgroundContact } = {}
   ) {
     this.now = opts.now || Date.now;
     this.log = opts.log || ((l) => console.error(l));
+    this.contact = opts.contact || backgroundContact;
   }
 
   /** A phone-agent tool ran (or a call is starting). */
@@ -261,6 +275,7 @@ export class TokenKeepWarm {
       const wait = this.backoff.get(t);
       if (wait && this.now() < wait.at) continue;
       this.busy.add(t);
+      this.contact.note(t, this.now());
       try {
         await this.auth.refreshSession(t);
         this.backoff.delete(t);

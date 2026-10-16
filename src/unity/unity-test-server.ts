@@ -13,7 +13,7 @@ import { adminLogger } from "../middleware/admin-logger";
 import { toVoiceSummary } from "../utils/response-formatter";
 import { agentToolAllowed, forAgent, staffOnlyFailure } from "../utils/minimum-necessary";
 import { unityConfig } from "./config/environment";
-import { configuredTargets, setUnityAuth, UnityAuthService } from "./services/unity-auth.service";
+import { AuthLatch, configuredTargets, setUnityAuth, UnityAuthService } from "./services/unity-auth.service";
 import { setUnityDiagnostics, UnityDiagnostics } from "./services/unity-diagnostics";
 import { UnityService } from "./services/unity.service";
 import { UnityAppointmentTools } from "./tools/appointment.tools";
@@ -61,9 +61,17 @@ const systemStatus = new SystemStatus({ targets: configuredTargets });
 setSystemStatus(systemStatus);
 setStatusBanner(() => statusBanner(systemStatus));
 // Auth latch: Veradigm refused a sign-in (wrong password, access denied) -> that system is DOWN at once (help-desk
-// alert) and nothing more is sent for it until an operator retries on the "Veradigm connection" screen.
+// alert) and nothing more is sent for it until an operator retries on the "Veradigm connection" screen or the
+// credentials change. A latch saved before a restart still applies (DOWN again; the status file prevents a
+// second alert for the same outage).
 setUnityAuth(authService);
-authService.onLatch((l) => systemStatus.markDown(l.target, "AUTH_ERROR", `${l.stage}: sign-in stopped (${l.reason})`));
+const latchDown = (l: AuthLatch) => systemStatus.markDown(l.target, "AUTH_ERROR", `${l.stage}: sign-in stopped (${l.reason})`);
+authService.onLatch(latchDown);
+for (const l of authService.latchedTargets()) {
+  if (!configuredTargets().includes(l.target)) continue;
+  console.error(`[Unity Auth] ${l.target} sign-in still stopped (Veradigm refused ${l.stage} at ${l.at}); retry on the Veradigm connection screen after fixing the credentials`);
+  latchDown(l);
+}
 const healthChecker = new UnityHealthChecker({ auth: authService, unity: unityService, status: systemStatus, targets: configuredTargets });
 unityService.onOutcome((action, target, ok, code) => healthChecker.onActionOutcome(action, target, ok, code));
 const keepWarm = new TokenKeepWarm(authService, configuredTargets);

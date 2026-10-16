@@ -2,7 +2,12 @@
  * Offline checks for Unity auth and Veradigm diagnostics (no network: axios.post is replaced by a fake).
  * Single-flight login, retry once after a rejected token, timeouts, no secrets in logs,
  * GetServerInfo summary/caching and LastLogs after server-side errors (rate-limited, no loop),
- * auth latch (Veradigm refused a sign-in: nothing more is sent until an operator retries; one alert).
+ * auth latch (Veradigm refused a sign-in: nothing more is sent until an operator retries; one alert),
+ * which refusals latch (ValidUser, denial faults, 401/403, a fresh token refused again; never HTML 5xx pages),
+ * one login per system at a time (no second refused login in a race), a late success while latched,
+ * the latch file (survives a restart, shared between processes, scrypt fingerprint, cleared by a credential
+ * change or a retry), security events, the declared-action allow-list, scrubbed refusal text and the
+ * "Retry sign-in" route (administrators only, same origin, audited).
  *
  *   npm run smoke:unity-auth
  */
@@ -28,7 +33,12 @@ Object.assign(process.env, {
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'drawbridge-unity-auth-'));
 process.env.AUDIT_DIR = TMP;
 process.env.CALL_RECORDS_DIR = TMP;
-for (const k of ['HELPDESK_SMTP_URL', 'HELPDESK_WEBHOOK_URL', 'UNITY_KEEP_WARM_MINUTES']) delete process.env[k];
+process.env.DRAWBRIDGE_USERS_FILE = path.join(TMP, 'users');
+process.env.DRAWBRIDGE_SESSION_SECRET = 'smoke-unity-auth-secret-0123456789abcdef';
+for (const k of [
+  'HELPDESK_SMTP_URL', 'HELPDESK_WEBHOOK_URL', 'UNITY_KEEP_WARM_MINUTES', 'UNITY_HEALTH_ACTION', 'NODE_ENV',
+  'DRAWBRIDGE_USERNAME', 'DRAWBRIDGE_PASSWORD', 'DRAWBRIDGE_REQUIRE_TOTP', 'DRAWBRIDGE_PASSWORD_MAX_AGE_DAYS',
+]) delete process.env[k];
 
 import assert from 'assert';
 import axios from 'axios';
@@ -41,7 +51,10 @@ interface Call {
 }
 
 async function main(): Promise<void> {
-  const { UnityAuthService, tokenLifetimeSeconds, isTokenRejection, isCredentialRejection } = await import('../unity/services/unity-auth.service');
+  const { UnityAuthService, tokenLifetimeSeconds, isTokenRejection, isCredentialRejection, scrubAuthText } = await import('../unity/services/unity-auth.service');
+  const { UnityActions, CERTIFIED_ACTIONS } = await import('../unity/config/unity-endpoints');
+  const { BackgroundContact } = await import('../unity/services/background-contact');
+  const audit = await import('../platform/audit');
   const { UnityService } = await import('../unity/services/unity.service');
   const diag = await import('../unity/services/unity-diagnostics');
 
@@ -56,6 +69,8 @@ async function main(): Promise<void> {
   const origError = console.error;
   const origLog = console.log;
   console.error = (...a: any[]) => void logged.push(a.map(String).join(' '));
+  const origWarn = console.warn;
+  console.warn = (...a: any[]) => void logged.push(a.map(String).join(' '));
   console.log = (...a: any[]) => {
     const s = a.map(String).join(' ');
     if (s.startsWith('PASS ')) origLog(s);
@@ -74,7 +89,7 @@ async function main(): Promise<void> {
     calls.push({ url, action, target, timeout: cfg?.timeout });
     await delay(5);
     const step = next(action);
-    if (step) return { data: step() };
+    if (step) return { data: await step() };
     if (action === 'GetToken') return { data: `tok-${++tokenN}` };
     if (action === 'RetireToken') return { data: 'ok' };
     if (action === 'GetUserAuthentication') return { data: [{ getuserauthenticationinfo: [{ ValidUser: 'YES', UserID: '1' }] }] };
@@ -95,7 +110,7 @@ async function main(): Promise<void> {
   ok('token reused for UNITY_TOKEN_CACHE_TTL minus UNITY_TOKEN_REFRESH_BUFFER (min 60 s); token errors recognised');
 
   // 2. Single flight: concurrent callers share one GetToken and one GetUserAuthentication
-  let auth = new UnityAuthService();
+  let auth = new UnityAuthService({ latchDir: '' });
   let unity = new UnityService(auth);
   const results = await Promise.all(Array.from({ length: 6 }, () => unity.executeAction('GetSchedule', { Parameter1: '10/15/2026' }, '', 'PM')));
   assert.ok(results.every((r) => r.success));
@@ -116,13 +131,13 @@ async function main(): Promise<void> {
 
   // 4. Cleanup never requests a token just to retire it
   reset();
-  await new UnityService(new UnityAuthService()).cleanup();
+  await new UnityService(new UnityAuthService({ latchDir: '' })).cleanup();
   assert.strictEqual(calls.length, 0);
   ok('shutdown with no token held makes no Veradigm call');
 
   // 5. Token rejected on an action: drop it, log in again, retry once
   reset();
-  auth = new UnityAuthService();
+  auth = new UnityAuthService({ latchDir: '' });
   unity = new UnityService(auth);
   await unity.executeAction('GetSchedule', {}, '', 'PM'); // warm: token 1
   reset();
@@ -146,7 +161,7 @@ async function main(): Promise<void> {
 
   // 7. Wrong EHR/PM password is never retried (account lockout)
   reset();
-  auth = new UnityAuthService();
+  auth = new UnityAuthService({ latchDir: '' });
   unity = new UnityService(auth);
   script.GetUserAuthentication = [() => [{ getuserauthenticationinfo: [{ ValidUser: 'NO', ErrorMessage: 'Invalid password' }] }]];
   await assert.rejects(unity.executeAction('GetSchedule', {}, '', 'PM'), (e: any) => e.code === 'AUTH_ERROR');
@@ -156,7 +171,7 @@ async function main(): Promise<void> {
 
   // 8. Auth failures never log the axios error (request body with passwords)
   reset();
-  auth = new UnityAuthService();
+  auth = new UnityAuthService({ latchDir: '' });
   unity = new UnityService(auth);
   const axiosLike = (status: number) => () => {
     throw Object.assign(new Error(`Request failed with status code ${status}`), {
@@ -187,7 +202,7 @@ async function main(): Promise<void> {
 
   // 10. GetServerInfo: summary fields only, cached, failure shown as unavailable
   reset();
-  auth = new UnityAuthService();
+  auth = new UnityAuthService({ latchDir: '' });
   unity = new UnityService(auth);
   let now = Date.parse('2026-10-15T15:00:00Z');
   const d = new diag.UnityDiagnostics({ unity, targets: () => ['PM', 'EHR'], now: () => now, dir: TMP, log: (l) => logged.push(l) });
@@ -270,7 +285,7 @@ async function main(): Promise<void> {
   const { HelpdeskNotifier } = await import('../platform/helpdesk');
   const alerts: string[] = [];
   const mkLatched = () => {
-    const a = new UnityAuthService();
+    const a = new UnityAuthService({ latchDir: '' });
     const st = new SystemStatus({
       targets: () => ['PM', 'EHR'],
       notifier: new HelpdeskNotifier(() => [{ name: 'fake', send: async (m: any) => void alerts.push(m.subject) }]),
@@ -382,7 +397,225 @@ async function main(): Promise<void> {
   for (const s of [SECRET_SVC, SECRET_EHR, SECRET_PM]) assert.ok(!text13.includes(s), 'a password reached the log');
   ok('auth latch: timeouts, network errors and 5xx (GetToken or GetUserAuthentication) never latch');
 
+  // 14. Which refusals latch: denial faults and 401/403 at GetUserAuthentication, a fresh token refused again;
+  //     an HTML error page or a plain 5xx never does.
+  const fault = (text: string) => `<s:Envelope><s:Body><s:Fault><faultcode>a:DeserializationFailed</faultcode><faultstring xml:lang="en-US">${text}</faultstring></s:Fault></s:Body></s:Envelope>`;
+  assert.ok(isCredentialRejection({ response: { status: 500, data: fault('Access is denied.') } }), 'WCF fault on HTTP 500');
+  assert.ok(isCredentialRejection({ response: { status: 500, data: '{"Message":"Access is denied."}' } }), 'JSON fault text on HTTP 500');
+  assert.ok(!isCredentialRejection({ response: { status: 500, data: '<html><body><h1>Server Error</h1><p>Access is denied.</p></body></html>' } }), 'HTML error page: never');
+  assert.ok(!isCredentialRejection({ response: { status: 502, data: 'Bad gateway: upstream access is denied' } }), 'plain text on a 5xx: never');
+  assert.ok(!isCredentialRejection({ response: { status: 408, data: 'Access is denied' } }), '408');
+  const latchCase = async (label: string, steps: Record<string, Array<() => any>>, expectLatch: boolean, target: 'PM' | 'EHR' = 'EHR') => {
+    reset();
+    const a = new UnityAuthService({ latchDir: '' });
+    const u = new UnityService(a);
+    script = steps;
+    await u.executeAction('GetSchedule', {}, '', target).catch(() => undefined);
+    assert.strictEqual(!!a.latched(target), expectLatch, `${label}: ${expectLatch ? 'latched' : 'not latched'}`);
+    return a;
+  };
+  await latchCase('GetUserAuthentication Error reply "Access is denied"', { GetUserAuthentication: [() => [{ Error: 'Magic Error - Access is denied for user ehruser' }]] }, true);
+  await latchCase('GetUserAuthentication HTTP 401', { GetUserAuthentication: [httpErr(401)] }, true);
+  await latchCase('GetUserAuthentication HTTP 403', { GetUserAuthentication: [httpErr(403, { Error: 'Forbidden' })] }, true);
+  await latchCase('GetUserAuthentication HTTP 401 that says the token expired', { GetUserAuthentication: [httpErr(401, { Error: 'Security token is invalid or expired' })] }, false);
+  await latchCase('GetUserAuthentication HTML 500 page', { GetUserAuthentication: [httpErr(500, '<html><body>Access is denied</body></html>')] }, false);
+  await latchCase('GetToken WCF fault on HTTP 500', { GetToken: [httpErr(500, fault('Access is denied.'))] }, true);
+  await latchCase('GetToken HTML 500 page', { GetToken: [httpErr(500, '<html><title>500</title><body>Access is denied</body></html>')] }, false);
+  const tokenBad = () => [{ Error: 'Magic Error - Security token is invalid or expired' }];
+  await latchCase('one token rejection, then the fresh token works', { GetUserAuthentication: [tokenBad] }, false);
+  assert.deepStrictEqual([count('GetToken'), count('GetUserAuthentication')], [2, 2]);
+  await latchCase('the fresh token refused as well', { GetUserAuthentication: [tokenBad, tokenBad] }, true);
+  assert.deepStrictEqual([count('GetToken'), count('GetUserAuthentication')], [2, 2], 'no third login');
+  ok('latch: denial replies and 401/403 at GetUserAuthentication, WCF/JSON denial faults, a fresh token refused again; never a token-expiry 401, an HTML error page or plain 5xx text');
+
+  // 15. One login per system at a time: keep-warm and a tool call racing never send two refused logins
+  reset();
+  let a15 = new UnityAuthService({ latchDir: '' });
+  let u15 = new UnityService(a15);
+  const slowNo = () => delay(30).then(() => [{ getuserauthenticationinfo: [{ ValidUser: 'NO', ErrorMessage: 'Invalid password' }] }]);
+  script.GetUserAuthentication = [slowNo, slowNo, slowNo];
+  await Promise.all([
+    a15.refreshSession('PM').catch(() => undefined),
+    u15.executeAction('GetSchedule', {}, '', 'PM').catch(() => undefined),
+    a15.refreshSession('PM').catch(() => undefined),
+    u15.executeAction('GetPatient', {}, '1', 'PM').catch(() => undefined),
+  ]);
+  assert.ok(a15.latched('PM'));
+  assert.strictEqual(count('GetUserAuthentication'), 1, 'one refused GetUserAuthentication, not one per caller');
+  assert.strictEqual(count('GetSchedule') + count('GetPatient'), 0);
+  reset();
+  a15 = new UnityAuthService({ latchDir: '' });
+  u15 = new UnityService(a15);
+  const slowDeny = () => delay(30).then(httpErr(403));
+  script.GetToken = [slowDeny, slowDeny, slowDeny];
+  await Promise.all([a15.refreshSession('EHR').catch(() => undefined), u15.executeAction('GetSchedule', {}, '', 'EHR').catch(() => undefined), a15.refreshSession('EHR').catch(() => undefined)]);
+  assert.ok(a15.latched('EHR'));
+  assert.strictEqual(count('GetToken'), 1, 'one refused GetToken, not one per caller');
+  ok('one login per system at a time: keep-warm + tool calls racing send one refused GetUserAuthentication / GetToken, the rest are refused locally');
+
+  // 16. A call that started before the latch and succeeds after it does not mark the system UP
+  reset();
+  const a16 = new UnityAuthService({ latchDir: '' });
+  const u16 = new UnityService(a16);
+  const st16 = new SystemStatus({ targets: () => ['PM'], notifier: new HelpdeskNotifier(() => []), dir: '', log: () => undefined, event: () => undefined });
+  const checker16 = new health.UnityHealthChecker({ auth: a16, unity: u16, status: st16, targets: () => ['PM'], log: () => undefined, contact: new BackgroundContact() });
+  a16.onLatch((l) => st16.markDown(l.target, 'AUTH_ERROR', `${l.stage}: sign-in stopped`));
+  u16.onOutcome((ac, t, okk, c) => checker16.onActionOutcome(ac, t, okk, c));
+  await u16.executeAction('GetSchedule', {}, '', 'PM'); // session + PM UP
+  assert.strictEqual(st16.overall(), 'up');
+  let release!: () => void;
+  script.GetSchedule = [() => new Promise((r) => (release = () => r([{ getscheduleinfo: [{ ok: 'yes' }] }])))];
+  const inFlight = u16.executeAction('GetSchedule', {}, '', 'PM');
+  await delay(20);
+  script.GetUserAuthentication = [() => [{ getuserauthenticationinfo: [{ ValidUser: 'NO', ErrorMessage: 'Password expired' }] }]];
+  await a16.refreshSession('PM').catch(() => undefined); // keep-warm: refused -> latch -> DOWN
+  assert.strictEqual(st16.overall(), 'down');
+  release();
+  assert.ok((await inFlight).success, 'the old session still answered');
+  assert.strictEqual(st16.overall(), 'down', 'a late success does not mark a latched system UP');
+  ok('a call that started before the latch and succeeds after it leaves the latched system DOWN');
+
+  // 17. Latch file: survives a restart, shared by processes, scrypt fingerprint (no secret), credential change, retry
+  const { unityConfig } = await import('../unity/config/environment');
+  const LDIR = path.join(TMP, 'latch');
+  reset();
+  const proc1 = new UnityAuthService({ latchDir: LDIR });
+  script.GetUserAuthentication = [() => [{ getuserauthenticationinfo: [{ ValidUser: 'NO', ErrorMessage: 'Invalid password for pmuser', Lockout: 'NO' }] }]];
+  await assert.rejects(new UnityService(proc1).executeAction('GetSchedule', {}, '', 'PM'));
+  assert.ok(proc1.latched('PM'));
+  assert.strictEqual(proc1.cachedToken('PM'), undefined, 'latched: no cached token is used or retired');
+  const file = path.join(LDIR, 'unity-auth-latch.json');
+  const raw = fs.readFileSync(file, 'utf8');
+  const { createHash } = await import('crypto');
+  for (const bad of [SECRET_SVC, SECRET_PM, SECRET_EHR, 'pmuser', createHash('sha256').update(SECRET_PM).digest('hex'), Buffer.from(SECRET_PM).toString('base64')]) {
+    assert.ok(!raw.includes(bad), `latch file holds ${bad}`);
+  }
+  assert.ok(/"fp": "[0-9a-f]{64}"/.test(raw) && /"salt": "[0-9a-f]{32}"/.test(raw), 'scrypt fingerprint with a random salt');
+  if (process.platform !== 'win32') assert.strictEqual(fs.statSync(file).mode & 0o777, 0o600);
+  // restart: a new process with the same credentials sends nothing for PM
+  reset();
+  const proc2 = new UnityAuthService({ latchDir: LDIR });
+  assert.strictEqual(proc2.latched('PM')?.stage, 'GetUserAuthentication', 'latch survives a restart');
+  await assert.rejects(new UnityService(proc2).executeAction('GetSchedule', {}, '', 'PM'), (e: any) => e.code === 'AUTH_ERROR');
+  assert.strictEqual(calls.length, 0, 'restarted process: no login sent');
+  // shared: the other process latches EHR, this one honours it at its next call (no restart)
+  script.GetToken = [httpErr(403)];
+  await assert.rejects(new UnityService(proc1).executeAction('GetSchedule', {}, '', 'EHR'));
+  reset();
+  await assert.rejects(new UnityService(proc2).executeAction('GetSchedule', {}, '', 'EHR'), /sign-in stopped/);
+  assert.strictEqual(calls.length, 0, 'the second process honours the latch of the first');
+  // changed credentials: the latch no longer applies (and applies again with the refused ones)
+  const oldPw = unityConfig.pmPassword;
+  (unityConfig as any).pmPassword = 'pm-New-Pw-000';
+  assert.strictEqual(new UnityAuthService({ latchDir: LDIR }).latched('PM'), undefined, 'new PM password: not latched');
+  (unityConfig as any).pmPassword = oldPw;
+  assert.ok(new UnityAuthService({ latchDir: LDIR }).latched('PM'), 'back to the refused password: latched again');
+  // operator retry in one process clears it for all
+  assert.deepStrictEqual(proc2.retrySignIn('PM', 'ada.admin'), ['PM']);
+  assert.strictEqual(proc1.latched('PM'), undefined, 'the other process sees the retry');
+  assert.strictEqual(new UnityAuthService({ latchDir: LDIR }).latched('PM'), undefined, 'and so does a restart');
+  assert.ok(new UnityAuthService({ latchDir: LDIR }).latched('EHR'), 'EHR still latched');
+  const auditLines = async () => {
+    await audit.flushAudit();
+    return fs
+      .readdirSync(path.join(TMP, 'audit'))
+      .flatMap((f) => fs.readFileSync(path.join(TMP, 'audit', f), 'utf8').split('\n'))
+      .filter((l) => l.trim())
+      .map((l) => JSON.parse(l));
+  };
+  const sec = (await auditLines()).filter((x) => x.kind === 'security');
+  assert.ok(sec.some((x) => x.tool === 'unity_signin_latched' && x.error_code === 'PM' && x.success === false), 'security event unity_signin_latched');
+  assert.ok(sec.some((x) => x.tool === 'unity_signin_retry' && x.user === 'ada.admin' && x.object === 'veradigm_pm'), 'security event unity_signin_retry with the user');
+  ok('latch file: survives a restart (nothing sent), shared between processes, scrypt fingerprint and no secret on disk, a credential change lifts it, a retry clears it everywhere; security events latched / retry');
+
+  // 18. Only declared actions are sent; scrubbed refusal text
+  reset();
+  const a18 = new UnityAuthService({ latchDir: '' });
+  const u18 = new UnityService(a18);
+  for (const bad of ['Echo', 'GetTokenValidation', 'GetChangedPatients', '']) {
+    await assert.rejects(u18.executeAction(bad, {}, '', 'EHR'), (e: any) => e.code === 'ACTION_NOT_ALLOWED', bad);
+  }
+  assert.strictEqual(calls.length, 0, 'refused before any login or request');
+  const flat = (o: any): string[] => Object.values(o).flatMap((v: any) => (typeof v === 'string' ? [v] : flat(v)));
+  const configured = flat(UnityActions);
+  const undeclared = configured.filter((x) => !CERTIFIED_ACTIONS.has(x));
+  assert.deepStrictEqual(undeclared, [], `configured but not declared: ${undeclared.join(', ')}`);
+  assert.ok(!configured.includes('GetTokenValidation') && !configured.includes('Echo'));
+  process.env.UNITY_HEALTH_ACTION = 'GetPatient';
+  assert.strictEqual(health.healthAction(), 'GetServerInfo', 'the probe reads GetServerInfo whatever UNITY_HEALTH_ACTION says');
+  delete process.env.UNITY_HEALTH_ACTION;
+  assert.strictEqual(scrubAuthText('Invalid password for EHRUSER (VHCP001EHR:EHRGA01^8^svc) on 10/15/2026, id 123456'), 'Invalid password for [account] (VHCP001EHR:[account]) on [date], id [n]');
+  reset();
+  logged.length = 0;
+  script.GetUserAuthentication = [() => [{ getuserauthenticationinfo: [{ ValidUser: 'NO', ErrorMessage: 'User ehruser password expired on 10/01/2026' }] }]];
+  const thrown = await u18.executeAction('GetSchedule', {}, '', 'EHR').catch((e) => e);
+  assert.ok(thrown.code === 'AUTH_ERROR' && !/ehruser|10\/01\/2026/i.test(thrown.message), thrown.message);
+  const again = await u18.executeAction('GetSchedule', {}, '', 'EHR').catch((e) => e);
+  assert.ok(!/ehruser|10\/01\/2026/i.test(again.message), again.message);
+  assert.ok(!/ehruser|10\/01\/2026/i.test(logged.join('\n')), 'refusal text scrubbed in the logs');
+  ok('only declared actions are sent (Echo, GetTokenValidation refused before any request; every configured name is declared); the probe always reads GetServerInfo; refusal text scrubbed in errors and logs');
+
+  // 19. "Retry sign-in" route: administrators only, same origin only, audited
+  const express = (await import('express')).default;
+  const shell = await import('../platform/shell');
+  const staff = await import('../platform/staff-auth');
+  const { staffAudit } = await import('../platform/app');
+  const { veradigmModule } = await import('../platform/modules/veradigm');
+  const { setUnityAuth } = await import('../unity/services/unity-auth.service');
+  const secrets: Record<string, string> = { 'pat.staff': staff.newTotpSecret(), 'ada.admin': staff.newTotpSecret() };
+  fs.writeFileSync(
+    process.env.DRAWBRIDGE_USERS_FILE!,
+    `${shell.hashStaffPassword('pat.staff', 'river lamp orbit nine')}:totp=${secrets['pat.staff']}\n` +
+      `${shell.hashStaffPassword('ada.admin', 'copper fern atlas kite')}:totp=${secrets['ada.admin']}:role=admin\n`
+  );
+  reset();
+  const a19 = new UnityAuthService({ latchDir: '' });
+  script.GetUserAuthentication = [() => [{ getuserauthenticationinfo: [{ ValidUser: 'NO', ErrorMessage: 'Invalid password' }] }]];
+  await a19.getAuthenticatedSession('EHR').catch(() => undefined);
+  assert.ok(a19.latched('EHR'));
+  setUnityAuth(a19);
+  diag.setUnityDiagnostics(new diag.UnityDiagnostics({ unity: { executeAction: async () => ({ success: true }) }, targets: () => ['EHR'], dir: '', log: () => undefined }));
+  shell.registerNav(veradigmModule.nav!);
+  const app = express();
+  app.use('/app', shell.shellRouter());
+  app.use('/app/veradigm', shell.requireLogin, staffAudit(veradigmModule.name), express.urlencoded({ extended: false }), veradigmModule.appRouter!({} as any));
+  const srv = app.listen(0, '127.0.0.1');
+  await new Promise((r) => srv.once('listening', r));
+  const base = `http://127.0.0.1:${(srv.address() as any).port}`;
+  const login = async (u: string, p: string) => {
+    const r = await fetch(`${base}/app/login`, { method: 'POST', redirect: 'manual', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ u, p, otp: staff.totpCode(secrets[u], Math.floor(Date.now() / 30_000)), next: '/app' }).toString() });
+    const cookie = (r.headers.get('set-cookie') || '').split(';')[0];
+    assert.ok(cookie, `sign-in of ${u}`);
+    return cookie;
+  };
+  const retry = (cookie: string, extra: Record<string, string> = {}) =>
+    fetch(`${base}/app/veradigm/retry-sign-in`, { method: 'POST', redirect: 'manual', headers: { cookie, 'content-type': 'application/x-www-form-urlencoded', ...extra }, body: 'target=EHR' });
+  try {
+    const pat = await login('pat.staff', 'river lamp orbit nine');
+    const ada = await login('ada.admin', 'copper fern atlas kite');
+    const screen = await (await fetch(`${base}/app/veradigm`, { headers: { cookie: pat } })).text();
+    assert.ok(/sign-in stopped/.test(screen) && /Retry sign-in/.test(screen), 'the screen shows the stopped sign-in');
+    assert.strictEqual((await retry(pat)).status, 403, 'staff (not admin): 403');
+    assert.ok(a19.latched('EHR'), 'still latched');
+    assert.strictEqual((await retry(ada, { 'sec-fetch-site': 'cross-site' })).status, 403, 'cross-site: 403');
+    assert.strictEqual((await retry(ada, { origin: 'https://evil.example' })).status, 403, 'foreign Origin: 403');
+    assert.ok(a19.latched('EHR'), 'still latched');
+    const okr = await retry(ada, { 'sec-fetch-site': 'same-origin' });
+    assert.ok(okr.status === 303 && okr.headers.get('location') === '/app/veradigm', String(okr.status));
+    assert.strictEqual(a19.latched('EHR'), undefined, 'administrator retry cleared it');
+    const lines = await auditLines();
+    assert.ok(lines.some((x) => x.kind === 'staff' && x.tool === 'veradigm_action' && x.user === 'pat.staff' && x.error_code === 'HTTP_403'), 'refused staff attempt audited');
+    assert.ok(lines.some((x) => x.kind === 'staff' && x.tool === 'veradigm_action' && x.user === 'ada.admin' && x.success && x.object === '/app/veradigm/retry-sign-in'), 'administrator retry audited');
+    assert.ok(lines.some((x) => x.kind === 'security' && x.tool === 'cross_site_request'), 'cross-site attempt is a security event');
+    assert.ok(lines.some((x) => x.kind === 'security' && x.tool === 'unity_signin_retry' && x.user === 'ada.admin' && x.object === 'veradigm_ehr'), 'retry security event with the administrator');
+  } finally {
+    srv.close();
+    setUnityAuth(null);
+  }
+  ok('"Retry sign-in": shown on the Veradigm connection screen, staff 403, cross-site / foreign Origin 403 (security event), administrator clears it (303), staff audit and unity_signin_retry with the user');
+
   console.error = origError;
+  console.warn = origWarn;
   console.log = origLog;
   fs.rmSync(TMP, { recursive: true, force: true });
   console.log(`\n${passed} checks passed`);
