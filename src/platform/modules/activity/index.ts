@@ -105,7 +105,7 @@ async function activityPage(req: Request): Promise<string> {
 
   return `<div class="row" style="margin:4px 0 8px"><h2 style="margin:0">Activity</h2><span style="flex:1"></span><a href="${APP_BASE}/activity/calls">Recent calls →</a><a href="${APP_BASE}/activity/disclosures">Access report →</a></div>
 ${filters}${summary}<h2>By tool · ${esc(day)}</h2>${metricTable}<h2>Tool calls${tool || status || call ? ' (filtered)' : ''}</h2>${list}
-<p class="muted" style="font-size:13px">Every tool call the VeradigmAI agent makes through Drawbridge: time, call, tool, patient ID, outcome and latency. Tool inputs, results and chart contents are never recorded here.</p>
+<p class="muted" style="font-size:13px">Every tool call the Drawbridge phone assistant makes: time, call, tool, patient ID, outcome and latency. Tool inputs, results and chart contents are never recorded here.</p>
 <h2>Security events · ${esc(day)}${alerts.length ? ` <span class="pill urgent">${esc(alerts.length)} to review</span>` : ''}</h2>${securityTable}
 <p class="muted" style="font-size:13px">Sign-ins, failed sign-ins, lockouts, expired passwords, emergency access, rejected tool keys and webhooks, document integrity failures and unusual export or record-view volume. Staff screens opened this day: ${esc(views.length)} by ${esc(viewers)} staff user(s); the access report lists them per patient or per user.</p>`;
 }

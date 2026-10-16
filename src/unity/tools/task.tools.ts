@@ -37,11 +37,11 @@ export class UnityTaskTools {
       }
 
       const urgency = args.urgency || 'routine';
-      const subject = `VeradigmAI: ${(args.reason || 'other').replace(/_/g, ' ')}${urgency === 'urgent' ? ' (URGENT)' : ''}`;
+      const subject = `Drawbridge: ${(args.reason || 'other').replace(/_/g, ' ')}${urgency === 'urgent' ? ' (URGENT)' : ''}`;
       const comments = [
         args.message.trim().slice(0, 1500),
         args.callbackPhone ? `Callback: ${args.callbackPhone}` : '',
-        'Created by the VeradigmAI phone agent. Caller identity verified by name and date of birth.',
+        'Created by the Drawbridge phone assistant (MOATiT). Caller identity verified by name and date of birth.',
       ]
         .filter(Boolean)
         .join('\n');

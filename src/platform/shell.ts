@@ -426,7 +426,7 @@ export function page(title: string, body: string, opts: { user?: string | null; 
   const idle = opts.user ? ` data-idle-ms="${idleMinutes() * 60_000}" data-logoff-url="${APP_BASE}/login?timeout=1"` : '';
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${esc(title)}</title><style>${CSS}</style><script src="${APP_BASE}/assets/drawbridge.js" defer></script></head><body${idle}>
-<header>${MARK}<h1>Drawbridge</h1><span class="muted" style="font-size:13px">VeradigmAI · ${esc(clinicLabel())}</span><span class="sp"></span>${who}</header>
+<header>${MARK}<h1>Drawbridge</h1><span class="muted" style="font-size:13px">A MOATiT Service · ${esc(clinicLabel())}</span><span class="sp"></span>${who}</header>
 ${emergency}${opts.user ? statusBannerHtml() : ''}${tabs}<main>${body}</main></body></html>`;
 }
 
