@@ -185,6 +185,76 @@ async function main(): Promise<void> {
   assert.strictEqual(code(await agent('unity_get_patient_appointments', { patientId: '101' }, 'call_OTHER')), 'NOT_VERIFIED', 'binding is per call');
   ok('full name + DOB with exactly one match verifies the caller for this call only; partial and multi-match searches return no identifiers and bind nobody; PM/chart IDs of the verified patient mapped, never another patient\'s');
 
+  // ── 3b. Exact names with the real search (launch audit 2026-10-16) ─────────
+  // Veradigm® PM prefix-matches the last name and the tool keeps hits on the first 2 letters of each name, so the
+  // gate itself must require the record's exact first name, last name and DOB before it binds anybody.
+  {
+    const { UnityPatientTools } = await import('../unity/tools/patient.tools');
+    const PREFIX_ROSTER = [
+      { ID: '201', lastname: 'Smithers', firstname: 'John', dateofbirth: '01/02/1970' },
+      { ID: '202', lastname: 'Beesly', firstname: 'Pamela', dateofbirth: '03/03/1980' },
+      { ID: '203', lastname: 'Okonkwo-Vance', firstname: 'Ngozi', dateofbirth: '04/04/1975' },
+      { ID: '204', lastname: 'Twinmoor', firstname: 'Dee', dateofbirth: '01/01/1990' },
+      { ID: '205', lastname: 'Twinmoor', firstname: 'Dee', dateofbirth: '01/01/1990' },
+    ];
+    // Like Veradigm: "Last, First" text, prefix match on both parts; PM and EHR return the same people.
+    const veradigmLike: any = {
+      async searchPatients(c: any, target: string) {
+        const last = String(c.lastName || '').trim().split(/[\s-]+/)[0].toLowerCase();
+        const first = String(c.firstName || '').trim().toLowerCase();
+        const rows = PREFIX_ROSTER.filter((p) => p.lastname.toLowerCase().startsWith(last) && p.firstname.toLowerCase().startsWith(first)).map((p) => ({
+          ...p,
+          ID: target === 'PM' ? p.ID : `9${p.ID}`,
+        }));
+        return { success: true, data: [{ searchpatientsinfo: rows }] };
+      },
+    };
+    const realSearch = new UnityPatientTools(veradigmLike);
+    const live = (args: any, callId: string) =>
+      cb.withCallBinding('unity_search_patients', args, { server: 'unity', callId, channel: 'retell' }, async (a) => forAgent('unity_search_patients', a, await realSearch.searchPatients(a)), store);
+    const ids = /\b(201|202|203|204|205|9201|9202|9203|9204|9205)\b/;
+
+    const jo = await live({ firstName: 'Jo', lastName: 'Smithers', dateOfBirth: '01/02/1970' }, 'call_X1');
+    assert.ok(!ids.test(JSON.stringify(jo)) && jo.total === 0 && !/John/.test(JSON.stringify(jo)), `2-letter first name: ${JSON.stringify(jo)}`);
+    const sm = await live({ firstName: 'John', lastName: 'Sm', dateOfBirth: '01/02/1970' }, 'call_X1');
+    assert.ok(!ids.test(JSON.stringify(sm)) && sm.total === 0 && !/Smithers/.test(JSON.stringify(sm)), `2-letter last name: ${JSON.stringify(sm)}`);
+    assert.strictEqual(store.verified('call_X1').length, 0, 'prefixes bind nobody');
+    assert.ok(/^NO MATCH/.test(toVoiceSummary('unity_search_patients', sm)));
+
+    const pam = await live({ firstName: 'Pam', lastName: 'Beesly', dateOfBirth: '03/03/1980' }, 'call_X2');
+    assert.ok(pam.confirm && !ids.test(JSON.stringify(pam)) && /Pamela Beesly \(P-A-M-E-L-A, B-E-E-S-L-Y\)/.test(pam.message), JSON.stringify(pam));
+    assert.ok(/Matched on a spelling variant, NOT verified yet/.test(toVoiceSummary('unity_search_patients', pam)));
+    assert.strictEqual(store.verified('call_X2').length, 0, 'nickname read back, not bound');
+    assert.strictEqual(code(await agent('unity_get_patient_appointments', { patientId: '202' }, 'call_X2')), 'NOT_VERIFIED');
+    const pamela = await live({ firstName: 'Pamela', lastName: 'Beesly', dateOfBirth: '3/3/1980' }, 'call_X2');
+    assert.ok(pamela.patients?.[0]?.patientId === '202', JSON.stringify(pamela));
+    assert.deepStrictEqual(store.verified('call_X2').map((p) => [p.pm, p.chart]), [['202', '9202']], 'the exact spelling binds');
+
+    const beasley = await live({ firstName: 'Pamela', lastName: 'Beasley', dateOfBirth: '03/03/1980' }, 'call_X3');
+    assert.ok(beasley.confirm && !ids.test(JSON.stringify(beasley)), `Soundex variant: ${JSON.stringify(beasley)}`);
+    assert.strictEqual(store.verified('call_X3').length, 0, 'spelling variant not bound before the yes');
+
+    const ok1 = await live({ firstName: 'Ngozi', lastName: 'Okonkwo', dateOfBirth: '04/04/1975' }, 'call_X4');
+    assert.ok(ok1.confirm && /OKONKWO-VANCE|O-K-O-N-K-W-O-V-A-N-C-E/.test(ok1.message), JSON.stringify(ok1));
+    assert.strictEqual(store.verified('call_X4').length, 0);
+    await live({ firstName: 'ngozi', lastName: 'Okonkwo Vance', dateOfBirth: '04/04/1975' }, 'call_X4');
+    assert.deepStrictEqual(store.verified('call_X4').map((p) => p.pm), ['203'], 'double last name said in full binds');
+
+    const twinsCut = await live({ firstName: 'Dee', lastName: 'Twinmoor', dateOfBirth: '01/01/1990', limit: 1 }, 'call_X5');
+    assert.ok(twinsCut.withheld && !ids.test(JSON.stringify(twinsCut)), `limit:1 must not turn two matches into one: ${JSON.stringify(twinsCut)}`);
+    assert.strictEqual(store.verified('call_X5').length, 0);
+    const twinRows = await realSearch.searchPatients({ firstName: 'Dee', lastName: 'Twinmoor', dateOfBirth: '01/01/1990' });
+    assert.ok(twinRows.total >= 2 && !twinRows.patients.some((p: any) => p.patientId && p.chartPatientId), `two patients with one name + DOB are never merged or cross-paired: ${JSON.stringify(twinRows.patients)}`);
+
+    const exact = await live({ firstName: 'JOHN', lastName: ' smithers ', dateOfBirth: '1/2/1970' }, 'call_X6');
+    assert.ok(exact.patients?.[0]?.patientId === '201', JSON.stringify(exact));
+    assert.deepStrictEqual(store.verified('call_X6').map((p) => p.pm), ['201']);
+    assert.strictEqual(cb.nameRelation('Mary', 'Mary Ann', 'first'), 'exact');
+    assert.strictEqual(cb.nameRelation("O'Brien", 'OBrien', 'last'), 'exact');
+    assert.strictEqual(cb.nameRelation('Ob', 'OBrien', 'last'), 'none');
+    ok('exact names with the real search: 2-letter prefixes find nobody (no name, no IDs); a nickname, a spelling variant or one part of a double last name is read back but binds nothing until a search with the exact spelling; limit cannot cut two matches to one; two patients with the same name + DOB are never merged into one; case, spaces and hyphens ignored');
+  }
+
   // ── 4. Second patient, cap of 2 ────────────────────────────────────────────
   assert.strictEqual(code(await agent('unity_get_patient_appointments', { patientId: '102' }, 'call_A')), 'NOT_VERIFIED');
   await search('call_A', BEA);

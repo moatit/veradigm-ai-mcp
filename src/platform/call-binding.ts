@@ -11,7 +11,11 @@ import { securityEvent } from './security-events';
  * 1. Every agent call is keyed by the Retell call ID (`call.call_id`; MCP: the x-call-id header). A tool that
  *    touches a patient record is refused (CALL_ID_MISSING) without one.
  * 2. A patient becomes VERIFIED for that call only when the identity search (unity_search_patients, FHIR
- *    verify_patient_identity) was given first name, last name AND date of birth and found exactly one patient.
+ *    verify_patient_identity) was given first name, last name AND date of birth and found exactly one patient whose
+ *    first name, last name and date of birth are exactly those (letters compared, case/spaces/hyphens ignored; a
+ *    first name may be the record's first word). A spelling variant, nickname or one part of a double last name is
+ *    read back for a yes but binds nothing until a search with exactly the record's spelling (Unity search only;
+ *    the FHIR verify tool already requires exact names).
  *    The call then holds that patient's IDs (Veradigm® PM patientId, Veradigm® EHR chartPatientId, or the FHIR
  *    ID): IDs and a time only, in memory, for DRAWBRIDGE_CALL_BINDING_TTL_MIN (default 120) minutes. Nothing is
  *    written to disk; no names or birth dates are kept.
@@ -365,6 +369,8 @@ export function beforeAgentTool(name: string, rawArgs: any, ctx: GateContext, st
   if (rule.search) {
     const n = store.noteSearch(callId);
     if (!n.allowed) return { ok: false, failure: refuse('SEARCH_LIMIT', name, args, ctx, undefined, 'POSSIBLE_ENUMERATION') };
+    // "Exactly one match" must mean one in the practice, not one after a caller-chosen cut (limit: 1).
+    delete args.limit;
     return { ok: true, args };
   }
 
@@ -422,6 +428,68 @@ const SEVERAL = {
     'Not verified: more than one record matches that name and date of birth, so nothing can be shared by phone. ' +
     'Offer to transfer the caller to staff or take a message (drawbridge_take_message).',
 };
+const NO_EXACT_MATCH = {
+  success: true,
+  patients: [],
+  total: 0,
+  verified: false,
+  message: 'No patient matched that exact first name, last name and date of birth.',
+};
+
+/** Letters only, lower case ("O'Brien-Smith" → "obriensmith"). */
+const letters = (v: unknown): string => String(v ?? '').toLowerCase().replace(/[^a-z]/g, '');
+const tokens = (v: unknown): string[] => String(v ?? '').split(/[\s\-]+/).map(letters).filter(Boolean);
+/** MM/DD/YYYY or YYYY-MM-DD → YYYY-MM-DD ('' when neither). */
+function dobKey(v: unknown): string {
+  const s = String(v ?? '').trim();
+  let m = s.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})/);
+  if (m) return `${m[3]}-${m[1].padStart(2, '0')}-${m[2].padStart(2, '0')}`;
+  m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+  return m ? `${m[1]}-${m[2].padStart(2, '0')}-${m[3].padStart(2, '0')}` : '';
+}
+
+/**
+ * How the name the caller gave relates to the record's name:
+ *  exact  same letters (case, spaces, hyphens and apostrophes ignored); a first name may be the record's first word
+ *         ("Mary" for "Mary Ann");
+ *  close  a last name that is one part of a double name ("Okonkwo" for "Okonkwo-Vance"), or a first name of 3+
+ *         letters the record's first name starts with ("Pam" for "Pamela"): read back, never bound;
+ *  none   anything else (a 2-letter prefix, a different name).
+ */
+export function nameRelation(given: unknown, record: unknown, kind: 'first' | 'last'): 'exact' | 'close' | 'none' {
+  const g = letters(given);
+  const r = letters(record);
+  if (!g || !r) return 'none';
+  if (g === r) return 'exact';
+  const parts = tokens(record);
+  if (kind === 'first' && parts[0] === g) return 'exact';
+  if (kind === 'last' && parts.length > 1 && parts.includes(g)) return 'close';
+  if (kind === 'first' && g.length >= 3 && r.startsWith(g)) return 'close';
+  return 'none';
+}
+
+const spell = (v: unknown) => String(v ?? '').trim().toUpperCase().replace(/[^A-Z]/g, '').split('').join('-');
+
+/**
+ * One search hit whose name is not exactly what the caller gave (a spelling variant, a nickname, one part of a
+ * double last name): the agent may read the record's name and spelling back, but nothing is bound and no
+ * identifiers or visits go out until the caller confirms and the agent searches again with exactly that spelling.
+ */
+function confirmFirst(p: any) {
+  const first = String(p?.firstName ?? '').trim();
+  const last = String(p?.lastName ?? '').trim();
+  return {
+    success: true,
+    withheld: true,
+    verified: false,
+    confirm: true,
+    message:
+      `Matched on a spelling variant, NOT verified yet: the record's name is ${first} ${last} (${spell(first)}, ${spell(last)}). ` +
+      'Read that name and spelling back. Only after a clear yes, call unity_search_patients again with exactly that first name, ' +
+      'last name and the date of birth; that search verifies. Share nothing before that.',
+  };
+}
+
 const FHIR_SEARCH = {
   success: true,
   withheld: true,
@@ -474,6 +542,16 @@ export function afterAgentTool(name: string, args: any, result: any, ctx: GateCo
     if (!filled(a.firstName) || !filled(a.lastName) || !filled(a.dateOfBirth)) return PARTIAL;
     if (result.patients.length > 1) return SEVERAL;
     const p = result.patients[0] || {};
+    // Veradigm® PM prefix-matches the last name and the tool keeps a hit on the first 2 letters of each name (plus
+    // Soundex spelling variants), so "one hit" alone is not "this caller gave this patient's name": bind only when the
+    // record's first name, last name and date of birth are exactly what the caller gave.
+    if (!dobKey(a.dateOfBirth) || dobKey(p.dateOfBirth) !== dobKey(a.dateOfBirth)) return NO_EXACT_MATCH;
+    const first = nameRelation(a.firstName, p.firstName, 'first');
+    const last = nameRelation(a.lastName, p.lastName, 'last');
+    if (first !== 'exact' || last !== 'exact') {
+      const variant = typeof result.note === 'string' && result.note.trim() !== '';
+      return variant || (first !== 'none' && last !== 'none') ? confirmFirst(p) : NO_EXACT_MATCH;
+    }
     const b = store.bind(callId, { pm: p.patientId, chart: p.chartPatientId }, name);
     if (b === 'invalid') return SEVERAL;
     if (b === 'limit') return refuse('VERIFIED_LIMIT', name, a, ctx, p.patientId || p.chartPatientId, undefined, false);

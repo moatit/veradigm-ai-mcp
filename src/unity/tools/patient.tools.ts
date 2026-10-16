@@ -463,20 +463,40 @@ export class UnityPatientTools {
     const ehr = ehrRes.success ? keep(this.parsePatientsList(ehrRes.data).filter((p) => p.id)) : [];
     const key = (p: ParsedPatient) =>
       `${(p.lastName || "").trim().toLowerCase()}|${(p.firstName || "").trim().toLowerCase()}|${normalizeDob(p.dateOfBirth)}`;
-    const merged = new Map<string, ParsedPatient>();
-    for (const p of pm) merged.set(key(p), { ...p, patientId: p.id, pmMrn: p.mrn });
-    for (const p of ehr) {
+    // PM and EHR rows of one person are paired by name + DOB. Two different patients with the same name and DOB in
+    // one system are never merged (and never paired with the other system): they stay separate entries, so the
+    // result says "more than one" instead of verifying, or filing to, one of them (launch audit 2026-10-16).
+    const groups = new Map<string, ParsedPatient[]>();
+    const seen = new Set<string>();
+    for (const p of pm) {
+      if (seen.has(`pm|${p.id}`)) continue;
+      seen.add(`pm|${p.id}`);
       const k = key(p);
-      const existing = merged.get(k);
+      groups.set(k, [...(groups.get(k) || []), { ...p, patientId: p.id, pmMrn: p.mrn }]);
+    }
+    const pmCount = new Map<string, number>([...groups].map(([k, v]) => [k, v.length]));
+    const ehrCount = new Map<string, number>();
+    for (const p of ehr) {
+      if (seen.has(`ehr|${p.id}`)) continue;
+      seen.add(`ehr|${p.id}`);
+      ehrCount.set(key(p), (ehrCount.get(key(p)) || 0) + 1);
+    }
+    seen.clear();
+    for (const p of ehr) {
+      if (seen.has(`ehr|${p.id}`)) continue;
+      seen.add(`ehr|${p.id}`);
+      const k = key(p);
+      const list = groups.get(k);
+      const existing = list && pmCount.get(k) === 1 && ehrCount.get(k) === 1 ? list[0] : undefined;
       if (existing) {
         existing.chartPatientId = p.id;
         existing.chartMrn = p.mrn;
         // Address and SSN-4 (document matching): PM's when it has them, else the EHR's.
         if (!existing.address?.line1 && p.address?.line1) existing.address = p.address;
         if (!existing.ssnLast4 && p.ssnLast4) existing.ssnLast4 = p.ssnLast4;
-      } else merged.set(k, { ...p, chartPatientId: p.id, chartMrn: p.mrn });
+      } else groups.set(k, [...(list || []), { ...p, chartPatientId: p.id, chartMrn: p.mrn }]);
     }
-    return { patients: [...merged.values()], pmOk: Boolean(pmRes.success) };
+    return { patients: [...groups.values()].flat(), pmOk: Boolean(pmRes.success) };
   }
 
   /**

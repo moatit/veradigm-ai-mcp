@@ -66,7 +66,7 @@ export async function attachUpcomingVisits(
     if (!budgetMs || !result || result.success === false || result.withheld) return result;
     if (!Array.isArray(result.patients) || result.patients.length !== 1) return result;
     if (!filled(args?.firstName) || !filled(args?.lastName) || !filled(args?.dateOfBirth)) return result;
-    if (filled(result.note)) return result; // spelling variant: the caller has not confirmed yet
+    if (filled(result.note) || result.verified === false) return result; // spelling variant / not bound: not confirmed yet
     const p = result.patients[0];
     if (!filled(p?.patientId)) return result;
     let timer: NodeJS.Timeout | undefined;

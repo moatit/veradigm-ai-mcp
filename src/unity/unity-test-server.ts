@@ -39,7 +39,7 @@ import { setStatusBanner } from "../platform/shell";
 import { statusBanner } from "../platform/status-ui";
 import { TokenKeepWarm, UnityHealthChecker } from "./services/unity-health";
 import { attachUpcomingVisits, needsVeradigm, recordsUnavailable } from "./agent-edge";
-import { withCallBinding } from "../platform/call-binding";
+import { callBindings, normalizeCallId, withCallBinding } from "../platform/call-binding";
 
 const app = express();
 const PORT = process.env.UNITY_PORT || 3001;
@@ -123,8 +123,11 @@ async function executeAgentTool(name: string, args: any, callId: string | undefi
   });
   if (name === "unity_search_patients") {
     // The verified patient's upcoming visits ride along (saves a tool round; agent-edge.ts).
-    return attachUpcomingVisits(args, out, (patientId) =>
-      executeTool("unity_get_patient_appointments", { patientId }, callId, callerPhone, channel),
+    // Only for the patient this search just bound to the call (never on a read-back or unbound hit).
+    return attachUpcomingVisits(args, out, async (patientId) =>
+      callBindings.resolve(normalizeCallId(callId), "pm", patientId) === patientId
+        ? executeTool("unity_get_patient_appointments", { patientId }, callId, callerPhone, channel)
+        : null,
     );
   }
   return out;
