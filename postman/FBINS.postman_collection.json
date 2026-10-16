@@ -136,7 +136,7 @@
             "header": [
               {
                 "key": "X-Auth-Key",
-                "value": "6998d6ea-0562-40db-9e41-ae7b39142ad0"
+                "value": "{{api_key}}"
               },
               {
                 "key": "client_secret",
@@ -149,7 +149,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\r\n    \"billingAddress\": {\r\n        \"regionCode\": \"ID\",\r\n        \"postalCode\": \"83201\",\r\n        \"countryCode\": \"US\"\r\n    },\r\n    \"owner\": {\r\n        \"kind\": \"BillerAccountOwner\",\r\n        \"billerAccountId\": \"0125478801\",\r\n        \"billerId\": \"71929b60-84df-4766-b889-f47ed21bfe8f\"\r\n    },\r\n    \"kind\": \"Card\",\r\n    \"cardNumber\": \"4242424242424242\",\r\n    \"securityCode\": \"123\",\r\n    \"singleUse\": false,\r\n    \"expirationDate\": \"0129\",\r\n    \"cardHolderName\": \"zeeshan\",\r\n    \"paymentMethodKind\": \"CreditCard\"\r\n}",
+              "raw": "{\r\n    \"billingAddress\": {\r\n        \"regionCode\": \"ID\",\r\n        \"postalCode\": \"83201\",\r\n        \"countryCode\": \"US\"\r\n    },\r\n    \"owner\": {\r\n        \"kind\": \"BillerAccountOwner\",\r\n        \"billerAccountId\": \"0125478801\",\r\n        \"billerId\": \"71929b60-84df-4766-b889-f47ed21bfe8f\"\r\n    },\r\n    \"kind\": \"Card\",\r\n    \"cardNumber\": \"4242424242424242\",\r\n    \"securityCode\": \"123\",\r\n    \"singleUse\": false,\r\n    \"expirationDate\": \"0129\",\r\n    \"cardHolderName\": \"Test Cardholder\",\r\n    \"paymentMethodKind\": \"CreditCard\"\r\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -340,7 +340,7 @@
             "header": [
               {
                 "key": "X-Auth-Key",
-                "value": "8ce29982-958f-4925-bafd-e4a1ccb9d238"
+                "value": "{{api_key}}"
               },
               {
                 "key": "grant_type",
@@ -406,7 +406,7 @@
               },
               {
                 "key": "X-Auth-Key",
-                "value": "8ce29982-958f-4925-bafd-e4a1ccb9d238"
+                "value": "{{api_key}}"
               }
             ],
             "body": {

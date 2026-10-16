@@ -111,6 +111,24 @@ async function main(): Promise<void> {
     console.log(`PASS ${label}`);
   };
   const procs: ChildProcess[] = [];
+  // ---- No credentials in committed Postman files (launch audit 2026-10-16) ----
+  {
+    const dir = path.join(process.cwd(), 'postman');
+    const files: string[] = [];
+    const walk = (d: string) => fs.readdirSync(d, { withFileTypes: true }).forEach((e) => (e.isDirectory() ? walk(path.join(d, e.name)) : e.name.endsWith('.json') && files.push(path.join(d, e.name))));
+    if (fs.existsSync(dir)) walk(dir);
+    const placeholder = (v: string) => v === '' || /^\{\{[\w.-]+\}\}$/.test(v) || /^<[^>]*>$/.test(v) || /^set-|^your[_-]|change-?me/i.test(v);
+    for (const f of files) {
+      const text = fs.readFileSync(f, 'utf8');
+      const rel = path.relative(process.cwd(), f);
+      for (const m of text.matchAll(/"key":\s*"(x-auth-key|x-api-key|authorization|client_secret|clientsecret|password|api_key|apikey|access_token|token)",\s*"value":\s*"([^"]*)"/gi)) {
+        const v = m[2].replace(/^(Bearer|Basic)\s+/i, '');
+        assert.ok(placeholder(v), `${rel}: ${m[1]} has a literal value (${v.slice(0, 4)}***)`);
+      }
+      assert.ok(!/\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}/.test(text), `${rel}: contains a JWT`);
+    }
+    ok(`postman: ${files.length} file(s), every key/secret/password/token header or variable is a placeholder, no JWTs`);
+  }
   try {
     // ---- FHIR server, key unset: fails closed ----
     let fhir = await start('src/test-server.ts', 'MCP_SERVER_PORT', { DRAWBRIDGE_TOOL_KEY: undefined, DRAWBRIDGE_CORS_ORIGINS: undefined });
@@ -240,6 +258,7 @@ async function main(): Promise<void> {
     assert.ok(ul.some((l) => l.server === 'unity' && l.kind === 'security' && l.tool === 'tool_key_rejected'), 'Unity wrong key → security event');
     unity.proc.kill();
     ok('Unity server: staff-only tools (day schedule, changed appointments, huddle brief) not offered to the agent and refused (STAFF_ONLY, audited); wrong key → security event');
+
   } finally {
     for (const p of procs) if (p.exitCode === null) p.kill();
     await new Promise((r) => setTimeout(r, 300));
