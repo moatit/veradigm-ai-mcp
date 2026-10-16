@@ -85,6 +85,18 @@ function appointmentLine(a: {
   );
 }
 
+const GATE_TEXT: Record<string, string> = {
+  NOT_VERIFIED:
+    "This record is not verified on this call. Verify the caller first: first name, last name and date of birth with unity_search_patients (backup chart tools: verify_patient_identity), " +
+    "then use only the IDs that search returned. Act only for the verified caller (or a family member verified the same way). Never guess an ID.",
+  PATIENT_ID_REQUIRED: "Two patients are verified on this call: pass the patientId of the one this visit belongs to.",
+  VERIFIED_LIMIT:
+    'This call has already verified the most people allowed. Say "I can only help with the records we have already verified on this call." For anyone else, offer a transfer or a message.',
+  SEARCH_LIMIT:
+    'Too many identity searches on this call. Say "I\'m not able to look up any more records on this call." Offer a transfer or a message (drawbridge_take_message). Do not search again.',
+  CALL_ID_MISSING: "Patient records can't be opened on this line. Offer a transfer or a message (drawbridge_take_message).",
+};
+
 /**
  * Text the agent gets when a tool failed. It must never sound like an empty result
  * (CLAUDE.md rule 5) and never carries raw error text to be read to a caller.
@@ -104,6 +116,9 @@ export function failureText(r: { error_code?: string; retryable?: boolean; agent
       "Do not call other record tools on this call."
     );
   }
+  // Per-call verification binding (src/platform/call-binding.ts): refusals the agent must handle, not outages.
+  const gate = GATE_TEXT[r.error_code || ""];
+  if (gate) return `TOOL_ERROR (${r.error_code}, retryable=no). Nothing was looked up or changed. ${gate}`;
   return (
     `TOOL_ERROR (${r.error_code || "UNKNOWN"}, retryable=${r.retryable ? "yes" : "no"}). ` +
     `The lookup FAILED; this is NOT an empty result. Do not say there is nothing on file. ` +

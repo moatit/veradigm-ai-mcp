@@ -14,7 +14,9 @@ import { auditToolCall, AuditServer, defaultAuditServer, safeUser } from './audi
  * login_no_totp, logout, emergency_access_login, tool_key_rejected, webhook_rejected,
  * integrity_failed, export, export_volume_alert, view_volume_alert, and the ops events system_down,
  * system_recovered (Veradigm connection status, system-status.ts), helpdesk_alert and
- * helpdesk_alert_failed (MOATiT help-desk notification sent / not sent).
+ * helpdesk_alert_failed (MOATiT help-desk notification sent / not sent), and the phone-agent call-binding
+ * refusals (src/platform/call-binding.ts): agent_not_verified, agent_verified_limit, agent_search_limit
+ * (POSSIBLE_ENUMERATION) and agent_no_call_id, each with the call ID and the tool, never a name.
  *
  *   DRAWBRIDGE_EXPORT_ALERT_PER_HOUR   exports (document downloads, disclosure reports) by one user in
  *                                      60 minutes before an export_volume_alert (default 20)
@@ -39,7 +41,11 @@ export type SecurityEvent =
   | 'system_down'
   | 'system_recovered'
   | 'helpdesk_alert'
-  | 'helpdesk_alert_failed';
+  | 'helpdesk_alert_failed'
+  | 'agent_not_verified'
+  | 'agent_verified_limit'
+  | 'agent_search_limit'
+  | 'agent_no_call_id';
 
 /** Events that are failures or alerts (success=false in the audit line, console.warn in the log). */
 const ALERTS = new Set<SecurityEvent>([
@@ -56,6 +62,10 @@ const ALERTS = new Set<SecurityEvent>([
   'view_volume_alert',
   'system_down',
   'helpdesk_alert_failed',
+  'agent_not_verified',
+  'agent_verified_limit',
+  'agent_search_limit',
+  'agent_no_call_id',
 ]);
 
 export interface SecurityDetails {
@@ -68,6 +78,8 @@ export interface SecurityDetails {
   patientId?: string;
   server?: AuditServer;
   channel?: string;
+  /** Retell call ID (phone-agent events). */
+  callId?: string;
 }
 
 /** Client IP as Express sees it (DRAWBRIDGE_TRUST_PROXY makes this the real client behind nginx). */
@@ -91,6 +103,7 @@ export function securityEvent(event: SecurityEvent, d: SecurityDetails = {}): vo
       ip: d.ip,
       object: d.object,
       patientId: d.patientId,
+      callId: d.callId,
     });
     const who = safeUser(d.user || '') || '-';
     const line = `[SECURITY] ${event}${d.code ? ` ${String(d.code).replace(/[^A-Za-z0-9_]/g, '').slice(0, 40)}` : ''} user=${who} ip=${String(d.ip || '-').replace(/[^A-Za-z0-9.:]/g, '').slice(0, 64) || '-'}`;

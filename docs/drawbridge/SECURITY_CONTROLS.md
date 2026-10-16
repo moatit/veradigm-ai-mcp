@@ -36,6 +36,25 @@ Drawbridge has three server processes:
 | Inbound-call webhook | `POST /webhooks/retell-inbound` (set per phone number in Retell) answers with the call's dynamic variables only (`call_mode`, `records_status`, `fhir_tools`), no patient data. It needs Retell's `x-retell-signature` (HMAC-SHA256 of the raw body bytes plus timestamp with `RETELL_WEBHOOK_API_KEY`, the Retell key with the "webhook" badge, falling back to `RETELL_API_KEY`; timestamp within 5 minutes, constant-time compare; the rejection reason is logged without the key or body) or the shared secret header. 503 when neither is configured, 401 and a `webhook_rejected` event for a bad signature. |
 | Admin portal client keys | When `ADMIN_PORTAL_URL` is set and a caller sends `x-api-key`, the FHIR server's MCP endpoint checks that key and the client's FHIR/Unity permissions with the admin portal. |
 
+### 1.2a Phone agent: identity before information, enforced per call (`src/platform/call-binding.ts`)
+
+The voice prompt tells the agent to verify the caller first, but the server no longer relies on that. On the agent tool endpoints of both servers (Retell `POST /api/retell`, MCP `tools/call` on the Unity server, MCP `POST /`, `/mcp/tools/call` and `/tools/call` on the FHIR server), every tool call is checked against a per-call verification binding. Staff screens, module APIs and internal calls (document intake, the huddle, pre-visit and upcoming-visit lookups) call the tools directly and are not affected.
+
+| Control | As implemented |
+|---|---|
+| Call key | The Retell call ID from the request body (`call.call_id`); on MCP the `x-call-id` header (or a `call_id` argument). A tool that touches a patient record is refused with `CALL_ID_MISSING` when there is none. Lookups without patient data (visit types, cancellation reasons, providers, clinic hours, open times without a patient, line mode, messages) still run. |
+| Verification | A patient becomes verified for that call only when `unity_search_patients` (FHIR server: `verify_patient_identity`) was given first name, last name **and** date of birth and found exactly one patient. The call then holds that patient's IDs (Veradigm® PM patient ID, Veradigm® EHR chart ID, or the FHIR ID) and the time, in memory only, for `DRAWBRIDGE_CALL_BINDING_TTL_MIN` (120) minutes. No names or birth dates are stored; nothing is written to disk. |
+| Patient-scoped tools | Visits, open times for a patient, booking, cancel, confirm, visit details, balance, insurance, demographics updates, recalls, the pre-visit check, the outreach context (`verifiedPatientId`), medications, allergies, problems, diagnoses, results, staff tasks, `unity_get_patient` and the FHIR chart tools run only for an ID verified on this call, in the right system (PM IDs for scheduling and billing, chart IDs for the chart and staff tasks). A verified patient's PM ID given to a chart tool (or the reverse) is mapped to the same patient's ID in that system, never to anyone else's. Anything else: `NOT_VERIFIED`, nothing is sent to Veradigm®. |
+| Appointment IDs | Cancel, confirm and visit details run only with a verified patient ID (filled in when the call has exactly one verified patient; with two the agent must say whose visit it is), and the tool itself reads that patient's schedule (`GetScheduleByPatientID`) and refuses a visit that is not on it. `GetAppointmentById` (no owner check) is never used by the agent. FHIR appointment-by-ID tools are refused on patient calls. |
+| Family member | Up to `DRAWBRIDGE_CALL_MAX_VERIFIED_PATIENTS` (2) patients per call, each verified with their own name and date of birth: a parent can handle a child's visit. A third is refused (`VERIFIED_LIMIT`), and the search result carries no identifiers. |
+| Enumeration | At most `DRAWBRIDGE_CALL_MAX_SEARCHES` (5) identity searches per call (`unity_search_patients`, `unity_get_patient_by_mrn`, `verify_patient_identity`, `search_patient`); the next is refused without running (`SEARCH_LIMIT`, security event code `POSSIBLE_ENUMERATION`). A search without all three of first name, last name and date of birth, or one that matches more than one patient, returns no identifiers and verifies no one. FHIR `search_patient` never returns identifiers to the agent. An MRN lookup returns a record only when it is a patient already verified on the call. |
+| Registration | `unity_save_patient` without a patient ID (new patient) is allowed and binds the new patient to the call (within the cap). With an existing patient ID it needs that patient verified. |
+| After-hours record | `drawbridge_save_call_record` that claims a patient not verified on this call is saved as an unverified message (no patient, no chart items). `drawbridge_take_message` stores the caller's statement, marked unverified, and needs no verification. |
+| Unknown tools | A tool without a rule that names a patient (`patientId`, `chartPatientId`, `verifiedPatientId`, an appointment ID or MRN) is refused unless that patient is verified on the call (fail closed). |
+| Logging | Each refusal is one tool audit line (error code) and one security event (`agent_not_verified`, `agent_verified_limit`, `agent_search_limit`, `agent_no_call_id`) with the call ID, the tool and the requested patient ID, never a name. |
+
+The agent hears `TOOL_ERROR (NOT_VERIFIED, retryable=no) ... Verify the caller first ...` (or the matching text for the other codes), never "I'm having trouble". Residual reliance on the prompt: see section 12.
+
 ### 1.3 CORS
 
 `DRAWBRIDGE_CORS_ORIGINS` is an exact-match allow-list of browser origins. When it is unset (the default), no CORS headers are sent, so browsers allow same-origin calls only. Wildcard `*` is not accepted. Retell calls server to server and is not affected.
@@ -111,6 +130,7 @@ There are no client-specific values in code. `CLINIC_NAME` (no default) sets the
 | `npm run smoke:hipaa` | Staff access audit, document integrity, access and disclosure report, volume alerts, minimum necessary for the agent, no patient IDs in URLs, intake record retention, HIPAA & Compliance page and checklist consistency |
 | `npm run smoke:activity` | Audit content, hash chain and tamper detection, audited module actions |
 | `npm run smoke:config` | `CLINIC_NAME`, intervals, the polling floor, the production sandbox refusal, retention |
+| `npm run smoke:call-binding` | Per-call verification binding: no call ID refused, unverified patient refused (audit + security event), verification by full name + DOB with one match only, family member needs own verification, cap of 2, search cap of 5, another patient's appointment refused, registration binds, outreach, MRN lookup, call record, unknown tools, FHIR tools, 2-hour TTL, staff side unaffected, both HTTP servers end to end |
 | `npm run smoke:voice` | System status and de-duplicated help-desk alerts (no PHI), SMTP only over TLS, webhook signature, health-check error classes and the 2-minute floor, keep-warm, `RECORDS_UNAVAILABLE`, upcoming visits only for one verified match, inbound-call webhook signature, `drawbridge_take_message`, the compact agent tool list and prompt safety lines |
 
 The suites `smoke`, `smoke:intake`, `smoke:outreach`, `smoke:huddle` and `smoke:scheduling` cover tool behaviour. Run `npx tsc --noEmit -p .` for the type-check.
@@ -126,6 +146,9 @@ The suites `smoke`, `smoke:intake`, `smoke:outreach`, `smoke:huddle` and `smoke:
 | `DRAWBRIDGE_PASSWORD_MAX_AGE_DAYS` | 90 | Password expiry |
 | `DRAWBRIDGE_EXPORT_ALERT_PER_HOUR` / `DRAWBRIDGE_VIEW_ALERT_PER_HOUR` | 20 / 200 | Volume alerts |
 | `DRAWBRIDGE_AGENT_STAFF_TOOLS` | off | Staff-only tools on the agent endpoints |
+| `DRAWBRIDGE_CALL_MAX_VERIFIED_PATIENTS` | 2 | Patients that can be verified on one phone call (caller plus one family member) |
+| `DRAWBRIDGE_CALL_MAX_SEARCHES` | 5 | Identity searches per phone call before `SEARCH_LIMIT` (possible enumeration) |
+| `DRAWBRIDGE_CALL_BINDING_TTL_MIN` | 120 | How long a call's verified patients are kept in memory |
 | `DRAWBRIDGE_FHIR_REST_ROUTES` | off in production | FHIR REST and test routes |
 | `INTAKE_RECORD_RETENTION_DAYS` / `AUDIT_RETENTION_DAYS` | 90 / 2190 | Retention |
 | `DRAWBRIDGE_LOGIN_MAX_FAILS` / `_WINDOW_MIN` / `_IP_MAX_FAILS` | 5 / 15 / 30 | Lockout |
@@ -177,3 +200,4 @@ These findings are in `infra/` and the deploy workflow, which belong to Kanhaiya
 - The CSP allows inline styles.
 - The audit chain does not show truncation at the end of a file or a deleted day file (see 3.2).
 - `GetTokenValidation` is not used, because Drawbridge is not launched from Veradigm EHR (see `UNITY_ACTIONS_FOR_CERTIFICATION.md`).
+- Per-call verification binding (1.2a), what still depends on the voice prompt: the server proves that the caller *said* a matching name and date of birth on this call, not that the caller *is* that person (anyone who knows a patient's name and birth date can verify, as with a human receptionist). Whether a second verified person is really the caller's family member, reading back before every change, never reading another patient's details aloud, and not giving medical advice remain prompt rules. The binding is in memory: a server restart during a call means the caller verifies again. On the MCP endpoints the call ID comes from the client (`x-call-id`, or a `call_id` argument the model could set), so the per-call caps hold only per call ID there; production uses Retell custom functions, where Retell sets `call.call_id`. The stdio MCP servers (`src/index.ts`, `src/unity/index.ts`, local tools only) have no call ID and are not gated.

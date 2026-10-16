@@ -112,6 +112,14 @@ The sample is small (3 web calls per variant, 39 turns per variant). Web calls h
 - `nodemailer` 10.0.13 is pinned, released Sep 30. `npm audit --omit=dev` reports 0 vulnerabilities.
 - **Appointment type per time block** (after the first live booking failed with "Appointment type is not valid for this day and time, requested=ACUTE, available=FOLLOWUP|OV|MEDREC|..."). `unity_get_open_slots` lists the visit types a time allows when its schedule block restricts appointment categories (`Elig_Appointment_Category_ID` / `Inelig_Appointment_Category_ID` mapped through `GetAppointmentTypes`), and its `appointmentType` filter now works. `unity_save_appointment` never swaps the type: when the block (or Veradigm's refusal) does not allow it, nothing is booked and the agent gets `NOT BOOKED (APPOINTMENT_TYPE_NOT_ALLOWED)` with "That time only allows: Follow-up Visit, Office Visit. Ask the caller which one fits, then book again". The prompt source (`retell-prompts/unity-healthcare-agent.md`, plus the compact tool text in `src/platform/agent-tools.ts`) says to choose from the allowed types and ask when unsure. **The Retell agents were not updated or published**; run `build_v7.py` to push the prompt to `agent_243e4907285fbfc2386832f3d8` when Ali decides.
 
+### 2.6a Identity before information, enforced by the server (Oct 15)
+Ali asked: "can a caller keep asking and pull any patient's information?" Before this change the answer depended on the prompt: the tool endpoints accepted any patient ID, and patient IDs are small sequential numbers. Now (`src/platform/call-binding.ts`, `SECURITY_CONTROLS.md` §1.2a):
+- Each Retell call (`call.call_id`) has its own list of verified patients. A patient is verified only by `unity_search_patients` (or `verify_patient_identity`) with first name, last name and date of birth that matches exactly one patient.
+- Every patient tool, and every appointment ID, works only for a patient verified on that call. Otherwise the agent gets `TOOL_ERROR (NOT_VERIFIED ...)` with "verify the caller first", nothing reaches Veradigm®, and a security event is logged.
+- At most 2 verified patients per call (caller plus a family member, `DRAWBRIDGE_CALL_MAX_VERIFIED_PATIENTS`) and 5 identity searches (`DRAWBRIDGE_CALL_MAX_SEARCHES`, then `SEARCH_LIMIT`, logged as possible enumeration).
+- The v7 prompt (`retell-prompts/unity-healthcare-agent.md`) and the outbound prompt now explain NOT_VERIFIED / SEARCH_LIMIT / VERIFIED_LIMIT, "act only for the verified caller", and the family-member rule. Prompt + tools: about 3,740 tokens. **The Retell agents were not updated**: re-run `build_v7.py` (never publishes) to put the new prompt on the v7 drafts, and the live v6 prompt needs the same lines before this server change reaches the live line.
+- `npm run smoke:call-binding` covers it (9 groups, both HTTP servers end to end).
+
 ### 2.7 Tests
 - `npm run smoke:voice` passes 9 groups: status, transports, health, keep-warm, agent edge, inbound webhook, take-message, spelling variant, and tool list + prompt.
 - Type-check and build pass.
@@ -271,7 +279,8 @@ At 1,000 call minutes a month: v6 about $175, cascade about $165, realtime about
    - slot IDs;
    - upcoming visits with the search;
    - the inbound webhook;
-   - the health checker.
+   - the health checker;
+   - the per-call verification binding (section 2.6a). Every tool call must carry Retell's `call` object (custom functions do); without a call ID, patient tools answer `CALL_ID_MISSING`. Update the live v6 prompt with the NOT_VERIFIED lines at the same time.
 
    Set `HELPDESK_SMTP_URL` (or `HELPDESK_WEBHOOK_URL`), `HELPDESK_ALERT_FROM` and `DRAWBRIDGE_PUBLIC_URL` in `.env` / SSM, and `RETELL_WEBHOOK_API_KEY` (the Retell API key with the "webhook" badge; without it the inbound webhook answers 401 unless that key is `RETELL_API_KEY`).
 2. **Re-test over the PSTN**: at least 20 calls with the same scripts, per review section 8. Web calls hide telephony latency, and the review's pass rule needs PSTN numbers. Use a separate test number, not 208-904-3641, or a weighted split (step 4).

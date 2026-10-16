@@ -13,6 +13,11 @@ dynamic variables call_mode/records_status UNKNOWN and fhir_tools OFF (the inbou
 web call supplies the real values); backchannel on, no ambient sound, medical vocabulary; PII redaction,
 signed URLs, data storage and 30-day retention copied from the live agent.
 
+The prompt text comes from retell-prompts/unity-healthcare-agent.md only (nothing is added here). It tells the
+agent how to handle the server's per-call verification refusals (NOT_VERIFIED, SEARCH_LIMIT, VERIFIED_LIMIT;
+src/platform/call-binding.ts): the tool URLs below send Retell's call object, whose call_id keys that binding.
+Re-run this script (never publishes) to put a prompt change on the v7 test agents.
+
 Agent/LLM IDs are written to deploy/local/retell/v7-agents.json (IDs only). Keys come from
 deploy/local/.env and are never printed.
 """

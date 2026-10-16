@@ -22,6 +22,7 @@ import { requireToolKey } from "./platform/app";
 import { corsFromEnv } from "./platform/cors";
 import { auditToolCall, setDefaultAuditServer } from "./platform/audit";
 import { forAgent } from "./utils/minimum-necessary";
+import { withCallBinding } from "./platform/call-binding";
 import { DISABLED_FHIR_TOOLS, disabledToolMessage } from "./config/disabled-tools";
 import { errorSummary } from "./utils/safe-log";
 
@@ -99,8 +100,19 @@ function listFhirTools() {
   ].filter((t) => !DISABLED_FHIR_TOOLS.has(t.name));
 }
 
-// Shared tool executor for all endpoints. Every call is audited (spec §4 rule 8): metadata only, async, never throws.
+/**
+ * Shared tool executor for all agent endpoints. Identity before information, server side: patient-scoped tools
+ * only for a patient verified on this call with verify_patient_identity, keyed by the Retell call ID
+ * (src/platform/call-binding.ts); a request without a call ID cannot open a patient record.
+ */
 async function executeFhirTool(name: string, args: any, audit: { callId?: string; channel?: string } = {}): Promise<any> {
+  return withCallBinding(name, args || {}, { server: "fhir", callId: audit.callId, channel: audit.channel || "http" }, (checked) =>
+    executeFhirToolChecked(name, checked, audit),
+  );
+}
+
+// Every call is audited (spec §4 rule 8): metadata only, async, never throws.
+async function executeFhirToolChecked(name: string, args: any, audit: { callId?: string; channel?: string } = {}): Promise<any> {
   const t0 = Date.now();
   const record = (success: boolean, errorCode?: string) =>
     auditToolCall({ server: "fhir", tool: name, args, callId: audit.callId, success, errorCode, latencyMs: Date.now() - t0, channel: audit.channel || "http" });
@@ -459,7 +471,7 @@ app.post("/mcp/tools/call", async (req, res) => {
 
     let result: any;
 
-    result = await executeFhirTool(name, args || {});
+    result = await executeFhirTool(name, args || {}, { callId: (req.headers["x-call-id"] as string) || undefined, channel: "mcp" });
 
     const wantBrief =
       (req.headers["x-response-format"] as string) === "brief" ||
@@ -512,7 +524,7 @@ app.post("/tools/call", async (req, res) => {
 
     let result: any;
 
-    result = await executeFhirTool(name, args || {});
+    result = await executeFhirTool(name, args || {}, { callId: (req.headers["x-call-id"] as string) || undefined, channel: "mcp" });
 
     const wantBrief =
       (req.headers["x-response-format"] as string) === "brief" ||

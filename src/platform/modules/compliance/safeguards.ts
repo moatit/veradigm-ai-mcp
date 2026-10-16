@@ -44,6 +44,7 @@ const APP = 'src/platform/app.ts';
 const SEC = 'src/platform/security-events.ts';
 const ACT = 'src/platform/modules/activity/index.ts';
 const MN = 'src/utils/minimum-necessary.ts';
+const CB = 'src/platform/call-binding.ts';
 const STORE = 'src/platform/modules/intake/store.ts';
 const FILE = 'src/platform/modules/intake/file.ts';
 
@@ -216,6 +217,16 @@ export const SAFEGUARDS: Safeguard[] = [
     status: 'PASS',
   },
   {
+    citation: '164.312(a)(1), 164.502(b)',
+    section: 'Technical safeguards',
+    requirement: 'Access control on patient calls: the phone agent can open only the records of callers it has verified.',
+    plain: 'On every phone call, Drawbridge itself checks identity before any record is opened: a patient’s record can be used only after the caller gave that patient’s full name and date of birth and exactly one patient matched, on that same call. At most two people can be verified per call (for example a parent calling for a child), and repeated lookups on one call are stopped and reported as a security alert. Staff screens are not affected.',
+    technical:
+      'Per-call verification binding keyed by the Retell call ID (call-binding.ts, both agent endpoints): unity_search_patients / verify_patient_identity with first + last name + DOB and one match binds that patient’s IDs to the call (memory only, DRAWBRIDGE_CALL_BINDING_TTL_MIN 120); every patient-scoped tool and appointment ID needs a bound patient, else NOT_VERIFIED; no call ID = CALL_ID_MISSING; DRAWBRIDGE_CALL_MAX_VERIFIED_PATIENTS 2, DRAWBRIDGE_CALL_MAX_SEARCHES 5; refusals are security events.',
+    evidence: [E(CB, 'export function beforeAgentTool('), E(CB, 'export function afterAgentTool(')],
+    status: 'FIXED',
+  },
+  {
     citation: '164.312(a)(2)(i)',
     section: 'Technical safeguards',
     requirement: 'Unique user identification.',
@@ -331,7 +342,7 @@ export const SAFEGUARDS: Safeguard[] = [
     citation: '164.502(b), 164.514(d)',
     section: 'Privacy Rule',
     requirement: 'Minimum necessary.',
-    plain: 'The phone agent receives only what it needs: name, date of birth and record IDs after the caller is identified. It never gets addresses, phone numbers, email or Social Security numbers, a name-only search reveals no one, and staff-only lists (the day’s schedule) are never available on patient calls. Logs never contain patient names or chart contents.',
+    plain: 'The phone agent receives only what it needs: name, date of birth and record IDs after the caller is identified. It never gets addresses, phone numbers, email or Social Security numbers, a name-only or partial search reveals no one, and staff-only lists (the day’s schedule) are never available on patient calls. Logs never contain patient names or chart contents.',
     technical: 'forAgent() at the agent edges (Retell, MCP, stdio); STAFF_ONLY tools refused; audit and server logs hold IDs and codes only.',
     evidence: [E(MN, 'export function forAgent('), E(MN, 'export const STAFF_ONLY_TOOLS')],
     status: 'FIXED',

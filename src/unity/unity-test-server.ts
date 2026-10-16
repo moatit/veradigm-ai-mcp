@@ -39,6 +39,7 @@ import { setStatusBanner } from "../platform/shell";
 import { statusBanner } from "../platform/status-ui";
 import { TokenKeepWarm, UnityHealthChecker } from "./services/unity-health";
 import { attachUpcomingVisits, needsVeradigm, recordsUnavailable } from "./agent-edge";
+import { withCallBinding } from "../platform/call-binding";
 
 const app = express();
 const PORT = process.env.UNITY_PORT || 3001;
@@ -102,20 +103,24 @@ const getAgentToolDefinitions = () => getToolDefinitions().filter((t) => agentTo
 
 /**
  * One phone-agent tool call (Retell custom function or MCP tools/call): staff-only tools are refused (and audited),
- * and the result is cut to the minimum necessary before the agent sees it (src/utils/minimum-necessary.ts).
+ * patient-scoped tools run only for a patient verified on this call (identity before information, enforced here:
+ * src/platform/call-binding.ts, keyed by the Retell call ID), and the result is cut to the minimum necessary before
+ * the agent sees it (src/utils/minimum-necessary.ts). Staff screens and modules call executeTool directly.
  */
 async function executeAgentTool(name: string, args: any, callId: string | undefined, callerPhone: string | undefined, channel: string): Promise<any> {
   if (!agentToolAllowed(name)) {
     auditToolCall({ server: "unity", tool: name, args, callId, success: false, errorCode: "STAFF_ONLY", latencyMs: 0, channel });
     return staffOnlyFailure(name);
   }
-  // Veradigm known down (health checks): answer at once instead of waiting through timeouts.
-  if (needsVeradigm(name) && failFastWhenDown() && systemStatus.isDown()) {
-    auditToolCall({ server: "unity", tool: name, args, callId, success: false, errorCode: "RECORDS_UNAVAILABLE", latencyMs: 0, channel });
-    return recordsUnavailable(name);
-  }
-  keepWarm.noteActivity();
-  const out = forAgent(name, args, await executeTool(name, args, callId, callerPhone, channel));
+  const out = await withCallBinding(name, args, { server: "unity", callId, channel }, async (checked) => {
+    // Veradigm known down (health checks): answer at once instead of waiting through timeouts.
+    if (needsVeradigm(name) && failFastWhenDown() && systemStatus.isDown()) {
+      auditToolCall({ server: "unity", tool: name, args: checked, callId, success: false, errorCode: "RECORDS_UNAVAILABLE", latencyMs: 0, channel });
+      return recordsUnavailable(name);
+    }
+    keepWarm.noteActivity();
+    return forAgent(name, checked, await executeTool(name, checked, callId, callerPhone, channel));
+  });
   if (name === "unity_search_patients") {
     // The verified patient's upcoming visits ride along (saves a tool round; agent-edge.ts).
     return attachUpcomingVisits(args, out, (patientId) =>
