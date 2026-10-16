@@ -1,8 +1,8 @@
-import { createHash, timingSafeEqual } from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
 import { auditBaseDir, retentionDays, safeId } from '../../audit';
 import { callRecords } from '../../../unity/oncall/call-records';
+import { SECRET_HEADER, verifyRetellWebhook, VerifyResult } from './retell-signature';
 
 /**
  * Retell call events (call_started, call_ended, call_analyzed).
@@ -15,7 +15,8 @@ import { callRecords } from '../../../unity/oncall/call-records';
  *   Events never create notebook records.
  */
 export const RETELL_EVENTS = new Set(['call_started', 'call_ended', 'call_analyzed']);
-export const SECRET_HEADER = 'x-drawbridge-webhook-secret';
+export { SECRET_HEADER };
+export type { VerifyResult };
 const SUMMARY_MAX = 1000;
 const INDEX_MAX = 5000;
 
@@ -34,74 +35,19 @@ export interface CallIndexEntry {
 
 // ── Webhook verification ─────────────────────────────────────────────────────
 
-type SdkVerify = (body: string, apiKey: string, signature: string) => boolean | Promise<boolean>;
-let sdkVerify: SdkVerify | null | undefined;
-
-/**
- * Retell's own verifier (`Retell.verify` from the retell-sdk package) when that package is
- * installed. It is not a dependency today (installing it needs network), so this returns null
- * and the shared-secret header is required instead.
- */
-export function loadRetellSdkVerify(): SdkVerify | null {
-  if (sdkVerify !== undefined) return sdkVerify;
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const mod = require('retell-sdk');
-    const R = mod?.default ?? mod?.Retell ?? mod;
-    sdkVerify = typeof R?.verify === 'function' ? (R.verify.bind(R) as SdkVerify) : null;
-  } catch {
-    sdkVerify = null;
-  }
-  return sdkVerify;
-}
-
-function safeEqual(a: string, b: string): boolean {
-  const x = createHash('sha256').update(a).digest();
-  const y = createHash('sha256').update(b).digest();
-  return timingSafeEqual(x, y);
-}
-
-export interface VerifyResult {
-  ok: boolean;
-  status: number;
-  reason: string;
-}
-
 /**
  * Accept a webhook when either:
  *  1. RETELL_WEBHOOK_SECRET is set and the request carries it in `x-drawbridge-webhook-secret`, or
- *  2. RETELL_API_KEY is set, retell-sdk is installed, and Retell.verify() accepts `x-retell-signature`
- *     over the raw body.
+ *  2. Retell's `x-retell-signature` verifies over the raw body with RETELL_WEBHOOK_API_KEY (the API key with
+ *     the "webhook" badge in Retell), else RETELL_API_KEY (retell-signature.ts; no SDK needed).
  * With neither configured the endpoint is closed (503).
  */
 export async function verifyWebhook(
-  rawBody: string,
+  rawBody: Buffer | string,
   headers: Record<string, string | string[] | undefined>,
-  opts: { sdkVerify?: SdkVerify | null } = {}
+  now: number = Date.now()
 ): Promise<VerifyResult> {
-  const h = (k: string) => {
-    const v = headers[k];
-    return Array.isArray(v) ? v[0] || '' : v || '';
-  };
-  const secret = process.env.RETELL_WEBHOOK_SECRET || '';
-  const apiKey = process.env.RETELL_API_KEY || '';
-  const verify = opts.sdkVerify !== undefined ? opts.sdkVerify : loadRetellSdkVerify();
-  const sdkReady = !!(apiKey && verify);
-
-  if (!secret && !sdkReady) return { ok: false, status: 503, reason: 'webhook not configured' };
-
-  const given = h(SECRET_HEADER);
-  if (secret && given && safeEqual(given, secret)) return { ok: true, status: 200, reason: 'shared secret' };
-
-  const sig = h('x-retell-signature');
-  if (sdkReady && sig) {
-    try {
-      if ((await verify!(rawBody, apiKey, sig)) === true) return { ok: true, status: 200, reason: 'retell signature' };
-    } catch {
-      // fall through to reject
-    }
-  }
-  return { ok: false, status: 401, reason: 'bad signature' };
+  return verifyRetellWebhook(rawBody, headers, now);
 }
 
 // ── Calls index ──────────────────────────────────────────────────────────────

@@ -16,6 +16,7 @@ for (const k of ['UNITY_APP_NAME', 'UNITY_SVC_USERNAME', 'UNITY_SVC_PASSWORD', '
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'drawbridge-outreach-'));
 process.env.CALL_RECORDS_DIR = tmp;
 process.env.CLINIC_TIMEZONE = 'America/Boise';
+process.env.CLINIC_NAME = 'Idaho Kidney Institute'; // per-client setting (no clinic name in code)
 
 import assert from 'assert';
 import type { AddressInfo } from 'net';

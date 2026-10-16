@@ -1,5 +1,8 @@
 import express, { Request, Response, Router } from 'express';
+import fs from 'fs';
+import { auditPatient } from '../../app';
 import { PlatformModule } from '../../registry';
+import { recordExport, securityEvent, clientIp } from '../../security-events';
 import { APP_BASE, esc, fmtTime, page } from '../../shell';
 import { CsvDocTypes, DocTypeCache, FallbackDocTypes, type DocType, type DocTypeSource } from './doctypes';
 import type { Confidence, DocumentKind, Extracted } from './extract';
@@ -24,7 +27,8 @@ import {
   type ConfirmFilter,
   type ShadowPanelContext,
 } from './shadow-ui';
-import { ALLOWED_MIME, INTAKE_STATUSES, IntakeItem, IntakeStatus, intakeStore, sniffMime } from './store';
+import { ALLOWED_MIME, INTAKE_STATUSES, IntakeItem, IntakeStatus, intakeStore, sha256, sniffMime } from './store';
+import { retentionDaysFrom, startDailyRetention } from '../../retention';
 
 export { mountFaxWebhook } from './moatit-fax';
 
@@ -103,6 +107,7 @@ const MESSAGES: Record<string, string> = {
   ALREADY_FILED: 'This document was already filed.',
   FILING_REJECTED: 'Veradigm® EHR did not accept the document. It was not filed.',
   FILING_UNCERTAIN: 'Veradigm® EHR did not answer. Check the patient chart before trying again.',
+  INTEGRITY_FAILED: 'The stored file no longer matches the document that was received. It was not filed. Tell the Drawbridge administrator.',
   filed: 'Filed to the patient chart in Veradigm® EHR.',
   category: 'Category changed.',
   category_unknown: 'That category is not available in Veradigm® EHR.',
@@ -160,27 +165,10 @@ export function queuePage(
     : '<div class="card empty muted">No documents here.</div>';
 
   const upload = `<details class="card"><summary><strong>Upload a document</strong> <span class="muted" style="font-size:13px">PDF, TIFF, PNG or JPEG</span></summary>
-<form id="intake-upload" style="margin-top:10px"><p><label>File<input type="file" name="file" accept=".pdf,.tif,.tiff,.png,.jpg,.jpeg" required></label></p>
+<form id="intake-upload" style="margin-top:10px" data-upload-url="${APP_BASE}/intake/upload" data-upload-type="${esc(UPLOAD_TYPE)}" data-item-url="${APP_BASE}/intake/item/"><p><label>File<input type="file" name="file" accept=".pdf,.tif,.tiff,.png,.jpg,.jpeg" required></label></p>
 <p><label>Document text (optional, helps matching when the file has no text layer)<textarea name="text" rows="4"></textarea></label></p>
-<button>Upload</button> <span id="intake-upload-msg" class="muted" style="font-size:13px"></span></form></details>
-<script>
-document.getElementById('intake-upload').addEventListener('submit', function (ev) {
-  ev.preventDefault();
-  var f = ev.target.file.files[0], msg = document.getElementById('intake-upload-msg');
-  if (!f) return;
-  msg.textContent = 'Uploading…';
-  var r = new FileReader();
-  r.onload = function () {
-    var b64 = String(r.result).split(',')[1] || '';
-    fetch('${APP_BASE}/intake/upload', { method: 'POST', headers: { 'Content-Type': '${UPLOAD_TYPE}' }, credentials: 'same-origin',
-      body: JSON.stringify({ name: f.name, mime: f.type, data_base64: b64, text: ev.target.text.value }) })
-      .then(function (res) { return res.json().then(function (j) { return { ok: res.ok, j: j }; }); })
-      .then(function (o) { if (o.ok && o.j.id) location.href = '${APP_BASE}/intake/item/' + encodeURIComponent(o.j.id); else msg.textContent = o.j.error || 'Upload failed.'; })
-      .catch(function () { msg.textContent = 'Upload failed.'; });
-  };
-  r.readAsDataURL(f);
-});
-</script>`;
+<button>Upload</button> <span id="intake-upload-msg" class="muted" style="font-size:13px"></span></form></details>`;
+  // The upload itself runs in /app/assets/drawbridge.js (shell.ts): no inline script under the CSP.
 
   return `<div class="row" style="margin:4px 0 8px"><h2 style="margin:0">Document intake</h2><span style="flex:1"></span>${
     filing.enabled ? pill('ok', `Filing: ${filing.mode}`) : pill('', 'Filing off')
@@ -383,6 +371,13 @@ export const intakeModule: PlatformModule = {
       res.status(code).send(page(`${title} · Drawbridge`, body, { user: user(req), active: '/intake' }));
     const back = (res: Response, id: string, m: string) => res.redirect(`${APP_BASE}/intake/item/${encodeURIComponent(id)}?m=${encodeURIComponent(m)}`);
 
+    // Access audit: every item screen and action records the item and its matched patient (IDs only).
+    router.param('id', (_req, res, next, id) => {
+      const it = intakeStore().get(String(id));
+      if (it) auditPatient(res, it.match?.patient?.chartPatientId || it.match?.patient?.patientId, `intake_item:${it.id}`);
+      next();
+    });
+
     router.get('/', (req, res) => {
       try {
         const status = INTAKE_STATUSES.includes(req.query.status as IntakeStatus) ? (req.query.status as IntakeStatus) : '';
@@ -468,10 +463,24 @@ export const intakeModule: PlatformModule = {
         res.status(404).send('Not found');
         return;
       }
+      // Integrity (HIPAA 164.312(c)): the original must still match the SHA-256 recorded when it was received.
+      let data: Buffer;
+      try {
+        data = fs.readFileSync(p);
+      } catch {
+        res.status(404).send('Not found');
+        return;
+      }
+      if (sha256(data) !== item.file.sha256) {
+        securityEvent('integrity_failed', { user: user(req), ip: clientIp(req), code: 'ORIGINAL_HASH_MISMATCH', object: `intake_item:${item.id}` });
+        res.status(409).send('This document no longer matches the file that was received. It was not shown. Tell the Drawbridge administrator.');
+        return;
+      }
+      recordExport(req, `intake_original:${item.id}`, item.match?.patient?.chartPatientId || item.match?.patient?.patientId || '');
       res.setHeader('Content-Type', ALLOWED_MIME.has(item.file.mime) ? item.file.mime : 'application/octet-stream');
       res.setHeader('Content-Disposition', `inline; filename="${item.file.name.replace(/["\\]/g, '_')}"`);
       res.setHeader('X-Content-Type-Options', 'nosniff');
-      res.sendFile(p);
+      res.send(data);
     });
 
     const filingAction = (fn: (i: IntakeItem, by: string) => Promise<FilingResult>) => async (req: Request, res: Response) => {
@@ -590,12 +599,9 @@ export const intakeModule: PlatformModule = {
     stopWatchDirs = startWatchFolders(intakeStore, (id) => intakePipeline.enqueue(id));
     const resumed = intakePipeline.resumePending();
     if (resumed) console.log(`[Intake] resumed ${resumed} unfinished document(s)`);
-    const days = Number(process.env.INTAKE_RETENTION_DAYS);
-    try {
-      const removed = intakeStore().pruneFiled(Number.isFinite(days) && days >= 1 ? days : 30);
-      if (removed) console.log(`[Intake] retention: removed ${removed} filed original(s)`);
-    } catch (e: any) {
-      console.error(`[Intake] retention failed: ${e?.code || 'error'}`);
-    }
+    // Originals of filed documents: at startup and daily (INTAKE_RETENTION_DAYS, default 30).
+    startDailyRetention('intake originals', () => intakeStore().pruneFiled(retentionDaysFrom('INTAKE_RETENTION_DAYS')));
+    // Patient details on the records of filed documents (INTAKE_RECORD_RETENTION_DAYS, default 90).
+    startDailyRetention('intake records', () => intakeStore().purgeRecords(retentionDaysFrom('INTAKE_RECORD_RETENTION_DAYS', 90)));
   },
 };

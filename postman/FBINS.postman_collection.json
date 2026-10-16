@@ -127,7 +127,7 @@
               "bearer": [
                 {
                   "key": "token",
-                  "value": "eyJhbGciOiJSUzI1NiIsInR5cCIgOiAiSldUIiwia2lkIiA6ICJHbl9CejcxZEpEbUluOTJRNlNuXzBGVkJYMk5DbjQ1c2kzSTFSOTRubVhBIn0.eyJleHAiOjE3MTUyNzY4MTMsImlhdCI6MTcxNTI3MzIxMywianRpIjoiYjZjZjQ5NTUtNWU4My00Y2E0LThlYjAtNzE1MjhlYzIxODlkIiwiaXNzIjoiaHR0cHM6Ly9rZXljbG9hay5ueHVhdC5iaWxsZXJzLXRhbnp1LWludC5pc2UucG9zLm5ldC9yZWFsbXMvYmlsbGVycyIsImF1ZCI6ImFjY291bnQiLCJzdWIiOiIwMDAwMDAwMC0wMDAwLTAwMDAtMDAwMC0wMDAwMDAwMDAwMDAiLCJ0eXAiOiJCZWFyZXIiLCJhenAiOiJqc3Nkay12YWx1ZW1vbWVudHVtIiwic2Vzc2lvbl9zdGF0ZSI6Ijc3OTQ4Y2Y1LTdhMDUtNDU3Ny1iODU0LTdmOTVkNGJhNzA0YyIsInJlYWxtX2FjY2VzcyI6eyJyb2xlcyI6WyJkZWZhdWx0LXJvbGVzLWJpbGxlcnMiLCJyZWFsbS11c2VyIiwib2ZmbGluZV9hY2Nlc3MiLCJ1bWFfYXV0aG9yaXphdGlvbiJdfSwicmVzb3VyY2VfYWNjZXNzIjp7ImFjY291bnQiOnsicm9sZXMiOlsibWFuYWdlLWFjY291bnQiLCJtYW5hZ2UtYWNjb3VudC1saW5rcyIsInZpZXctcHJvZmlsZSJdfX0sInNjb3BlIjoiIiwic2lkIjoiNzc5NDhjZjUtN2EwNS00NTc3LWI4NTQtN2Y5NWQ0YmE3MDRjIiwiYmlsbGVyIjoiOTY0NTJkOTAtM2Y5OC00MzJiLWIyNzItODJkYmYyYmJhMTc3IiwidXNlcm5hbWUiOiJpbnQudHhjLjk2NDUyZDkwLTNmOTgtNDMyYi1iMjcyLTgyZGJmMmJiYTE3Ny5td3J6aW9zK2FxZGsrbTBlbnAxbHJhPT0ifQ.Om4pDMiXGr2ANIYLbEeib10oVHSx9LNgiEerpneWy_-8YhT1r7PExSvo0jkmss2hnyoAaxTnZmpZCr_t7VY4AtEAKpoMc-Tk4q4NrrMtSXqAY2_oZai8yR8VW8vLl97REpevsKLmB6jrohFJozPJyu04wH6hWAwwgDpJffltkWZZDM1zI342O3mHtih-f6uIaT3vaoxrqZRATXu4N-kCcqq5buUC67hrgqWjWDIRx9pZ3zYWTwWA9nSS0zsbN9lO_UDBs34eSY7P1Gu_QyvGsBF8-A3uhrLOFxacylIm4fZZM29Pwnlf3W97MUIAkft2LPFmT9HgDeSovpHP_B7teg",
+                  "value": "{{fbins_access_token}}",
                   "type": "string"
                 }
               ]
@@ -136,11 +136,11 @@
             "header": [
               {
                 "key": "X-Auth-Key",
-                "value": "6998d6ea-0562-40db-9e41-ae7b39142ad0"
+                "value": "{{api_key}}"
               },
               {
                 "key": "client_secret",
-                "value": "fd52e1e9-a029-404c-b54d-7076f6a7efaa"
+                "value": "{{fbins_client_secret}}"
               },
               {
                 "key": "Content-Transfer-Encoding",
@@ -149,7 +149,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\r\n    \"billingAddress\": {\r\n        \"regionCode\": \"ID\",\r\n        \"postalCode\": \"83201\",\r\n        \"countryCode\": \"US\"\r\n    },\r\n    \"owner\": {\r\n        \"kind\": \"BillerAccountOwner\",\r\n        \"billerAccountId\": \"0125478801\",\r\n        \"billerId\": \"71929b60-84df-4766-b889-f47ed21bfe8f\"\r\n    },\r\n    \"kind\": \"Card\",\r\n    \"cardNumber\": \"4242424242424242\",\r\n    \"securityCode\": \"123\",\r\n    \"singleUse\": false,\r\n    \"expirationDate\": \"0129\",\r\n    \"cardHolderName\": \"zeeshan\",\r\n    \"paymentMethodKind\": \"CreditCard\"\r\n}",
+              "raw": "{\r\n    \"billingAddress\": {\r\n        \"regionCode\": \"ID\",\r\n        \"postalCode\": \"83201\",\r\n        \"countryCode\": \"US\"\r\n    },\r\n    \"owner\": {\r\n        \"kind\": \"BillerAccountOwner\",\r\n        \"billerAccountId\": \"0125478801\",\r\n        \"billerId\": \"71929b60-84df-4766-b889-f47ed21bfe8f\"\r\n    },\r\n    \"kind\": \"Card\",\r\n    \"cardNumber\": \"4242424242424242\",\r\n    \"securityCode\": \"123\",\r\n    \"singleUse\": false,\r\n    \"expirationDate\": \"0129\",\r\n    \"cardHolderName\": \"Test Cardholder\",\r\n    \"paymentMethodKind\": \"CreditCard\"\r\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -256,7 +256,7 @@
               "bearer": [
                 {
                   "key": "token",
-                  "value": "eyJhbGciOiJSUzI1NiIsInR5cCIgOiAiSldUIiwia2lkIiA6ICJHbl9CejcxZEpEbUluOTJRNlNuXzBGVkJYMk5DbjQ1c2kzSTFSOTRubVhBIn0.eyJleHAiOjE3MjY3MzU5MzMsImlhdCI6MTcyNjczMjMzMywianRpIjoiZDkzMjQ2NTYtNzc0Mi00YTJmLWI4OWQtYjljNTZmOWI3ZDQ0IiwiaXNzIjoiaHR0cHM6Ly9rZXljbG9hay5ueHVhdC5iaWxsZXJzLXRhbnp1LWludC5pc2UucG9zLm5ldC9yZWFsbXMvYmlsbGVycyIsImF1ZCI6ImFjY291bnQiLCJzdWIiOiJkNTkxNDUxNy1jOTQwLTQ3NmEtOGI3NC1mYjViYWYwMzMzNjYiLCJ0eXAiOiJCZWFyZXIiLCJhenAiOiJhcGktZmFybS1idXJlYXUtaWRhaG8tbW9hdGl0Iiwic2Vzc2lvbl9zdGF0ZSI6ImEzNmU0YWEzLWIwYWQtNDg0My1hNmE3LWY1ZmQzODVkNDg0MyIsInJlYWxtX2FjY2VzcyI6eyJyb2xlcyI6WyJkZWZhdWx0LXJvbGVzLWJpbGxlcnMiLCJyZWFsbS11c2VyIiwib2ZmbGluZV9hY2Nlc3MiLCJ1bWFfYXV0aG9yaXphdGlvbiJdfSwicmVzb3VyY2VfYWNjZXNzIjp7ImFwaS1mYXJtLWJ1cmVhdS1pZGFoby1tb2F0aXQiOnsicm9sZXMiOlsidW1hX3Byb3RlY3Rpb24iXX0sImFjY291bnQiOnsicm9sZXMiOlsibWFuYWdlLWFjY291bnQiLCJtYW5hZ2UtYWNjb3VudC1saW5rcyIsInZpZXctcHJvZmlsZSJdfX0sInNjb3BlIjoiIiwic2lkIjoiYTM2ZTRhYTMtYjBhZC00ODQzLWE2YTctZjVmZDM4NWQ0ODQzIiwiY2xpZW50SG9zdCI6IjE5Mi4wLjQxLjEwIiwiY2xpZW50QWRkcmVzcyI6IjE5Mi4wLjQxLjEwIiwiY2xpZW50X2lkIjoiYXBpLWZhcm0tYnVyZWF1LWlkYWhvLW1vYXRpdCJ9.ESycihD3heTt_sOlLDTk60r8W7s_YEUx8SjEXVczdj6A3rq0avGI-OrvMP-DBvNV43gzj5YOtTVX8n82vA0NKXuKO8HFpvwGcOYmTyp-4bPYe2kKJlEQtm2_XLjGupIsiiU8DQ-kuBhz4Rw9X0O1YXXEj1kGi2nEJJc2hZnyiKe4ePgBPPJwcVw3sgHgzpsiADqNqDyu3fsUp5dXuY0-HEX8NWmjKTCO358IkK_ftonnuRvvqOvpWbgX123B6qHWKOTDRC7XK8-kWgo4txiNEV2Y-e1tDY-4bgJjRMGG8CwDCp0O6SrVhWDEIm1qMlOJY1D8CI6ofnF8CTSeY9jJbQ",
+                  "value": "{{fbins_access_token}}",
                   "type": "string"
                 }
               ]
@@ -331,7 +331,7 @@
               "bearer": [
                 {
                   "key": "token",
-                  "value": "eyJhbGciOiJSUzI1NiIsInR5cCIgOiAiSldUIiwia2lkIiA6ICJHbl9CejcxZEpEbUluOTJRNlNuXzBGVkJYMk5DbjQ1c2kzSTFSOTRubVhBIn0.eyJleHAiOjE3MTUyNzIwMzcsImlhdCI6MTcxNTI2ODQzNywianRpIjoiODVmOTk3ODQtMjRiMC00YmI3LWFhM2YtZjYwNDg1ZGM5YjAzIiwiaXNzIjoiaHR0cHM6Ly9rZXljbG9hay5ueHVhdC5iaWxsZXJzLXRhbnp1LWludC5pc2UucG9zLm5ldC9yZWFsbXMvYmlsbGVycyIsImF1ZCI6ImFjY291bnQiLCJzdWIiOiIyZTdhZDBhMC1mMjZmLTRkMjEtYmUyOS1lMGQ0YmMxNTA2YTQiLCJ0eXAiOiJCZWFyZXIiLCJhenAiOiJhcGktZmFybS1idXJlYXUtaWRhaG8tdm0iLCJzZXNzaW9uX3N0YXRlIjoiZTk3NDdkYjUtMjAxNi00ZWYwLWE2YmMtZjIzNGI4MmM0NzQ5IiwicmVhbG1fYWNjZXNzIjp7InJvbGVzIjpbImRlZmF1bHQtcm9sZXMtYmlsbGVycyIsInJlYWxtLXVzZXIiLCJvZmZsaW5lX2FjY2VzcyIsInVtYV9hdXRob3JpemF0aW9uIl19LCJyZXNvdXJjZV9hY2Nlc3MiOnsiYXBpLWZhcm0tYnVyZWF1LWlkYWhvLXZtIjp7InJvbGVzIjpbInVtYV9wcm90ZWN0aW9uIl19LCJhY2NvdW50Ijp7InJvbGVzIjpbIm1hbmFnZS1hY2NvdW50IiwibWFuYWdlLWFjY291bnQtbGlua3MiLCJ2aWV3LXByb2ZpbGUiXX19LCJzY29wZSI6IiIsInNpZCI6ImU5NzQ3ZGI1LTIwMTYtNGVmMC1hNmJjLWYyMzRiODJjNDc0OSIsImNsaWVudEhvc3QiOiIxOTIuMC44LjI1IiwiY2xpZW50QWRkcmVzcyI6IjE5Mi4wLjguMjUiLCJjbGllbnRfaWQiOiJhcGktZmFybS1idXJlYXUtaWRhaG8tdm0ifQ.olU9ciii0mNaIj7j4KgClkbUkf_3KRibuWW--KVaVMbkr2jz2tgwBR61OrMiA67h8q5j3xuUfjX2CB2JLTgNoy1BW_oK4WiJvhlY_BktBCU-o4erpgCjbz7ictCGOpL65lw9YOaJ9SzAP-T4jLEWCgrFsjJwroOr9RfW2j33uwfdyLoOAh7FV3-qwrC9BobMZTurzOp9F0YT9DmLi6okOqy7G_o6KxJ8LWsUCLOb63JEqkDukShZeqOdOjHrQa9lqNv8TsQc6upeWVoJu_J43kIAq7nB9FZzxZYTNLbZnggMwCxx8lKw7gKoJEsWJQ5hNdNRMdhXYbQC8OUNhrXfxQ",
+                  "value": "{{fbins_access_token}}",
                   "type": "string"
                 }
               ]
@@ -340,7 +340,7 @@
             "header": [
               {
                 "key": "X-Auth-Key",
-                "value": "8ce29982-958f-4925-bafd-e4a1ccb9d238"
+                "value": "{{api_key}}"
               },
               {
                 "key": "grant_type",
@@ -348,7 +348,7 @@
               }
             ],
             "url": {
-              "raw": "{{base_url}}/funding-account/v4/billeraccounts/96452d90-3f98-432b-b272-82dbf2bba177/fundingaccounts/853e07642bd130e7bd8671915490dcd57012aeb006e406d1fe7fa28dab553e31",
+              "raw": "{{base_url}}/funding-account/v4/billeraccounts/96452d90-3f98-432b-b272-82dbf2bba177/fundingaccounts/{{fbins_biller_account_id}}",
               "host": [
                 "{{base_url}}"
               ],
@@ -358,7 +358,7 @@
                 "billeraccounts",
                 "96452d90-3f98-432b-b272-82dbf2bba177",
                 "fundingaccounts",
-                "853e07642bd130e7bd8671915490dcd57012aeb006e406d1fe7fa28dab553e31"
+                "{{fbins_biller_account_id}}"
               ]
             }
           },
@@ -389,7 +389,7 @@
               "bearer": [
                 {
                   "key": "token",
-                  "value": "eyJhbGciOiJSUzI1NiIsInR5cCIgOiAiSldUIiwia2lkIiA6ICJHbl9CejcxZEpEbUluOTJRNlNuXzBGVkJYMk5DbjQ1c2kzSTFSOTRubVhBIn0.eyJleHAiOjE3MTUyNzY5NDMsImlhdCI6MTcxNTI3MzM0MywianRpIjoiMGIwYjJjY2QtMjYyMi00ZjUzLTk4MTEtZDVhNWRhYTQxNDNlIiwiaXNzIjoiaHR0cHM6Ly9rZXljbG9hay5ueHVhdC5iaWxsZXJzLXRhbnp1LWludC5pc2UucG9zLm5ldC9yZWFsbXMvYmlsbGVycyIsImF1ZCI6ImFjY291bnQiLCJzdWIiOiIyZTdhZDBhMC1mMjZmLTRkMjEtYmUyOS1lMGQ0YmMxNTA2YTQiLCJ0eXAiOiJCZWFyZXIiLCJhenAiOiJhcGktZmFybS1idXJlYXUtaWRhaG8tdm0iLCJzZXNzaW9uX3N0YXRlIjoiMzNlZWU4ZjctODcyYy00MzNiLTk1YzAtZjY5MjlkMmJlYzcwIiwicmVhbG1fYWNjZXNzIjp7InJvbGVzIjpbImRlZmF1bHQtcm9sZXMtYmlsbGVycyIsInJlYWxtLXVzZXIiLCJvZmZsaW5lX2FjY2VzcyIsInVtYV9hdXRob3JpemF0aW9uIl19LCJyZXNvdXJjZV9hY2Nlc3MiOnsiYXBpLWZhcm0tYnVyZWF1LWlkYWhvLXZtIjp7InJvbGVzIjpbInVtYV9wcm90ZWN0aW9uIl19LCJhY2NvdW50Ijp7InJvbGVzIjpbIm1hbmFnZS1hY2NvdW50IiwibWFuYWdlLWFjY291bnQtbGlua3MiLCJ2aWV3LXByb2ZpbGUiXX19LCJzY29wZSI6IiIsInNpZCI6IjMzZWVlOGY3LTg3MmMtNDMzYi05NWMwLWY2OTI5ZDJiZWM3MCIsImNsaWVudEhvc3QiOiIxOTIuMC44LjI1IiwiY2xpZW50QWRkcmVzcyI6IjE5Mi4wLjguMjUiLCJjbGllbnRfaWQiOiJhcGktZmFybS1idXJlYXUtaWRhaG8tdm0ifQ.ldXLOpp1BbC4cQVvxooqrETB9HoNGDb9qVp4tdltFs6MJBSJ2UWdFiC9uBBCCweirKIIQCP1WwoPe2qz6AZ91ukJW0IE_GTwW9DOwVCE3904X6_8Hew80CjQ17vWtT6TQ8eNGC0SOBxnbPsPcHzH5Ws4HbZBu4eIue9mk1jVBbXvrg36qZMgih1Zs_9hVuuewAbK-ToUGTiw7CvkQX4ORJdf4s8foqypCq9e7MrWoiiiU0CWFniaW4rcHkqQhfSqmE4P7TM-rUyTAMR2-baMV4ZKId25MpoThF9AhDTDfZO7jaETnTWmCKkxQrby1Qj2sRXtWJgkY-lQnT2sU6NuZg",
+                  "value": "{{fbins_access_token}}",
                   "type": "string"
                 }
               ]
@@ -402,16 +402,16 @@
               },
               {
                 "key": "client_id",
-                "value": "api-farm-bureau-idaho-vm"
+                "value": "{{fbins_client_id}}"
               },
               {
                 "key": "X-Auth-Key",
-                "value": "8ce29982-958f-4925-bafd-e4a1ccb9d238"
+                "value": "{{api_key}}"
               }
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\r\n\t\"accountPayments\": [\r\n\t\t{\r\n\t\t\t\"billerAccount\": {\r\n\t\t\t\t\"billerAccountId\": \"0800456901\",\r\n\t\t\t\t\"billerId\": \"96452d90-3f98-432b-b272-82dbf2bba177\"\r\n\t\t\t},\r\n\t\t\t\"customFields\": [\r\n                {\r\n\t\t\t\t\t\"id\": 2,\r\n\t\t\t\t\t\"value\": \"Sample Description\"\r\n\t\t\t\t},\r\n\t\t\t\t{\r\n\t\t\t\t\t\"id\": 5,\r\n\t\t\t\t\t\"value\": \"PolicyCenter\"\r\n\t\t\t\t},\r\n                {\r\n\t\t\t\t\t\"id\": 6,\r\n\t\t\t\t\t\"value\": \"John Smith\"\r\n\t\t\t\t}\r\n\t\t\t],\r\n\t\t\t\"ordinal\": 1,\r\n\t\t\t\"principalAmount\": {\r\n\t\t\t\t\"currencyCode\": \"USD\",\r\n\t\t\t\t\"precision\": 2,\r\n\t\t\t\t\"value\": 85800\r\n\t\t\t},\r\n\t\t\t\"serviceFeeAmount\": {\r\n\t\t\t\t\"currencyCode\": \"USD\",\r\n\t\t\t\t\"precision\": 2,\r\n\t\t\t\t\"value\": 1500.0\r\n\t\t\t}\r\n\t\t}\r\n\t],\r\n\t\"fundingAccount\": {\r\n\t\t\"token\": \"ac02ffbb2e86b75690d046dbd05bc5b5c12cd52da4abc062a89cd8f8560b3f77\"\r\n\t},\r\n\t\"id\": \"09995083-7b60-4baa-a7f2-129604cad176\",\r\n\t\"origination\": {\r\n\t\t\"originator\": {\r\n\t\t\t\"id\": \"ca7243e8-deeb-4177-ac19-ffc261b9ab4c\",\r\n\t\t\t\"kind\": \"User\"\r\n\t\t},\r\n\t\t\"paymentChannelKind\": \"Web\",\r\n\t\t\"paymentOption\": {\r\n\t\t\t\"kind\": \"OneTimeNow\"\r\n\t\t}\r\n\t},\r\n\t\"payer\": {\r\n\t\t\"address\": {\r\n\t\t\t\"city\": \"Pocatello\",\r\n\t\t\t\"countryCode\": \"US\",\r\n\t\t\t\"lines\": [\r\n\t\t\t\t\"9274 N Connell Rd\"\r\n\t\t\t],\r\n\t\t\t\"postalCode\": \"83201-4700\",\r\n\t\t\t\"regionCode\": \"ID\"\r\n\t\t},\r\n\t\t\"emailAddress\": \"qawizpro@idfbins.com\",\r\n\t\t\"firstName\": \"Adam\",\r\n\t\t\"kind\": \"NonEnrolledIndividual\",\r\n\t\t\"lastName\": \"Waldron\",\r\n\t\t\"middleName\": \"Trent\",\r\n\t\t\"phoneNumbers\": [\r\n\t\t\t{\r\n\t\t\t\t\"allowSms\": true,\r\n\t\t\t\t\"kind\": \"Mobile\",\r\n\t\t\t\t\"number\": \"5555555555\"\r\n\t\t\t}\r\n\t\t]\r\n\t},\r\n\t\"paymentDate\": \"2024-05-09\"\r\n}"
+              "raw": "{\r\n\t\"accountPayments\": [\r\n\t\t{\r\n\t\t\t\"billerAccount\": {\r\n\t\t\t\t\"billerAccountId\": \"0800456901\",\r\n\t\t\t\t\"billerId\": \"96452d90-3f98-432b-b272-82dbf2bba177\"\r\n\t\t\t},\r\n\t\t\t\"customFields\": [\r\n                {\r\n\t\t\t\t\t\"id\": 2,\r\n\t\t\t\t\t\"value\": \"Sample Description\"\r\n\t\t\t\t},\r\n\t\t\t\t{\r\n\t\t\t\t\t\"id\": 5,\r\n\t\t\t\t\t\"value\": \"PolicyCenter\"\r\n\t\t\t\t},\r\n                {\r\n\t\t\t\t\t\"id\": 6,\r\n\t\t\t\t\t\"value\": \"John Smith\"\r\n\t\t\t\t}\r\n\t\t\t],\r\n\t\t\t\"ordinal\": 1,\r\n\t\t\t\"principalAmount\": {\r\n\t\t\t\t\"currencyCode\": \"USD\",\r\n\t\t\t\t\"precision\": 2,\r\n\t\t\t\t\"value\": 85800\r\n\t\t\t},\r\n\t\t\t\"serviceFeeAmount\": {\r\n\t\t\t\t\"currencyCode\": \"USD\",\r\n\t\t\t\t\"precision\": 2,\r\n\t\t\t\t\"value\": 1500.0\r\n\t\t\t}\r\n\t\t}\r\n\t],\r\n\t\"fundingAccount\": {\r\n\t\t\"token\": \"{{fbins_token}}\"\r\n\t},\r\n\t\"id\": \"09995083-7b60-4baa-a7f2-129604cad176\",\r\n\t\"origination\": {\r\n\t\t\"originator\": {\r\n\t\t\t\"id\": \"ca7243e8-deeb-4177-ac19-ffc261b9ab4c\",\r\n\t\t\t\"kind\": \"User\"\r\n\t\t},\r\n\t\t\"paymentChannelKind\": \"Web\",\r\n\t\t\"paymentOption\": {\r\n\t\t\t\"kind\": \"OneTimeNow\"\r\n\t\t}\r\n\t},\r\n\t\"payer\": {\r\n\t\t\"address\": {\r\n\t\t\t\"city\": \"Pocatello\",\r\n\t\t\t\"countryCode\": \"US\",\r\n\t\t\t\"lines\": [\r\n\t\t\t\t\"9274 N Connell Rd\"\r\n\t\t\t],\r\n\t\t\t\"postalCode\": \"83201-4700\",\r\n\t\t\t\"regionCode\": \"ID\"\r\n\t\t},\r\n\t\t\"emailAddress\": \"qawizpro@idfbins.com\",\r\n\t\t\"firstName\": \"Adam\",\r\n\t\t\"kind\": \"NonEnrolledIndividual\",\r\n\t\t\"lastName\": \"Waldron\",\r\n\t\t\"middleName\": \"Trent\",\r\n\t\t\"phoneNumbers\": [\r\n\t\t\t{\r\n\t\t\t\t\"allowSms\": true,\r\n\t\t\t\t\"kind\": \"Mobile\",\r\n\t\t\t\t\"number\": \"5555555555\"\r\n\t\t\t}\r\n\t\t]\r\n\t},\r\n\t\"paymentDate\": \"2024-05-09\"\r\n}"
             },
             "url": {
               "raw": "{{base_url}}/transaction/v6/payments",
@@ -569,7 +569,7 @@
               },
               {
                 "key": "Authorization",
-                "value": "Basic dmF1bHRfdjFfK0c3NTVwRTZDeFlOcjdNbWJkNnoxUkxqQnRzQzVtbC9ZRnFkcDl1eG9saXQyWlU5SG1RdnhzK0toUT09OnZhdWx0X3YxXytNcDdFRWN6WXB5T25idE16dnM3YnRHMlNnY0dvOXBqUUxtNnAvRHJ1ZTVwc1MrMEhORWRjT1gxcnJuRk9qdz0="
+                "value": "Basic {{fbins_authorization}}"
               }
             ],
             "body": {
@@ -620,12 +620,12 @@
               "basic": [
                 {
                   "key": "username",
-                  "value": "vault_v1_+G755pE6CxYNr7Mmbd6z1RLjBtsC5ml/YFqdp9uxolit2ZU9HmQvxs+KhQ==",
+                  "value": "{{fbins_username}}",
                   "type": "string"
                 },
                 {
                   "key": "password",
-                  "value": "vault_v1_+Mp7EEczYpyOnbtMzvs7btG2SgcGo9pjQLm6p/Drue5psS+0HNEdcOX1rrnFOjw=",
+                  "value": "{{fbins_password}}",
                   "type": "string"
                 }
               ]
@@ -681,12 +681,12 @@
               "basic": [
                 {
                   "key": "username",
-                  "value": "vault_v1_+G755pE6CxYNr7Mmbd6z1RLjBtsC5ml/YFqdp9uxolit2ZU9HmQvxs+KhQ==",
+                  "value": "{{fbins_username}}",
                   "type": "string"
                 },
                 {
                   "key": "password",
-                  "value": "vault_v1_+Mp7EEczYpyOnbtMzvs7btG2SgcGo9pjQLm6p/Drue5psS+0HNEdcOX1rrnFOjw=",
+                  "value": "{{fbins_password}}",
                   "type": "string"
                 }
               ]
@@ -1039,12 +1039,12 @@
               "basic": [
                 {
                   "key": "username",
-                  "value": "vault_v1_3BVKSyfRIzN2JJ88VNFKgh2kRxNaj1JhOy4nsM3QH5YJuU3o/c3HtrTM",
+                  "value": "{{fbins_username}}",
                   "type": "string"
                 },
                 {
                   "key": "password",
-                  "value": "vault_v1_PVxu/nDK+/n3yel8wMvwNeniWAwiitopI7NGg+YihvY6C2UlbumzVbbtrIXM7M8=",
+                  "value": "{{fbins_password}}",
                   "type": "string"
                 }
               ]

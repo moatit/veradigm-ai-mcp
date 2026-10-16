@@ -101,10 +101,11 @@ export class ErrorHandler {
       ? `[${context}] ${error.code}: ${error.message}`
       : `${error.code}: ${error.message}`;
 
+    // Code and message only: details hold raw FHIR replies and stacks, which can carry patient data.
     if (error.code === 'AUTH_ERROR' || error.code === 'FHIR_ERROR') {
-      console.error(logMessage, error.details);
+      console.error(logMessage);
     } else {
-      console.warn(logMessage, error.details);
+      console.warn(logMessage);
     }
   }
 

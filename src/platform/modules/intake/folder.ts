@@ -1,6 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { IntakeStore } from './store';
+import { envSeconds } from '../../clinic';
 
 /**
  * Drop-folder watcher: emailed results, scans and files from other systems.
@@ -21,7 +22,8 @@ export const DROP_TYPES: Record<string, string> = {
   '.jpg': 'image/jpeg',
   '.jpeg': 'image/jpeg',
 };
-export const SCAN_INTERVAL_MS = 30_000;
+/** Folder scan interval: INTAKE_SCAN_INTERVAL_SEC (default 30, at least 5). */
+export const scanIntervalMs = (): number => envSeconds('INTAKE_SCAN_INTERVAL_SEC', 30, 5) * 1000;
 export const MIN_AGE_MS = 10_000;
 
 export const dropDir = (): string => process.env.INTAKE_DROP_DIR || '/app/intake/inbox';
@@ -176,13 +178,13 @@ export function startWatchFolders(store: () => IntakeStore, onAdded: (id: string
       running = false;
     }
   };
-  const timer = setInterval(tick, SCAN_INTERVAL_MS);
+  const timer = setInterval(tick, scanIntervalMs());
   timer.unref?.();
   setTimeout(tick, 3_000).unref?.();
   return () => clearInterval(timer);
 }
 
-/** Start the 30 s watcher. Returns a stop function. */
+/** Start the drop-folder watcher (every INTAKE_SCAN_INTERVAL_SEC, default 30 s). Returns a stop function. */
 export function startFolderWatcher(store: () => IntakeStore, onAdded: (id: string) => void, dir: string = dropDir()): () => void {
   let running = false;
   const tick = () => {
@@ -200,7 +202,7 @@ export function startFolderWatcher(store: () => IntakeStore, onAdded: (id: strin
       running = false;
     }
   };
-  const timer = setInterval(tick, SCAN_INTERVAL_MS);
+  const timer = setInterval(tick, scanIntervalMs());
   timer.unref?.();
   setTimeout(tick, 2_000).unref?.();
   return () => clearInterval(timer);

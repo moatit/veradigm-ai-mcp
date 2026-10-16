@@ -10,6 +10,7 @@ export type UnityErrorCode =
   | 'SERVER_ERROR'
   | 'NETWORK_ERROR'
   | 'TIMEOUT_ERROR'
+  | 'APPOINTMENT_TYPE_NOT_ALLOWED'
   | 'UNKNOWN_ERROR';
 
 /**
@@ -176,9 +177,7 @@ export class UnityErrorHandler {
       console.error(`${logPrefix} Action: ${error.action}`);
     }
     
-    if (error.details) {
-      console.error(`${logPrefix} Details:`, JSON.stringify(error.details, null, 2));
-    }
+    // Details (the raw Unity reply) are not logged: they can carry patient data.
   }
 }
 

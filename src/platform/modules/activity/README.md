@@ -33,16 +33,14 @@ Handles `call_started`, `call_ended` and `call_analyzed` (other events get a 204
 
 ## Webhook verification: what to configure
 
-`retell-sdk` is not installed, and installing it needs network, so Drawbridge cannot use Retell's own `Retell.verify()` today. We did not reimplement Retell's signature scheme from memory. The endpoint accepts a request when either of these holds:
+Both Retell webhooks (`/webhooks/retell` call events and `/webhooks/retell-inbound`) use the same check (`retell-signature.ts`, Retell's documented scheme, no SDK needed). A request is accepted when either of these holds:
 
-1. **Shared secret (works today).** `RETELL_WEBHOOK_SECRET` is set and the request carries the same value in the header `x-drawbridge-webhook-secret`. Nothing goes in the URL or query string.
-2. **Retell signature (automatic once the SDK is installed).** `RETELL_API_KEY` is set, `retell-sdk` is installed (`npm i retell-sdk`), and `Retell.verify(rawBody, RETELL_API_KEY, x-retell-signature)` passes. No code change is needed. The module loads the SDK when it's present and checks the raw request body.
+1. **Retell signature.** `x-retell-signature: v=<ms timestamp>,d=<hex>` where the digest is HMAC-SHA256 of the raw request body followed by the timestamp, keyed with the Retell API key that has the **"webhook" badge** (Retell dashboard, Settings, API Keys). Retell signs webhooks only with that key, and it may not be the key in `RETELL_API_KEY`. Set it as `RETELL_WEBHOOK_API_KEY`. When that is unset, `RETELL_API_KEY` is used. The timestamp must be within 5 minutes, the digest is compared in constant time, and it is computed over the exact bytes received (`express.raw` on the route, mounted before the app-wide JSON parser), never over re-serialized JSON.
+2. **Shared secret (relays and tests).** `RETELL_WEBHOOK_SECRET` is set and the request carries the same value in the header `x-drawbridge-webhook-secret`. Nothing goes in the URL or query string.
 
-If neither is configured, the endpoint returns **503** and stores nothing. A failed check returns **401**.
+If neither is configured, the endpoint returns **503** and stores nothing. A failed check returns **401** (body `{"error":"bad signature"}`), records a `webhook_rejected` security event, and logs the reason on the server: `missing signature`, `bad signature format`, `stale timestamp (Ns off)`, `digest mismatch (verified with RETELL_API_KEY | RETELL_WEBHOOK_API_KEY)` or `shared secret mismatch`. The key, the signature and the body are never logged. A `digest mismatch` with a fresh timestamp almost always means the wrong key: put the webhook-badged key in `RETELL_WEBHOOK_API_KEY`.
 
-**In Retell:** set the agent's (or account's) webhook URL to `https://drawbridge.moatit.dev/webhooks/retell`.
-- If Retell lets you add a custom header to the webhook, add `x-drawbridge-webhook-secret: <RETELL_WEBHOOK_SECRET>`.
-- If it doesn't, Retell can't pass the shared-secret check. Install `retell-sdk` and set `RETELL_API_KEY` (option 2), or have a relay you control add the header and post to `/api/activity/retell-events` with `x-drawbridge-key`.
+**In Retell:** set the agent's (or account's) webhook URL to `https://drawbridge.moatit.dev/webhooks/retell`. Alternatively, have a relay you control post to `/api/activity/retell-events` with `x-drawbridge-key`.
 
 Until one of these is set up, call events don't arrive. The audit log and the Activity tool-call screens still work, because they depend only on tool calls.
 
@@ -51,9 +49,10 @@ Until one of these is set up, call events don't arrive. The audit log and the Ac
 | Variable | Default | Purpose |
 |---|---|---|
 | `AUDIT_DIR` | `CALL_RECORDS_DIR`, else `./data` | Base directory for `audit/*.jsonl` and `calls.json`. Both containers must point at the same volume (`/app/data` in `deploy/local`). |
-| `AUDIT_RETENTION_DAYS` | `30` | Delete audit day files and calls-index entries older than this. |
-| `RETELL_WEBHOOK_SECRET` | unset (webhook closed) | Shared secret expected in `x-drawbridge-webhook-secret`. |
-| `RETELL_API_KEY` | unset | Used for `x-retell-signature` verification only when `retell-sdk` is installed. |
+| `AUDIT_RETENTION_DAYS` | `2190` (6 years) | Delete audit day files and calls-index entries older than this. |
+| `RETELL_WEBHOOK_API_KEY` | unset (falls back to `RETELL_API_KEY`) | The Retell API key with the "webhook" badge (Retell dashboard, Settings, API Keys). Verifies `x-retell-signature` on both Retell webhooks. |
+| `RETELL_API_KEY` | unset | Retell API calls (outbound dialer). Verifies webhooks only when `RETELL_WEBHOOK_API_KEY` is unset. |
+| `RETELL_WEBHOOK_SECRET` | unset | Optional shared secret expected in `x-drawbridge-webhook-secret` (relays, tests). |
 | `CLINIC_TIMEZONE` | `America/Boise` | Decides which day file a call lands in. Set it the same in both containers. |
 
 Secrets go in `.env` only.

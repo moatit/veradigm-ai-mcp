@@ -1,0 +1,16 @@
+{
+ "realtime": {
+  "agent_name": "drawbridge-v7-realtime",
+  "agent_id": "agent_7fa79d60e90548f4a5a7e5c30a",
+  "llm_id": "llm_20cb3605f31783a510ddc33756fa",
+  "agent_version": 0,
+  "published": false
+ },
+ "cascade": {
+  "agent_name": "drawbridge-v7-cascade",
+  "agent_id": "agent_243e4907285fbfc2386832f3d8",
+  "llm_id": "llm_7da26d4f3f8d7057a74a9fb714a8",
+  "agent_version": 0,
+  "published": false
+ }
+}

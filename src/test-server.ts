@@ -1,6 +1,5 @@
 #!/usr/bin/env node
 
-import cors from "cors";
 import express from "express";
 import { config } from "./config/environment";
 import {
@@ -19,21 +18,19 @@ import { ProviderTools } from "./tools/provider.tools";
 import { ErrorHandler } from "./utils/error-handler";
 import { failureText, toVoiceSummary } from "./utils/response-formatter";
 import { markRedacted } from "./utils/redaction";
-import { requireToolKey } from "./platform/app";
-import { auditToolCall } from "./platform/audit";
+import { requireAgentKey, requireToolKey } from "./platform/app";
+import { corsFromEnv } from "./platform/cors";
+import { auditToolCall, setDefaultAuditServer } from "./platform/audit";
+import { forAgent } from "./utils/minimum-necessary";
+import { withCallBinding } from "./platform/call-binding";
 import { DISABLED_FHIR_TOOLS, disabledToolMessage } from "./config/disabled-tools";
+import { errorSummary } from "./utils/safe-log";
 
 const app = express();
 
-// Enable CORS for Retell AI and other external services
-app.use(
-  cors({
-    origin: "*",
-    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With"],
-    credentials: false,
-  }),
-);
+// CORS only for origins in DRAWBRIDGE_CORS_ORIGINS (default none: same origin only). Retell calls server to server.
+app.disable("x-powered-by");
+app.use(corsFromEnv());
 
 app.use(express.json());
 
@@ -47,6 +44,41 @@ app.use((req, res, next) => {
     console.log(`[${new Date().toISOString()}] ${req.method} ${req.path} ${tool}`);
     return originalJson(body);
   };
+  next();
+});
+
+// Every route that lists tools, returns patient data or acts on it needs the tool key (fails closed when unset).
+// Only /health stays open.
+// POST /api/retell (the phone agent) takes its own key instead (requireAgentKey: DRAWBRIDGE_AGENT_KEY, else this one).
+app.use(["/mcp", "/tools", "/test", "/api"], (req, res, next) =>
+  req.baseUrl === "/api" && req.path === "/retell" ? next() : requireToolKey(req, res, next),
+);
+
+// Audit lines and security events from this process belong to the FHIR server's hash chain.
+setDefaultAuditServer("fhir");
+
+/**
+ * REST convenience and test routes (/api/patient/..., /api/medication?patientId=..., /test/...): they put patient
+ * IDs in URLs and return full records, so they are off in production (404) unless DRAWBRIDGE_FHIR_REST_ROUTES=on,
+ * and every request to them is audited (HIPAA 164.312(b)). The agent uses POST /api/retell and the MCP routes.
+ */
+const restRoutesEnabled = (): boolean => {
+  const v = String(process.env.DRAWBRIDGE_FHIR_REST_ROUTES || "").trim().toLowerCase();
+  if (v) return /^(1|true|on|yes)$/.test(v);
+  return String(process.env.NODE_ENV || "").trim().toLowerCase() !== "production";
+};
+app.use(["/test", "/api"], (req, res, next) => {
+  if (req.baseUrl === "/api" && req.path === "/retell") return next();
+  if (!restRoutesEnabled()) {
+    res.status(404).json({ error: "not found" });
+    return;
+  }
+  const t0 = Date.now();
+  const path = `${req.baseUrl}${req.path}`;
+  const patientId = (typeof req.query.patientId === "string" && req.query.patientId) || path.match(/^\/api\/patient\/(?!search$|verify$)([^/]+)$/)?.[1] || req.body?.patientId || "";
+  res.on("finish", () =>
+    auditToolCall({ server: "fhir", tool: "fhir_rest", patientId, success: res.statusCode < 400, errorCode: res.statusCode >= 400 ? `HTTP_${res.statusCode}` : undefined, latencyMs: Date.now() - t0, channel: "rest", object: path })
+  );
   next();
 });
 
@@ -71,8 +103,19 @@ function listFhirTools() {
   ].filter((t) => !DISABLED_FHIR_TOOLS.has(t.name));
 }
 
-// Shared tool executor for all endpoints. Every call is audited (spec §4 rule 8): metadata only, async, never throws.
+/**
+ * Shared tool executor for all agent endpoints. Identity before information, server side: patient-scoped tools
+ * only for a patient verified on this call with verify_patient_identity, keyed by the Retell call ID
+ * (src/platform/call-binding.ts); a request without a call ID cannot open a patient record.
+ */
 async function executeFhirTool(name: string, args: any, audit: { callId?: string; channel?: string } = {}): Promise<any> {
+  return withCallBinding(name, args || {}, { server: "fhir", callId: audit.callId, channel: audit.channel || "http" }, (checked) =>
+    executeFhirToolChecked(name, checked, audit),
+  );
+}
+
+// Every call is audited (spec §4 rule 8): metadata only, async, never throws.
+async function executeFhirToolChecked(name: string, args: any, audit: { callId?: string; channel?: string } = {}): Promise<any> {
   const t0 = Date.now();
   const record = (success: boolean, errorCode?: string) =>
     auditToolCall({ server: "fhir", tool: name, args, callId: audit.callId, success, errorCode, latencyMs: Date.now() - t0, channel: audit.channel || "http" });
@@ -82,7 +125,8 @@ async function executeFhirTool(name: string, args: any, audit: { callId?: string
     }
     const result = markRedacted(await runFhirTool(name, args));
     record(!(result?.success === false), result?.success === false ? result?.error_code : undefined);
-    return result;
+    // Every caller of this function is an agent endpoint: minimum necessary (src/utils/minimum-necessary.ts).
+    return forAgent(name, args, result);
   } catch (error) {
     record(false, ErrorHandler.handleUnknownError(error).code);
     throw error;
@@ -126,11 +170,10 @@ async function runFhirTool(name: string, args: any): Promise<any> {
 }
 
 // Health check endpoint
+// Open, so it says nothing about the Veradigm endpoint or environment.
 app.get("/health", (req, res) => {
   res.json({
     status: "healthy",
-    environment: config.nodeEnv,
-    fhirBaseUrl: config.fhirBaseUrl,
     timestamp: new Date().toISOString(),
   });
 });
@@ -361,7 +404,7 @@ app.post("/", requireToolKey, async (req, res): Promise<void> => {
         message: fhirError.message,
         data: {
           code: fhirError.code,
-          details: fhirError.details,
+          // never details: they hold the stack and the raw FHIR reply
           timestamp: fhirError.timestamp,
         },
       },
@@ -431,7 +474,7 @@ app.post("/mcp/tools/call", async (req, res) => {
 
     let result: any;
 
-    result = await executeFhirTool(name, args || {});
+    result = await executeFhirTool(name, args || {}, { callId: (req.headers["x-call-id"] as string) || undefined, channel: "mcp" });
 
     const wantBrief =
       (req.headers["x-response-format"] as string) === "brief" ||
@@ -484,7 +527,7 @@ app.post("/tools/call", async (req, res) => {
 
     let result: any;
 
-    result = await executeFhirTool(name, args || {});
+    result = await executeFhirTool(name, args || {}, { callId: (req.headers["x-call-id"] as string) || undefined, channel: "mcp" });
 
     const wantBrief =
       (req.headers["x-response-format"] as string) === "brief" ||
@@ -538,7 +581,7 @@ app.post("/tools/call", async (req, res) => {
 // Preferred over MCP because custom functions have the
 // "Speak After Execution" toggle in the Retell dashboard.
 // ═══════════════════════════════════════════════════════════════
-app.post("/api/retell", requireToolKey, async (req, res): Promise<void> => {
+app.post("/api/retell", requireAgentKey, async (req, res): Promise<void> => {
   const { name, args, call } = req.body;
   const t0 = Date.now();
   const requestTime = new Date();
@@ -591,7 +634,7 @@ app.post("/test/search-patient", async (req, res) => {
     const result = await patientTools.searchPatient({ name, birthDate });
     res.json(result);
   } catch (error: any) {
-    console.error("Error in patient search:", error);
+    console.error(`Error in patient search: ${errorSummary(error)}`);
     res
       .status(500)
       .json({ error: "Failed to search patients", details: error.message });
@@ -605,7 +648,7 @@ app.post("/test/patient-details", async (req, res) => {
     const result = await patientTools.getPatientDetails({ patientId });
     res.json(result);
   } catch (error: any) {
-    console.error("Error getting patient details:", error);
+    console.error(`Error getting patient details: ${errorSummary(error)}`);
     res
       .status(500)
       .json({ error: "Failed to get patient details", details: error.message });
@@ -623,7 +666,7 @@ app.get("/test/auth", async (req, res) => {
       timestamp: new Date().toISOString(),
     });
   } catch (error: any) {
-    console.error("Error testing authentication:", error);
+    console.error(`Error testing authentication: ${errorSummary(error)}`);
     res.status(500).json({
       error: "Authentication failed",
       details: error.message,

@@ -1,7 +1,8 @@
 import axios, { AxiosResponse } from 'axios';
 import { unityConfig } from '../config/environment';
 import { unityEndpoints, UnityActions, UnityTargetSystem } from '../config/unity-endpoints';
-import { UnityAuthService, unityLogin } from './unity-auth.service';
+import { isTokenRejection, UnityAuthService, unityLogin } from './unity-auth.service';
+import { isServerSideError, isUnexpectedUnityError } from './unity-diagnostics';
 
 /**
  * Unity Magic Request Parameters
@@ -54,9 +55,35 @@ export class UnityAPIError extends Error {
  * Wrapper for Unity MagicJson API calls.
  * Handles authentication, request formatting, and response parsing.
  */
+/** Called when an action fails on Veradigm's side (diagnostics: LastLogs). Must not throw or block. */
+export type ServerErrorHook = (action: string, target: UnityTargetSystem, code: string) => unknown;
+
+/**
+ * Called after every action (system status: a real success brings a DOWN system back UP, an
+ * infrastructure failure asks for an early health probe). `code` is the error class, never message text.
+ * Must not throw or block.
+ */
+export type OutcomeHook = (action: string, target: UnityTargetSystem, ok: boolean, code: string) => unknown;
+
 export class UnityService {
   private authService: UnityAuthService;
   private currentTarget: UnityTargetSystem = 'EHR';
+  private serverErrorHook: ServerErrorHook | null = null;
+  private outcomeHook: OutcomeHook | null = null;
+
+  /** Register the outcome hook (UnityHealthChecker.onActionOutcome). */
+  onOutcome(hook: OutcomeHook | null): void {
+    this.outcomeHook = hook;
+  }
+
+  private notifyOutcome(action: string, target: UnityTargetSystem, ok: boolean, code: string): void {
+    if (!this.outcomeHook) return;
+    try {
+      Promise.resolve(this.outcomeHook(action, target, ok, code)).catch(() => undefined);
+    } catch {
+      // status tracking must never break the call
+    }
+  }
 
   constructor(authService: UnityAuthService) {
     this.authService = authService;
@@ -67,6 +94,21 @@ export class UnityService {
    */
   setTarget(target: UnityTargetSystem): void {
     this.currentTarget = target;
+  }
+
+  /** Register the server-side error hook (UnityDiagnostics.onServerError). */
+  onServerError(hook: ServerErrorHook | null): void {
+    this.serverErrorHook = hook;
+  }
+
+  /** Tell diagnostics about a server-side failure. Never for LastLogs itself (no loop), never throws. */
+  private notifyServerError(action: string, target: UnityTargetSystem, code: string): void {
+    if (!this.serverErrorHook || action === UnityActions.Admin.LAST_LOG) return;
+    try {
+      Promise.resolve(this.serverErrorHook(action, target, code)).catch(() => undefined);
+    } catch {
+      // diagnostics must never break the call
+    }
   }
 
   /**
@@ -99,50 +141,74 @@ export class UnityService {
     target?: UnityTargetSystem
   ): Promise<UnityMagicResponse<T>> {
     const targetSystem = target || this.currentTarget;
-    
-    try {
-      // Get authenticated session
-      const { token } = await this.authService.getAuthenticatedSession(targetSystem);
-      
-      // Build the Magic request
-      // Note: Data field must always be present (even if empty string) for MagicJson to work
-      const request: UnityMagicRequest = {
-        Action: action,
-        Appname: unityConfig.appName,
-        AppUserID: unityLogin(targetSystem).user,
-        PatientID: patientId,
-        Token: token,
-        Parameter1: params.Parameter1 || '',
-        Parameter2: params.Parameter2 || '',
-        Parameter3: params.Parameter3 || '',
-        Parameter4: params.Parameter4 || '',
-        Parameter5: params.Parameter5 || '',
-        Parameter6: params.Parameter6 || '',
-        Data: params.Data || '' // Required field - must be present
-      };
 
-      console.error(`[Unity Service] Executing action: ${action}`);
-      console.error(`[Unity Service] Target: ${targetSystem}, PatientID: ${patientId || 'N/A'}`);
-
-      // Execute the request. Reads get one retry when Veradigm's gateway blips (502/503/504, reset);
-      // writes (Save*/Set*) never retry here, so a slow success can't be sent twice.
-      let response: any;
+    // Attempt 2 only after Unity rejected the session token (401 or a token error): the action was
+    // not run, so even a write is safe to send again with a fresh login.
+    for (let attempt = 0; ; attempt++) {
+      let token = '';
       try {
-        response = await this.sendMagicRequest(request);
-      } catch (first: any) {
-        const status = first?.response?.status;
-        const transient = [502, 503, 504].includes(status) || ['ECONNRESET', 'ETIMEDOUT', 'EAI_AGAIN'].includes(first?.code);
-        if (!transient || /^(Save|Set)/.test(action)) throw first;
-        console.error(`[Unity Service] ${action} transient ${status || first?.code}; retrying once`);
-        await new Promise((r) => setTimeout(r, 400));
-        response = await this.sendMagicRequest(request);
-      }
+        // Get authenticated session
+        ({ token } = await this.authService.getAuthenticatedSession(targetSystem));
+        
+        // Build the Magic request
+        // Note: Data field must always be present (even if empty string) for MagicJson to work
+        const request: UnityMagicRequest = {
+          Action: action,
+          Appname: unityConfig.appName,
+          AppUserID: unityLogin(targetSystem).user,
+          PatientID: patientId,
+          Token: token,
+          Parameter1: params.Parameter1 || '',
+          Parameter2: params.Parameter2 || '',
+          Parameter3: params.Parameter3 || '',
+          Parameter4: params.Parameter4 || '',
+          Parameter5: params.Parameter5 || '',
+          Parameter6: params.Parameter6 || '',
+          Data: params.Data || '' // Required field - must be present
+        };
 
-      return this.parseResponse<T>(response);
-    } catch (error: any) {
-      // Message only: the full axios error carries the request body, including the session token.
-      console.error(`[Unity Service] Action ${action} failed: ${error?.response?.status || error?.code || ''} ${String(error?.message || error).slice(0, 200)}`);
-      throw this.handleError(error, action);
+        // Action and target only: patient IDs, names and parameters stay out of stdout (the audit log has the ID).
+        console.error(`[Unity Service] Executing action: ${action} (${targetSystem})`);
+
+        // Execute the request. Reads get one retry when Veradigm's gateway blips (502/503/504, reset);
+        // writes (Save*/Set*) never retry here, so a slow success can't be sent twice.
+        let response: any;
+        try {
+          response = await this.sendMagicRequest(request);
+        } catch (first: any) {
+          const status = first?.response?.status;
+          const transient = [502, 503, 504].includes(status) || ['ECONNRESET', 'ETIMEDOUT', 'EAI_AGAIN'].includes(first?.code);
+          if (!transient || /^(Save|Set)/.test(action)) throw first;
+          console.error(`[Unity Service] ${action} transient ${status || first?.code}; retrying once`);
+          await new Promise((r) => setTimeout(r, 400));
+          response = await this.sendMagicRequest(request);
+        }
+
+        const parsed = this.parseResponse<T>(response);
+        if (!parsed.success && attempt === 0 && isTokenRejection(parsed.error)) {
+          console.error(`[Unity Service] ${action}: ${targetSystem} token rejected; logging in again and retrying once`);
+          this.authService.invalidate(targetSystem, token);
+          continue;
+        }
+        if (!parsed.success && isUnexpectedUnityError(parsed.error)) this.notifyServerError(action, targetSystem, 'UNITY_ERROR');
+        // A Unity validation answer (success:false) still proves the system answers.
+        this.notifyOutcome(action, targetSystem, true, parsed.success ? '' : 'UNITY_ANSWERED');
+        return parsed;
+      } catch (error: any) {
+        if (attempt === 0 && token && error?.response?.status === 401) {
+          console.error(`[Unity Service] ${action}: ${targetSystem} HTTP 401; logging in again and retrying once`);
+          this.authService.invalidate(targetSystem, token);
+          continue;
+        }
+        // Message only: the full axios error carries the request body, including the session token.
+        console.error(`[Unity Service] Action ${action} failed: ${error?.response?.status || error?.code || ''} ${String(error?.message || error).slice(0, 200)}`);
+        const handled = this.handleError(error, action);
+        if (isServerSideError(handled.code) || (handled.code === 'API_ERROR' && Number(error?.response?.status) >= 500)) {
+          this.notifyServerError(action, targetSystem, handled.code);
+        }
+        this.notifyOutcome(action, targetSystem, false, handled.code);
+        throw handled;
+      }
     }
   }
 
@@ -371,19 +437,6 @@ export class UnityService {
     }, patientId, target);
   }
 
-  /**
-   * Get patient full demographics
-   */
-  async getPatientFull(
-    patientId: string,
-    mrn?: string,
-    target?: UnityTargetSystem
-  ): Promise<UnityMagicResponse> {
-    return this.executeAction(UnityActions.Patient.GET_PATIENT_FULL, {
-      Parameter1: mrn || '',
-      Parameter2: '' // Organization
-    }, patientId, target);
-  }
 
   /**
    * Escape XML special characters
@@ -406,13 +459,12 @@ export class UnityService {
       const targets: UnityTargetSystem[] = ['PM', 'EHR'];
       
       for (const target of targets) {
-        if (this.authService.isTokenCached(target)) {
-          const token = await this.authService.getSecurityToken(target);
-          await this.authService.retireToken(token, target);
-        }
+        // Only tokens we hold: never request a new token just to retire it.
+        const token = this.authService.cachedToken(target);
+        if (token) await this.authService.retireToken(token, target);
       }
-    } catch (error) {
-      console.error('[Unity Service] Cleanup error:', error);
+    } catch (error: any) {
+      console.error(`[Unity Service] Cleanup error: ${error?.code || error?.name || 'error'}`);
     }
   }
 }

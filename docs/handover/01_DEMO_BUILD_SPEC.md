@@ -44,7 +44,7 @@ Caller ──> Voice agent (Retell, test line) ──> Drawbridge (MCP servers; 
 
 | Item | Sandbox value / source | Notes |
 |---|---|---|
-| Unity JSON endpoint | `https://ubiquityunity.azurewebsites.net/UnityService.svc/json/MagicJson` | From Kanaya's Oct 8 email. Repo env: `UNITY_UBIQUITY_ENDPOINT`, `UNITY_UBIQUITY_ID_PM`, `UNITY_UBIQUITY_ID_EHR`, `UNITY_APP_NAME`, `UNITY_SVC_USERNAME/PASSWORD`, `UNITY_EHR_USERNAME/PASSWORD`. |
+| Unity JSON endpoint | `https://open-uny-ubiquity.platform.veradigm.com/UnityService.svc/json/MagicJson` | From Kanaya's Oct 8 email. Repo env: `UNITY_UBIQUITY_ENDPOINT`, `UNITY_UBIQUITY_ID_PM`, `UNITY_UBIQUITY_ID_EHR`, `UNITY_APP_NAME`, `UNITY_SVC_USERNAME/PASSWORD`, `UNITY_EHR_USERNAME/PASSWORD`. |
 | Unity auth | GetToken with the Unity app credentials, then `GetUserAuthentication` with the EHR/PM user | Already implemented in `src/unity/services/unity-auth.service.ts` (token cached under Unity's 20-minute expiry). |
 | FHIR base (current) | `https://scmlatestdev.open.allscripts.com/FHIR` (repo env: `FHIR_BASE_URL_SANDBOX`, `AUTH_URL_SANDBOX`, `TOKEN_URL_SANDBOX`, `CLIENT_ID`, `CLIENT_SECRET`) | Looks like a Sunrise (Altera) dev server. Fine for tomorrow if the test patients work. After the demo, move to a Veradigm EHR R4 endpoint from the Veradigm Endpoint Directory. |
 | FHIR auth (production) | System app, backend JWT client assertion to the token endpoint | Single-use assertion, 2–20 minute expiry. The user-login and SMART flows need a person at a login screen and will not work for a phone agent. |

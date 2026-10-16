@@ -6,7 +6,7 @@ import { normalizeDate } from './extract';
  * clinic's Veradigm® access exists. Once it does, leave this unset: the live read-only
  * unity_search_patients is the normal search.
  *
- *   INTAKE_ROSTER_CSV   path to a CSV exported from the practice system (IKI's patient list)
+ *   INTAKE_ROSTER_CSV   path to a CSV exported from the practice system (the clinic's patient list)
  *
  * When set, matchPatient() (match.ts) searches this roster instead of calling unity_search_patients.
  * The search answers in the same shape as unity_search_patients ({ patients, total, message }, each

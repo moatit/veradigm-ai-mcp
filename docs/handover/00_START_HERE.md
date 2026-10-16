@@ -53,7 +53,7 @@ MOATiT is building **VeradigmAI**, an AI phone agent for **Idaho Kidney Institut
 ## Blockers (as of handover)
 
 1. **Unpushed code.** Kanaya must push whatever is newer than Feb 13 before anyone builds on `main`.
-2. **Sandbox not reachable from the Claude cloud workspace.** Its network allowlist blocks `ubiquityunity.azurewebsites.net` and `*.open.allscripts.com`. Run tests on the AWS server, Kanaya's machine, or Ali's computer (via the Claude desktop app link).
+2. **Sandbox not reachable from the Claude cloud workspace.** Its network allowlist blocks `open-uny-ubiquity.platform.veradigm.com` and `*.open.allscripts.com`. Run tests on the AWS server, Kanaya's machine, or Ali's computer (via the Claude desktop app link).
 3. **Claude can't push to the repo.** The Claude GitHub App isn't installed for the `moatit` org. An org admin can install it at https://github.com/apps/claude/installations/select_target. Until then, use `repo-patch/`.
 4. **Credentials.** The sandbox `.env` values are on Ali's computer and Kanaya's. They never go in chat, tickets, or the repo.
 

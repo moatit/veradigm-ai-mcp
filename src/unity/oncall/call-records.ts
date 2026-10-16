@@ -9,6 +9,8 @@ import * as path from 'path';
  * chart context, so the file must live on the MOATiT-controlled host only (CALL_RECORDS_DIR),
  * never in the repo, logs or a shared drive. Replace with the production database once
  * open question Q5/Q6 (where call records live) is decided.
+ * Records not updated for CALL_RECORDS_RETENTION_DAYS (default 30) are deleted by prune(), which the
+ * on-call module runs at startup and daily (src/platform/retention.ts).
  */
 export type CallMode = 'business_hours' | 'after_hours';
 export type Urgency = 'urgent' | 'routine';
@@ -36,6 +38,12 @@ export interface CallRecord {
   staff_task_id: string;
   alert: { sent: boolean; at?: string; to?: string; note?: string };
   transcript_ref: string;
+  /** "message": taken with drawbridge_take_message (records unreachable, caller not verifiable, or no transfer). */
+  kind?: 'message';
+  /** What the caller said about themselves, NOT verified against the record (message records only). */
+  caller_stated?: { name: string; dob: string; callback: string };
+  /** The Veradigm connection was down when the message was taken (counted in the help-desk alert). */
+  records_down?: boolean;
   /** From Retell call events (activity module). Never the transcript itself. */
   call_meta?: { ended_at?: string; duration_ms?: number; disconnection_reason?: string; summary?: string };
 }
@@ -118,6 +126,22 @@ export const callRecords = {
     store.set(id, next);
     persist();
     return next;
+  },
+
+  /** Delete records whose last update is older than `days` days. Returns how many were removed. */
+  prune(days: number, now: number = Date.now()): number {
+    const cutoff = now - days * 86_400_000;
+    const store = load();
+    let removed = 0;
+    for (const [id, r] of store) {
+      const t = Date.parse(r.updated_at || r.started_at);
+      if (Number.isFinite(t) && t < cutoff) {
+        store.delete(id);
+        removed++;
+      }
+    }
+    if (removed) persist();
+    return removed;
   },
 
   /** Append a tool call to the record for this call (no chart contents, outcome only). */

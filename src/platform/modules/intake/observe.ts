@@ -11,7 +11,7 @@ import { readOnlyRunTool, readOnlyUnity, type StaffObservation, type TruthPatien
 import type { IntakeItem, IntakeStore } from './store';
 
 /**
- * Staff filing observer (shadow mode, live Veradigm® only): ground truth from what IKI's staff
+ * Staff filing observer (shadow mode, live Veradigm® only): ground truth from what the clinic's staff
  * already do. During shadow mode, faxes keep arriving in Veradigm® EHR's "(ready for indexing)"
  * queue and staff keep indexing them as today; Drawbridge receives the same faxes and reads back,
  * read-only, where staff put each one.
@@ -40,7 +40,7 @@ import type { IntakeItem, IntakeStore } from './store';
  * not given that truth (staff index a batch fax as one document).
  *
  *   INTAKE_OBSERVE              on (default in shadow mode with Veradigm) | off
- *   INTAKE_OBSERVE_EVERY_MIN    run interval (default 30)
+ *   INTAKE_OBSERVE_EVERY_MIN    run interval (default 30; Veradigm's polling floor of 2 minutes is enforced)
  *   INTAKE_OBSERVE_WINDOW_DAYS  queue and category listings cover this many days back (default 14)
  *   INTAKE_OBSERVE_LINK_HOURS   max time between the queue's SortDate and Drawbridge's receipt (default 36)
  *   INTAKE_OBSERVE_DELAY_HOURS  chart search for unlinked items after this (default 24)
@@ -77,6 +77,19 @@ const env = (k: string, d: number) => {
 };
 const off = (k: string) => /^(off|false|0|no)$/i.test(String(process.env[k] || '').trim());
 export const observeEnabled = () => !off('INTAKE_OBSERVE');
+/** Veradigm: an app must not poll Unity more often than every 2 minutes. */
+export const MIN_POLL_MINUTES = 2;
+let pollWarned = false;
+/** INTAKE_OBSERVE_EVERY_MIN clamped to the 2-minute floor (warns once when clamped). */
+export function observeEveryMinutes(): number {
+  const want = env('INTAKE_OBSERVE_EVERY_MIN', 30);
+  if (want >= MIN_POLL_MINUTES) return want;
+  if (!pollWarned) {
+    pollWarned = true;
+    console.warn(`[Intake] INTAKE_OBSERVE_EVERY_MIN=${want} is below Veradigm's 2-minute polling floor; using ${MIN_POLL_MINUTES}`);
+  }
+  return MIN_POLL_MINUTES;
+}
 export const queueType = () => String(process.env.INTAKE_OBSERVE_QUEUE_TYPE || '').trim() || READY_FOR_INDEXING_CODE;
 const DAY = 86_400_000;
 const HOUR = 3_600_000;
@@ -560,7 +573,7 @@ export class StaffFilingObserver {
     const tick = () => {
       this.run().catch((e) => console.error(`[Intake] staff filing observer failed: ${codeOf(e, 'error')}`));
     };
-    const timer = setInterval(tick, env('INTAKE_OBSERVE_EVERY_MIN', 30) * 60_000);
+    const timer = setInterval(tick, observeEveryMinutes() * 60_000);
     timer.unref?.();
     setTimeout(tick, 60_000).unref?.();
     return () => clearInterval(timer);

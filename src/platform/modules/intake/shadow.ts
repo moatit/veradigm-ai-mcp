@@ -18,7 +18,7 @@ import type { IntakeItem } from './store';
  *                        (doctypes.ts FallbackDocTypes).
  *
  * Staff then confirm each document on the item screen (`truth`: the right patient and category,
- * or not an IKI patient / unreadable / several patients with their pages). `npm run eval:shadow`
+ * or not a clinic patient / unreadable / several patients with their pages). `npm run eval:shadow`
  * compares the two (shadow-report.ts).
  *
  * No I/O. The guards log refused action names only.
@@ -114,7 +114,7 @@ export interface GroundTruth {
   category?: string;
   /** Staff accepted the prediction as it was. */
   accepted?: boolean;
-  /** outcome 'several': which pages belong to whom (no patient = not an IKI patient / unknown). */
+  /** outcome 'several': which pages belong to whom (no patient = not a clinic patient / unknown). */
   parts?: { pages: number[]; patient?: TruthPatient; not_iki?: boolean; category?: string }[];
 }
 
@@ -323,7 +323,7 @@ export type Agreement = 'undecided' | 'unconfirmed' | 'agrees' | 'disagrees';
 /**
  * Does the confirmed truth agree with the prediction? undecided: no shadow decision yet.
  * Disagrees: the predicted patient (auto-file or the candidate shown) is not the confirmed one, a
- * document it would auto-file is not one IKI patient's, the categories differ, or a split's page
+ * document it would auto-file is not one clinic patient's, the categories differ, or a split's page
  * groups differ from staff's. A miss (staff, no candidate) for a patient document is not a disagreement.
  */
 export function agreement(item: IntakeItem, byId: (id: string) => IntakeItem | undefined): Agreement {

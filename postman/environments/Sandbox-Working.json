@@ -22,13 +22,13 @@
     },
     {
       "key": "CLIENT_ID",
-      "value": "00E27677-8D8E-4D08-8F74-33CB77060BF1",
+      "value": "<set in your local Postman environment; never commit>",
       "enabled": true,
       "type": "secret"
     },
     {
       "key": "CLIENT_SECRET",
-      "value": "AD7145243932",
+      "value": "<set in your local Postman environment; never commit>",
       "enabled": true,
       "type": "secret"
     },

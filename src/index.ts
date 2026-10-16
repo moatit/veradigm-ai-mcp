@@ -17,6 +17,7 @@ import { ProviderTools } from "./tools/provider.tools";
 import { ErrorHandler } from "./utils/error-handler";
 import { adminLogger } from "./middleware/admin-logger";
 import { DISABLED_FHIR_TOOLS, disabledToolMessage } from "./config/disabled-tools";
+import { errorSummary } from "./utils/safe-log";
 
 class VeradigmFHIRMCPServer {
   private server: Server;
@@ -200,7 +201,7 @@ class VeradigmFHIRMCPServer {
                 {
                   error: fhirError.code,
                   message: fhirError.message,
-                  details: fhirError.details,
+                  // never details: they hold the stack and the raw FHIR reply
                   timestamp: fhirError.timestamp,
                 },
                 null,
@@ -229,6 +230,6 @@ class VeradigmFHIRMCPServer {
 // Start the server
 const server = new VeradigmFHIRMCPServer();
 server.start().catch((error) => {
-  console.error("Failed to start MCP server:", error);
+  console.error(`Failed to start MCP server: ${errorSummary(error)}`);
   process.exit(1);
 });

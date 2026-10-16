@@ -49,9 +49,9 @@ export const unityEndpoints = getUnityEndpoints();
  * UNITY_ACTION_<KEY> (e.g. UNITY_ACTION_GET_APPOINTMENTS=GetScheduleByPatientID) so a
  * product difference between Veradigm environments is a config change, not a code change.
  *
- * Defaults marked "verify" are what the Feb 13 code sent and are NOT in Veradigm's PM/EHR
- * API references; the reference name is in the comment. Switch them once
- * `npm run verify:sandbox` shows which name the sandbox accepts (docs/handover/02_REPO_AUDIT.md §3).
+ * Only actions the app calls are listed here (plus Echo for verify:sandbox and the documented
+ * GetTokenValidation); docs/drawbridge/UNITY_ACTIONS_FOR_CERTIFICATION.md is the certified list.
+ * Adding an action means updating that list (Veradigm recertification).
  */
 function action(key: string, fallback: string): string {
   return process.env[`UNITY_ACTION_${key}`] || fallback;
@@ -62,16 +62,20 @@ function action(key: string, fallback: string): string {
  * Organized by functionality for easy reference
  */
 export const UnityActions = {
-  // Admin Actions
+  // Admin Actions. GetServerInfo and LastLogs are Veradigm-required (unity-diagnostics.ts).
+  // Echo is used only by `npm run verify:sandbox`.
   Admin: {
     ECHO: action('ECHO', 'Echo'),
     GET_SERVER_INFO: action('GET_SERVER_INFO', 'GetServerInfo'),
     LAST_LOG: action('LAST_LOG', 'LastLogs')
   },
 
-  // Authentication Actions
+  // Authentication Actions (GetToken / RetireToken are their own endpoints, above)
   Auth: {
     GET_USER_AUTHENTICATION: action('GET_USER_AUTHENTICATION', 'GetUserAuthentication'),
+    // UNUSED, kept on purpose: GetTokenValidation validates a token handed to a *launched* app
+    // (Veradigm EHR opens the app with a token). Drawbridge is not launched from Veradigm EHR; it gets
+    // its own token with GetToken. See docs/drawbridge/UNITY_ACTIONS_FOR_CERTIFICATION.md.
     GET_TOKEN_VALIDATION: action('GET_TOKEN_VALIDATION', 'GetTokenValidation')
   },
 
@@ -79,12 +83,10 @@ export const UnityActions = {
   Patient: {
     GET_PATIENT: action('GET_PATIENT', 'GetPatient'),
     GET_PATIENT_BY_MRN: action('GET_PATIENT_BY_MRN', 'GetPatientByMRN'),
-    GET_PATIENT_FULL: action('GET_PATIENT_FULL', 'GetPatientFull'),
     SEARCH_PATIENTS: action('SEARCH_PATIENTS', 'SearchPatients'),
     SAVE_PATIENT: action('SAVE_PATIENT', 'SavePatient'),
     // PM has no UpdateDemographics action; demographic changes are SavePatient (Kanhaiya, main 0a4e3c4).
-    UPDATE_DEMOGRAPHICS: action('UPDATE_DEMOGRAPHICS', 'SavePatient'),
-    GET_CHANGED_PATIENTS: action('GET_CHANGED_PATIENTS', 'GetChangedPatients')
+    UPDATE_DEMOGRAPHICS: action('UPDATE_DEMOGRAPHICS', 'SavePatient')
   },
 
   // Appointment/Scheduling Actions (Veradigm PM)
@@ -95,22 +97,24 @@ export const UnityActions = {
     GET_APPOINTMENTS: action('GET_APPOINTMENTS', 'GetScheduleByPatientID'),
     GET_APPOINTMENT_BY_ID: action('GET_APPOINTMENT_BY_ID', 'GetAppointmentById'),
     SAVE_APPOINTMENT: action('SAVE_APPOINTMENT', 'SaveAppointment'),
-    // Cancellation is a status change: SetAppointmentStatus(appointmentId, 'X', reason) (Kanhaiya, main 0a4e3c4; not yet run on the sandbox).
+    // Cancellation is a status change (Veradigm PM SetAppointmentStatus spec): Parameter1 appointment ID,
+    // Parameter2 status letter (X), Parameter4 update time HHMM, Parameter6 cancellation reason ID.
     CANCEL_APPOINTMENT: action('CANCEL_APPOINTMENT', 'SetAppointmentStatus'),
     SET_APPOINTMENT_STATUS: action('SET_APPOINTMENT_STATUS', 'SetAppointmentStatus'),
     // Sandbox Oct 9: GetAvailableSchedule(resource ABBREVIATION, start, end) returns one row per day with
     // 5-minute bitmaps (see decodeAvailability). GetOpenSlots is not licensed; a numeric resource ID returns 0 rows.
     GET_OPEN_SLOTS: action('GET_OPEN_SLOTS', 'GetAvailableSchedule'),
-    BOOK_APPOINTMENT: action('BOOK_APPOINTMENT', 'BookAppointment'), // unused; reference: SaveAppointment
     GET_CANCELLATION_REASONS: action('GET_CANCELLATION_REASONS', 'GetAppointmentCancellationReasons'),
+    // SetAppointmentStatus Parameter5 (confirmation result ID) for unity_confirm_appointment.
     GET_CONFIRMATION_RESULTS: action('GET_CONFIRMATION_RESULTS', 'GetAppointmentConfirmationResults'),
     GET_APPOINTMENT_TYPES: action('GET_APPOINTMENT_TYPES', 'GetAppointmentTypes'),
     GET_APPOINTMENTS_BY_CHANGE: action('GET_APPOINTMENTS_BY_CHANGE', 'GetAppointmentsByChangeDTTM'),
     GET_RECALLS: action('GET_RECALLS', 'GetRecalls'),
-    GET_RECALL_TYPES: action('GET_RECALL_TYPES', 'GetRecallTypes'),
-    GET_FIRST_AVAILABLE: action('GET_FIRST_AVAILABLE', 'GetFirstAvailableAppointments'),
-    GET_AVAILABLE_SCHEDULE: action('GET_AVAILABLE_SCHEDULE', 'GetAvailableSchedule'),
     GET_RESOURCES: action('GET_RESOURCES', 'GetResources'),
+    // SaveAppointment needs <schedulingLocation>/<schedulingDepartment> abbreviations plus their IDs
+    // (Veradigm PM SaveAppointment spec, 10/13/2026). GetAvailableSchedule rows carry the IDs; these
+    // lookups (cached 1 h) map ID <-> abbreviation. Sandbox Oct 15: both return rows with
+    // Scheduling_Location_ID / Scheduling_Department_ID and Abbreviation.
     GET_SCHEDULING_LOCATIONS: action('GET_SCHEDULING_LOCATIONS', 'GetSchedulingLocations'),
     GET_SCHEDULING_DEPARTMENTS: action('GET_SCHEDULING_DEPARTMENTS', 'GetSchedulingDepartments')
   },
@@ -121,16 +125,10 @@ export const UnityActions = {
     GET_PATIENT_POLICY: action('GET_PATIENT_POLICY', 'GetPatientPolicy')
   },
 
-  // Encounter Actions (not in the Veradigm references; not used by any tool)
-  Encounter: {
-    GET_ENCOUNTER: action('GET_ENCOUNTER', 'GetEncounter'),
-    GET_ENCOUNTER_LIST: action('GET_ENCOUNTER_LIST', 'GetEncounterList'),
-    SAVE_SIMPLE_ENCOUNTER: action('SAVE_SIMPLE_ENCOUNTER', 'SaveSimpleEncounter'),
-    GET_ENCOUNTER_SUMMARY: action('GET_ENCOUNTER_SUMMARY', 'GetEncounterSummary')
-  },
-
   // Clinical Actions (Veradigm EHR, read only)
   Clinical: {
+    // Recent results / vitals (getRecentResults) and the section-based reads below.
+    GET_CLINICAL_SUMMARY: action('GET_CLINICAL_SUMMARY', 'GetClinicalSummary'),
     // Sandbox Oct 9: GetClinicalSummary with a section name (Parameter1) returns the chart summary rows for
     // medications / allergies / problems. GetProblems returns the full history (250 rows), GetAllergies 0 rows.
     GET_PATIENT_PROBLEMS: action('GET_PATIENT_PROBLEMS', 'GetClinicalSummary'),
@@ -147,7 +145,7 @@ export const UnityActions = {
   // Documents (Veradigm EHR): staff-side fax/document intake add-on only, never the phone agent.
   // GetDocumentType and GetDocuments verified on the sandbox Oct 9 (read). SaveScanDocument is the
   // owner-approved filing write (CLAUDE.md rule 4 exception), verified Oct 11 on synthetic patients;
-  // see src/platform/modules/intake/file.ts. SaveDocumentImage (chart attachment) is not used.
+  // see src/platform/modules/intake/file.ts.
   // Read by the shadow-mode staff filing observer (src/platform/modules/intake/observe.ts), verified
   // read-only on the sandbox: GetDocumentsByDocumentType (PatientID blank; Parameter1 type ID or name,
   // Parameter2 LOINC '', Parameter3/4 start/end MM/DD/YYYY; all patients) and GetDocumentImage
@@ -157,19 +155,16 @@ export const UnityActions = {
     GET_DOCUMENTS: action('GET_DOCUMENTS', 'GetDocuments'),
     GET_DOCUMENTS_BY_DOCUMENT_TYPE: action('GET_DOCUMENTS_BY_DOCUMENT_TYPE', 'GetDocumentsByDocumentType'),
     GET_DOCUMENT_IMAGE: action('GET_DOCUMENT_IMAGE', 'GetDocumentImage'),
-    SAVE_DOCUMENT_IMAGE: action('SAVE_DOCUMENT_IMAGE', 'SaveDocumentImage'),
     SAVE_SCAN_DOCUMENT: action('SAVE_SCAN_DOCUMENT', 'SaveScanDocument')
   },
 
   // Practice info (Veradigm EHR)
   Practice: {
-    GET_LOCATION: action('GET_LOCATION', 'GetLocation'),
-    GET_PATIENT_DEMOGRAPHICS: action('GET_PATIENT_DEMOGRAPHICS', 'GetPatientDemographics')
+    GET_LOCATION: action('GET_LOCATION', 'GetLocation')
   },
 
-  // Provider Actions
+  // Provider Actions (Veradigm EHR)
   Provider: {
-    GET_PROVIDER: action('GET_PROVIDER', 'GetProvider'),
     GET_PROVIDERS: action('GET_PROVIDERS', 'GetProviders')
   }
 } as const;

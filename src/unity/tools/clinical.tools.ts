@@ -24,7 +24,7 @@ function resultValue(name: string, detail: string): string {
  */
 function summaryParams(action: string, section: string, otherParameter1: string) {
   return {
-    Parameter1: action === "GetClinicalSummary" ? section : otherParameter1,
+    Parameter1: action === UnityActions.Clinical.GET_CLINICAL_SUMMARY ? section : otherParameter1,
     Parameter2: "",
     Parameter3: "",
   };
@@ -204,13 +204,13 @@ export class UnityClinicalTools {
       const sections = ["results", "vitals"];
       const responses = await Promise.all(
         sections.map((section) =>
-          this.unityService.executeAction<any>("GetClinicalSummary", { Parameter1: section }, args.patientId, "EHR"),
+          this.unityService.executeAction<any>(UnityActions.Clinical.GET_CLINICAL_SUMMARY, { Parameter1: section }, args.patientId, "EHR"),
         ),
       );
       // A failed call is an error, never "no results" (CLAUDE.md rule 5).
       const failed = responses.find((r) => !r.success);
       if (failed) {
-        throw UnityErrorHandler.createAPIError(failed.error || "Failed to get results", "GetClinicalSummary");
+        throw UnityErrorHandler.createAPIError(failed.error || "Failed to get results", UnityActions.Clinical.GET_CLINICAL_SUMMARY);
       }
       const results = responses
         .flatMap((r, i) =>
@@ -240,7 +240,7 @@ export class UnityClinicalTools {
       if (error instanceof UnityMCPError) {
         throw error;
       }
-      throw UnityErrorHandler.handleUnknownError(error, "GetClinicalSummary");
+      throw UnityErrorHandler.handleUnknownError(error, UnityActions.Clinical.GET_CLINICAL_SUMMARY);
     }
   }
 

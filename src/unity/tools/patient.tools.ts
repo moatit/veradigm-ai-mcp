@@ -2,6 +2,7 @@ import { Tool } from "@modelcontextprotocol/sdk/types.js";
 import { UnityActions, UnityTargetSystem } from "../config/unity-endpoints";
 import { UnityService } from "../services/unity.service";
 import { UnityErrorHandler, UnityMCPError } from "../utils/error-handler";
+import { errorSummary } from "../../utils/safe-log";
 
 /**
  * Patient Demographics Data Structure
@@ -171,9 +172,7 @@ export class UnityPatientTools {
         throw UnityErrorHandler.createValidationError("Last name is required");
       }
 
-      console.error(
-        `[Unity Patient] Saving patient: ${args.firstName} ${args.lastName}`,
-      );
+      console.error(`[Unity Patient] Saving new patient`); // never the name
 
       // Build patient XML for Unity SavePatient action
       const patientXml = this.buildPatientXml(args);
@@ -399,6 +398,30 @@ export class UnityPatientTools {
           spellingNote = ` Matched on a spelling variant: the record's last name is ${spelled} (${spelled.toUpperCase().split("").join("-")}), not ${heard}. Read the spelling back and get a yes before sharing anything.`;
         }
       }
+
+      // First-name spelling variant (web test Oct 15: the caller spelled "T-E-O-D-O-R-O" and the agent searched
+      // "Theodoro"). Same rule: full name AND birth date, search by last name, then exact DOB, a last name that
+      // matches (or sounds the same) and a first name that sounds the same. Confirmation is still required.
+      if (patients.length === 0 && args.lastName && args.firstName && normalizeDob(args.dateOfBirth)) {
+        const heardFirst = args.firstName.trim();
+        const heardLast = args.lastName.trim();
+        const variant = await this.searchBoth(
+          { lastName: heardLast },
+          (list) =>
+            list.filter(
+              (p) =>
+                normalizeDob(p.dateOfBirth) === normalizeDob(args.dateOfBirth) &&
+                ((p.lastName || "").trim().toLowerCase() === heardLast.toLowerCase() || soundsAlike(p.lastName || "", heardLast)) &&
+                soundsAlike(p.firstName || "", heardFirst),
+            ),
+        ).catch(() => ({ patients: [] as ParsedPatient[], pmOk: false }));
+        if (variant.patients.length === 1) {
+          patients = variant.patients;
+          const first = (patients[0].firstName || "").trim();
+          const last = (patients[0].lastName || "").trim();
+          spellingNote = ` Matched on a spelling variant: the record's name is ${first} ${last} (${first.toUpperCase().split("").join("-")}), not ${heardFirst}. Read the spelling back and get a yes before sharing anything.`;
+        }
+      }
       if (args.limit) patients = patients.slice(0, args.limit);
 
       let message = `Found ${patients.length} patient(s)`;
@@ -440,20 +463,40 @@ export class UnityPatientTools {
     const ehr = ehrRes.success ? keep(this.parsePatientsList(ehrRes.data).filter((p) => p.id)) : [];
     const key = (p: ParsedPatient) =>
       `${(p.lastName || "").trim().toLowerCase()}|${(p.firstName || "").trim().toLowerCase()}|${normalizeDob(p.dateOfBirth)}`;
-    const merged = new Map<string, ParsedPatient>();
-    for (const p of pm) merged.set(key(p), { ...p, patientId: p.id, pmMrn: p.mrn });
-    for (const p of ehr) {
+    // PM and EHR rows of one person are paired by name + DOB. Two different patients with the same name and DOB in
+    // one system are never merged (and never paired with the other system): they stay separate entries, so the
+    // result says "more than one" instead of verifying, or filing to, one of them (launch audit 2026-10-16).
+    const groups = new Map<string, ParsedPatient[]>();
+    const seen = new Set<string>();
+    for (const p of pm) {
+      if (seen.has(`pm|${p.id}`)) continue;
+      seen.add(`pm|${p.id}`);
       const k = key(p);
-      const existing = merged.get(k);
+      groups.set(k, [...(groups.get(k) || []), { ...p, patientId: p.id, pmMrn: p.mrn }]);
+    }
+    const pmCount = new Map<string, number>([...groups].map(([k, v]) => [k, v.length]));
+    const ehrCount = new Map<string, number>();
+    for (const p of ehr) {
+      if (seen.has(`ehr|${p.id}`)) continue;
+      seen.add(`ehr|${p.id}`);
+      ehrCount.set(key(p), (ehrCount.get(key(p)) || 0) + 1);
+    }
+    seen.clear();
+    for (const p of ehr) {
+      if (seen.has(`ehr|${p.id}`)) continue;
+      seen.add(`ehr|${p.id}`);
+      const k = key(p);
+      const list = groups.get(k);
+      const existing = list && pmCount.get(k) === 1 && ehrCount.get(k) === 1 ? list[0] : undefined;
       if (existing) {
         existing.chartPatientId = p.id;
         existing.chartMrn = p.mrn;
         // Address and SSN-4 (document matching): PM's when it has them, else the EHR's.
         if (!existing.address?.line1 && p.address?.line1) existing.address = p.address;
         if (!existing.ssnLast4 && p.ssnLast4) existing.ssnLast4 = p.ssnLast4;
-      } else merged.set(k, { ...p, chartPatientId: p.id, chartMrn: p.mrn });
+      } else groups.set(k, [...(list || []), { ...p, chartPatientId: p.id, chartMrn: p.mrn }]);
     }
-    return { patients: [...merged.values()], pmOk: Boolean(pmRes.success) };
+    return { patients: [...groups.values()].flat(), pmOk: Boolean(pmRes.success) };
   }
 
   /**
@@ -474,7 +517,7 @@ export class UnityPatientTools {
         throw UnityErrorHandler.createValidationError("MRN is required");
       }
 
-      console.error(`[Unity Patient] Getting patient by MRN: ${args.mrn}`);
+      console.error(`[Unity Patient] Getting patient by MRN`); // never the MRN
 
       const response = await this.unityService.executeAction<any>(
         UnityActions.Patient.GET_PATIENT_BY_MRN,
@@ -512,15 +555,12 @@ export class UnityPatientTools {
             (p) => String(p.mrn || "").trim() === normalizedMrn,
           );
           if (match) {
-            console.error(
-              `[Unity Patient] Using search result for MRN ${args.mrn}`,
-            );
+            console.error(`[Unity Patient] Using search result for the MRN`);
             patient = match;
           }
         } catch (searchErr) {
           console.error(
-            `[Unity Patient] Fallback search by MRN failed:`,
-            searchErr,
+            `[Unity Patient] Fallback search by MRN failed: ${errorSummary(searchErr)}`,
           );
         }
       }

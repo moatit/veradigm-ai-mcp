@@ -7,7 +7,9 @@ import {
   ListToolsRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 import { unityConfig } from "./config/environment";
-import { UnityAuthService } from "./services/unity-auth.service";
+import { configuredTargets, UnityAuthService } from "./services/unity-auth.service";
+import { setUnityDiagnostics, UnityDiagnostics } from "./services/unity-diagnostics";
+import { auditedUnity } from "../platform/audited-unity";
 import { UnityService } from "./services/unity.service";
 import { UnityAppointmentTools } from "./tools/appointment.tools";
 import { UnityPatientTools } from "./tools/patient.tools";
@@ -16,6 +18,8 @@ import { UnityBillingTools } from "./tools/billing.tools";
 import { UnityTaskTools } from "./tools/task.tools";
 import { toToolFailure } from "./utils/tool-result";
 import { UnityErrorHandler } from "./utils/error-handler";
+import { errorSummary } from "../utils/safe-log";
+import { forAgent } from "../utils/minimum-necessary";
 
 /**
  * Veradigm Unity MCP Server
@@ -31,6 +35,7 @@ class VeradigmUnityMCPServer {
   private server: Server;
   private authService: UnityAuthService;
   private unityService: UnityService;
+  private diagnostics: UnityDiagnostics;
   private appointmentTools: UnityAppointmentTools;
   private patientTools: UnityPatientTools;
   private clinicalTools: UnityClinicalTools;
@@ -53,6 +58,10 @@ class VeradigmUnityMCPServer {
     // Initialize services
     this.authService = new UnityAuthService();
     this.unityService = new UnityService(this.authService);
+    // Veradigm-required admin actions: GetServerInfo at start, LastLogs after Veradigm-side errors.
+    this.diagnostics = new UnityDiagnostics({ unity: auditedUnity(this.unityService, "diagnostics"), targets: configuredTargets });
+    this.unityService.onServerError((action, target, code) => this.diagnostics.onServerError(action, target, code));
+    setUnityDiagnostics(this.diagnostics);
 
     // Initialize tool classes
     this.appointmentTools = new UnityAppointmentTools(this.unityService);
@@ -155,8 +164,8 @@ class VeradigmUnityMCPServer {
           content: [
             {
               type: "text",
-              // The SSN's last 4 is for document matching only, never for the agent.
-              text: JSON.stringify(result, (k, v) => (k === "ssnLast4" ? undefined : v), 2),
+              // Minimum necessary for the agent: identity and ID fields only, never an SSN or its last 4.
+              text: JSON.stringify(forAgent(name, args, result), null, 2),
             },
           ],
         };
@@ -187,7 +196,7 @@ class VeradigmUnityMCPServer {
         await this.unityService.cleanup();
         console.error("[Unity MCP] Cleanup completed");
       } catch (error) {
-        console.error("[Unity MCP] Cleanup error:", error);
+        console.error(`[Unity MCP] Cleanup error: ${errorSummary(error)}`);
       }
       process.exit(0);
     };
@@ -199,6 +208,7 @@ class VeradigmUnityMCPServer {
   async start(): Promise<void> {
     const transport = new StdioServerTransport();
     await this.server.connect(transport);
+    this.diagnostics.start();
 
     console.error(
       `Veradigm Unity MCP Server started (${unityConfig.nodeEnv} environment)`
@@ -225,6 +235,6 @@ class VeradigmUnityMCPServer {
 // Start the server
 const server = new VeradigmUnityMCPServer();
 server.start().catch((error) => {
-  console.error("Failed to start Unity MCP server:", error);
+  console.error(`Failed to start Unity MCP server: ${errorSummary(error)}`);
   process.exit(1);
 });

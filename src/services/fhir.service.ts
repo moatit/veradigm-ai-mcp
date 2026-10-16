@@ -77,14 +77,9 @@ export class FHIRService {
     } catch (error) {
       // Log detailed error for debugging
       if (axios.isAxiosError(error) && error.response) {
+        // Status only: the query params are patient search terms and the response can hold chart data.
         console.error(
           `FHIR Search Error [${resourceType}]: Status ${error.response.status}`
-        );
-        console.error(`URL: ${error.config?.url}`);
-        console.error(`Params:`, error.config?.params);
-        console.error(
-          `Response:`,
-          JSON.stringify(error.response.data, null, 2)
         );
       }
       throw this.handleFHIRError(error);
@@ -206,16 +201,18 @@ export class FHIRService {
           case 404:
             return new Error("Resource not found");
           case 400:
-            return new Error(`Bad request: ${JSON.stringify(data)}`);
+            // Status only: a FHIR error body (OperationOutcome) can echo search parameters (names, birth dates).
+            return new Error("Bad request (400)");
           case 429:
             return new Error("Rate limit exceeded: Too many requests");
           case 500:
             // Check if there's more detail in the response
-            const errorDetail =
+            const errorDetail = String(
               data?.issue?.[0]?.details?.text ||
               data?.text?.div ||
               data?.message ||
-              JSON.stringify(data);
+              ""
+            );
             // Check if it's actually a ResourceNotFoundException (common in Veradigm API)
             if (
               errorDetail &&
@@ -227,11 +224,9 @@ export class FHIRService {
                 "Resource not found: The requested resource does not exist or is not accessible"
               );
             }
-            return new Error(`Internal server error: ${errorDetail}`);
+            return new Error("Internal server error (500)");
           default:
-            return new Error(
-              `FHIR API error (${status}): ${JSON.stringify(data)}`
-            );
+            return new Error(`FHIR API error (${status})`);
         }
       } else if (axiosError.request) {
         return new Error("Network error: Unable to connect to FHIR server");
@@ -273,7 +268,6 @@ export class FHIRService {
         const status = error.response.status;
         const data = error.response.data;
         console.error(`FHIR POST Error [${resourceType}]: Status ${status}`);
-        console.error(`Response: ${JSON.stringify(data, null, 2)}`);
 
         // Check if it's a 404 on POST - means create operation not supported
         if (status === 404) {

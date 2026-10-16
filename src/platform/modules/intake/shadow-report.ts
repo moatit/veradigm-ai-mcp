@@ -465,7 +465,7 @@ Shadow mode: every document was read and matched against the clinic's patient li
 | Units confirmed by staff | ${r.confirmed_units} (${pct(r.confirmed_units, r.units)}) |
 | **Wrong-patient auto-files** (must be 0) | **${r.wrong_patient.total}** |
 | Precision: would auto-file and confirmed the same patient | ${p(r.precision, r.precision.right, r.precision.of)} |
-| Auto-file rate on confirmed single-patient IKI documents | ${p(r.auto_rate_on_confirmed_patient_docs, r.auto_rate_on_confirmed_patient_docs.auto, r.auto_rate_on_confirmed_patient_docs.of)} |
+| Auto-file rate on confirmed single-patient clinic documents | ${p(r.auto_rate_on_confirmed_patient_docs, r.auto_rate_on_confirmed_patient_docs.auto, r.auto_rate_on_confirmed_patient_docs.of)} |
 | Category accuracy (confirmed, category given) | ${p(r.category, r.category.right, r.category.of)} |
 | Category accuracy on the units it would auto-file | ${r.category.auto_of ? `${pct(r.category.auto_right, r.category.auto_of)} (${r.category.auto_right} of ${r.category.auto_of})` : 'n/a'} |
 | Prediction and confirmation disagree | ${r.disagreements} |
@@ -505,7 +505,7 @@ Truth used, per unit: ${r.truth_sources.confirmed} confirmed on the Confirm pane
 | Kind | Units |
 |---|---:|
 | Filed to another patient | ${r.wrong_patient.different_patient} |
-| Not an IKI patient | ${r.wrong_patient.not_iki} |
+| Not a clinic patient | ${r.wrong_patient.not_iki} |
 | Several patients in one filed document | ${r.wrong_patient.several} |
 | **Total** | **${r.wrong_patient.total}** |
 
@@ -547,10 +547,10 @@ ${failed.length ? ['| Code | Items |', '|---|---:|', ...failed.map(([c, n]) => `
 ## Definitions
 
 - **Would auto-file**: two identifiers matched one patient in the list, OCR confidence above the gate, the page check passed, a specific category, not a duplicate, the sender not set to staff review (the live auto-file rules).
-- **Wrong-patient auto-file**: a unit it would auto-file whose confirmed truth is another patient, not an IKI patient, or several patients (for a split part: any of its pages confirmed to someone else).
+- **Wrong-patient auto-file**: a unit it would auto-file whose confirmed truth is another patient, not a clinic patient, or several patients (for a split part: any of its pages confirmed to someone else).
 - **Precision**: of the units it would auto-file that staff confirmed (unreadable left out), the share confirmed to the same patient.
 - **Truth**: a staff confirmation on the Confirm panel wins; else where staff were seen to file the document in Veradigm® EHR (high or medium confidence); else the whole file's confirmation. An unobserved, unconfirmed unit is never counted as correct.
-- **Disagree**: the patient it would file to or showed as the candidate is not the confirmed one, a document it would auto-file is not one IKI patient's, the categories differ, or a split's page groups differ.
+- **Disagree**: the patient it would file to or showed as the candidate is not the confirmed one, a document it would auto-file is not one clinic patient's, the categories differ, or a split's page groups differ.
 `;
 }
 
@@ -589,7 +589,7 @@ export function findLeaks(text: string, ids: { names: string[]; tokens: string[]
   return n;
 }
 
-export const PHI_CSV_WARNING = '# CONTAINS PHI (patient names, dates of birth, MRNs). For IKI/MOATiT staff only. Keep it inside the data center; never email or copy it out.';
+export const PHI_CSV_WARNING = '# CONTAINS PHI (patient names, dates of birth, MRNs). For clinic and MOATiT staff only. Keep it inside the data center; never email or copy it out.';
 
 const csvCell = (v: unknown) => {
   const s = String(v ?? '');
@@ -614,7 +614,7 @@ export function documentCsv(items: IntakeItem[]): string {
       const d = i.shadow!;
       const t = i.truth;
       const tp = t?.patient;
-      const severalText = t?.outcome === 'several' ? (t.parts || []).map((p) => `${p.pages.join('.')}=${p.patient ? p.patient.name : 'not IKI'}`).join('; ') : '';
+      const severalText = t?.outcome === 'several' ? (t.parts || []).map((p) => `${p.pages.join('.')}=${p.patient ? p.patient.name : 'not a clinic patient'}`).join('; ') : '';
       return [
         i.id, i.parent_id || '', i.part ? `${i.part.index + 1}/${i.part.of}` : '', i.received_at, originOf(root), i.file?.name || '',
         root.extracted?.sender?.value || '', i.page_count || i.ocr?.pages || '', qualityBand(root), i.status,

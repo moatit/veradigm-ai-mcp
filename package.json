@@ -24,9 +24,17 @@
     "verify:sandbox": "ts-node src/scripts/verify-sandbox.ts",
     "smoke": "ts-node src/scripts/smoke-offline.ts",
     "smoke:scheduling": "ts-node src/scripts/smoke-scheduling.ts",
+    "smoke:appointment-writes": "ts-node src/scripts/smoke-appointment-writes.ts",
     "smoke:outreach": "ts-node src/scripts/smoke-outreach.ts",
     "smoke:huddle": "ts-node src/scripts/smoke-huddle.ts",
     "smoke:activity": "ts-node src/scripts/smoke-activity.ts",
+    "smoke:unity-auth": "ts-node src/scripts/smoke-unity-auth.ts",
+    "smoke:endpoints": "ts-node src/scripts/smoke-endpoints.ts",
+    "smoke:staff-login": "ts-node src/scripts/smoke-staff-login.ts",
+    "smoke:config": "ts-node src/scripts/smoke-config.ts",
+    "smoke:hipaa": "ts-node src/scripts/smoke-hipaa.ts",
+    "smoke:voice": "ts-node src/scripts/smoke-voice.ts",
+    "smoke:call-binding": "ts-node src/scripts/smoke-call-binding.ts",
     "smoke:intake": "ts-node src/scripts/smoke-intake.ts && ts-node src/scripts/smoke-intake-shadow.ts && ts-node src/scripts/smoke-intake-rules.ts",
     "smoke:intake-rules": "ts-node src/scripts/smoke-intake-rules.ts",
     "smoke:intake-shadow": "ts-node src/scripts/smoke-intake-shadow.ts",
@@ -34,6 +42,8 @@
     "eval:shadow": "ts-node src/scripts/eval-shadow.ts",
     "intake:import": "ts-node src/scripts/intake-import.ts",
     "staff:user": "ts-node src/scripts/staff-user.ts",
+    "audit:verify": "ts-node src/scripts/audit-verify.ts",
+    "docs:hipaa": "ts-node src/scripts/docs-hipaa.ts",
     "server:shadow": "ts-node src/platform/shadow-server.ts"
   },
   "keywords": [
@@ -49,14 +59,15 @@
   "author": "Your Name",
   "license": "MIT",
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^0.5.0",
+    "@modelcontextprotocol/sdk": "^1.32.1",
     "@types/cors": "^2.8.19",
     "axios": "^1.6.0",
     "cors": "^2.8.5",
     "dotenv": "^16.3.1",
     "express": "^4.21.2",
     "jsonwebtoken": "^9.0.2",
-    "node-cache": "^5.1.2"
+    "node-cache": "^5.1.2",
+    "nodemailer": "10.0.13"
   },
   "devDependencies": {
     "@types/express": "^4.17.21",

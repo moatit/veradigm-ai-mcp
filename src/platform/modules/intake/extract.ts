@@ -25,6 +25,7 @@
  * how fields are read, never what the matcher accepts.
  */
 import { findTemplate, fitsDateFormat, templateValues, type SenderTemplate } from './templates';
+import { clinicName } from '../../clinic';
 export type Confidence = 'high' | 'medium' | 'low';
 export type DocumentKind = 'lab_result' | 'imaging' | 'consult' | 'referral' | 'other';
 export type DocumentSubtype =
@@ -1067,12 +1068,12 @@ export function abnormalFlags(text: string): AbnormalFlags {
 
 /**
  * Every field we can read from one document's text. Missing fields are left out.
- * `ownName` is the receiving practice (INTAKE_PRACTICE_NAME): never taken as the sender.
+ * `ownName` is the receiving practice (INTAKE_PRACTICE_NAME, else CLINIC_NAME; no default): never taken as the sender.
  */
 export function extractFields(
   text: string,
   now: Date = new Date(),
-  ownName: string = process.env.INTAKE_PRACTICE_NAME || 'Idaho Kidney Institute'
+  ownName: string = process.env.INTAKE_PRACTICE_NAME || clinicName()
 ): ExtractedFields {
   const clean = String(text || '').replace(/\r/g, '').replace(/\f/g, '\n').slice(0, 200_000);
   const lines = clean.split('\n');

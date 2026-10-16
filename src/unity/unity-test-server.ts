@@ -7,13 +7,14 @@
  * Port: 3001
  */
 
-import cors from "cors";
 import express, { NextFunction, Request, Response } from "express";
 // Load env first so adminLogger gets ADMIN_PORTAL_URL and ADMIN_API_KEY
 import { adminLogger } from "../middleware/admin-logger";
 import { toVoiceSummary } from "../utils/response-formatter";
+import { agentToolAllowed, forAgent, staffOnlyFailure } from "../utils/minimum-necessary";
 import { unityConfig } from "./config/environment";
-import { UnityAuthService } from "./services/unity-auth.service";
+import { configuredTargets, UnityAuthService } from "./services/unity-auth.service";
+import { setUnityDiagnostics, UnityDiagnostics } from "./services/unity-diagnostics";
 import { UnityService } from "./services/unity.service";
 import { UnityAppointmentTools } from "./tools/appointment.tools";
 import { UnityClinicalTools } from "./tools/clinical.tools";
@@ -26,10 +27,19 @@ import { callRecords } from "./oncall/call-records";
 import { currentMode } from "./oncall/call-mode";
 import { loadPlatformModules } from "../platform/modules";
 import { moduleForTool, platformTools, platformWriteTools, ToolContext } from "../platform/registry";
-import { mountPlatform, requireToolKey } from "../platform/app";
-import { auditToolCall } from "../platform/audit";
+import { mountPlatform, requireAgentKey, requireToolKey } from "../platform/app";
+import { corsFromEnv } from "../platform/cors";
+import { auditToolCall, flushAudit } from "../platform/audit";
+import { auditedUnity } from "../platform/audited-unity";
 import { mountRetellWebhook } from "../platform/modules/activity";
+import { mountRetellInbound } from "../platform/modules/activity/retell-inbound";
 import { mountFaxWebhook } from "../platform/modules/intake";
+import { failFastWhenDown, setSystemStatus, SystemStatus } from "../platform/system-status";
+import { setStatusBanner } from "../platform/shell";
+import { statusBanner } from "../platform/status-ui";
+import { TokenKeepWarm, UnityHealthChecker } from "./services/unity-health";
+import { attachUpcomingVisits, needsVeradigm, recordsUnavailable } from "./agent-edge";
+import { callBindings, normalizeCallId, withCallBinding } from "../platform/call-binding";
 
 const app = express();
 const PORT = process.env.UNITY_PORT || 3001;
@@ -42,15 +52,29 @@ const patientTools = new UnityPatientTools(unityService);
 const clinicalTools = new UnityClinicalTools(unityService);
 const billingTools = new UnityBillingTools(unityService);
 const taskTools = new UnityTaskTools(unityService);
+// Veradigm-required admin actions: GetServerInfo at start (cached), LastLogs after Veradigm-side errors.
+const diagnostics = new UnityDiagnostics({ unity: auditedUnity(unityService, "diagnostics"), targets: configuredTargets });
+unityService.onServerError((action, target, code) => diagnostics.onServerError(action, target, code));
+setUnityDiagnostics(diagnostics);
+// System status (staff banner, phone agent, help-desk alerts), the Veradigm health checker and token keep-warm.
+const systemStatus = new SystemStatus({ targets: configuredTargets });
+setSystemStatus(systemStatus);
+setStatusBanner(() => statusBanner(systemStatus));
+const healthChecker = new UnityHealthChecker({ auth: authService, unity: unityService, status: systemStatus, targets: configuredTargets });
+unityService.onOutcome((action, target, ok, code) => healthChecker.onActionOutcome(action, target, ok, code));
+const keepWarm = new TokenKeepWarm(authService, configuredTargets);
 loadPlatformModules();
 
 // Retell call events: needs the raw body for verification, so it goes before express.json().
 mountRetellWebhook(app);
+// Retell inbound-call webhook: line mode + records status as dynamic variables; warms the Veradigm sessions.
+mountRetellInbound(app, () => void keepWarm.warmNow());
 // MOATiT Fax deliveries (document intake): HMAC over the raw body, so also before express.json().
 mountFaxWebhook(app);
 
-// Middleware
-app.use(cors());
+// Middleware: CORS only for origins in DRAWBRIDGE_CORS_ORIGINS (default none: same origin only)
+app.disable("x-powered-by");
+app.use(corsFromEnv());
 app.use(express.json());
 
 // Request logging
@@ -61,22 +85,53 @@ app.use((req: Request, res: Response, next: NextFunction) => {
   next();
 });
 
-// Health check endpoint
+// Health check endpoint: open, so it says nothing about the Veradigm endpoint, app name or environment
 app.get("/health", (req: Request, res: Response) => {
   res.json({
     status: "healthy",
-    server: "unity-mcp",
-    environment: unityConfig.nodeEnv,
-    unityEndpoint: unityConfig.ubiquityEndpoint,
-    appName: unityConfig.appName,
     timestamp: new Date().toISOString(),
   });
 });
 
 // List all tools
-app.get("/tools", (req: Request, res: Response) => {
+app.get("/tools", requireToolKey, (req: Request, res: Response) => {
   res.json({ tools: getToolDefinitions() });
 });
+
+// Tools offered to the phone agent (MCP tools/list): staff-only tools that list other patients are left out.
+const getAgentToolDefinitions = () => getToolDefinitions().filter((t) => agentToolAllowed(t.name));
+
+/**
+ * One phone-agent tool call (Retell custom function or MCP tools/call): staff-only tools are refused (and audited),
+ * patient-scoped tools run only for a patient verified on this call (identity before information, enforced here:
+ * src/platform/call-binding.ts, keyed by the Retell call ID), and the result is cut to the minimum necessary before
+ * the agent sees it (src/utils/minimum-necessary.ts). Staff screens and modules call executeTool directly.
+ */
+async function executeAgentTool(name: string, args: any, callId: string | undefined, callerPhone: string | undefined, channel: string): Promise<any> {
+  if (!agentToolAllowed(name)) {
+    auditToolCall({ server: "unity", tool: name, args, callId, success: false, errorCode: "STAFF_ONLY", latencyMs: 0, channel });
+    return staffOnlyFailure(name);
+  }
+  const out = await withCallBinding(name, args, { server: "unity", callId, channel }, async (checked) => {
+    // Veradigm known down (health checks): answer at once instead of waiting through timeouts.
+    if (needsVeradigm(name) && failFastWhenDown() && systemStatus.isDown()) {
+      auditToolCall({ server: "unity", tool: name, args: checked, callId, success: false, errorCode: "RECORDS_UNAVAILABLE", latencyMs: 0, channel });
+      return recordsUnavailable(name);
+    }
+    keepWarm.noteActivity();
+    return forAgent(name, checked, await executeTool(name, checked, callId, callerPhone, channel));
+  });
+  if (name === "unity_search_patients") {
+    // The verified patient's upcoming visits ride along (saves a tool round; agent-edge.ts).
+    // Only for the patient this search just bound to the call (never on a read-back or unbound hit).
+    return attachUpcomingVisits(args, out, async (patientId) =>
+      callBindings.resolve(normalizeCallId(callId), "pm", patientId) === patientId
+        ? executeTool("unity_get_patient_appointments", { patientId }, callId, callerPhone, channel)
+        : null,
+    );
+  }
+  return out;
+}
 
 // Get all tool definitions
 const getToolDefinitions = () => {
@@ -231,7 +286,7 @@ app.post("/", requireToolKey, async (req: Request, res: Response): Promise<void>
         break;
 
       case "tools/list":
-        result = { tools: getToolDefinitions() };
+        result = { tools: getAgentToolDefinitions() };
         break;
 
       case "tools/call": {
@@ -251,7 +306,7 @@ app.post("/", requireToolKey, async (req: Request, res: Response): Promise<void>
         try {
           const callId =
             (req.headers["x-call-id"] as string) || toolArgs?.call_id || undefined;
-          const toolResult = await executeTool(name, toolArgs || {}, callId, undefined, channel);
+          const toolResult = await executeAgentTool(name, toolArgs || {}, callId, undefined, channel);
           const toolResponseTime = Date.now() - toolStartTime;
           const failed = toolResult?.success === false && toolResult?.error_code;
 
@@ -343,7 +398,7 @@ app.post("/", requireToolKey, async (req: Request, res: Response): Promise<void>
 // This is preferred over MCP because custom functions have the
 // "Speak After Execution" toggle in the Retell dashboard.
 // ═══════════════════════════════════════════════════════════════
-app.post("/api/retell", requireToolKey, async (req: Request, res: Response): Promise<void> => {
+app.post("/api/retell", requireAgentKey, async (req: Request, res: Response): Promise<void> => {
   const { name, args, call } = req.body;
   const t0 = Date.now();
   const requestTime = new Date();
@@ -354,7 +409,7 @@ app.post("/api/retell", requireToolKey, async (req: Request, res: Response): Pro
   }
 
   // executeTool never throws; failures come back as { success:false, error_code, retryable }.
-  const toolResult = await executeTool(name, args || {}, call?.call_id, call?.from_number, "retell");
+  const toolResult = await executeAgentTool(name, args || {}, call?.call_id, call?.from_number, "retell");
   const responseText = toVoiceSummary(name, toolResult);
   const responseTime = Date.now() - t0;
   const failed = toolResult?.success === false && toolResult?.error_code;
@@ -396,17 +451,19 @@ app.get("/test/auth", requireToolKey, async (req: Request, res: Response) => {
   }
 });
 
-// Test server info endpoint
+// Veradigm connection (GetServerInfo, cached): product, version and time zone per configured system only.
+app.get("/diagnostics/veradigm", requireToolKey, (req: Request, res: Response) => {
+  const lastLogs = diagnostics.lastLogs();
+  res.json({
+    server_info: diagnostics.serverInfo(),
+    last_logs: { count: lastLogs.length, latest_at: lastLogs[0]?.at || null },
+    timestamp: new Date().toISOString(),
+  });
+});
+
+// Test server info endpoint: re-runs GetServerInfo now (same summary fields, never the raw reply)
 app.get("/test/serverinfo", requireToolKey, async (req: Request, res: Response) => {
-  try {
-    const serverInfo = await unityService.getServerInfo("EHR");
-    res.json(serverInfo);
-  } catch (error: any) {
-    res.status(500).json({
-      error: error.message,
-      timestamp: new Date().toISOString(),
-    });
-  }
+  res.json({ server_info: await diagnostics.refreshServerInfo(true), timestamp: new Date().toISOString() });
 });
 
 // Drawbridge platform: staff app at /app, module APIs at /api/<module>
@@ -416,9 +473,13 @@ mountPlatform(app, {
 });
 
 // Start server
-app.listen(PORT, () => {
-  // Pre-warm auth tokens so first Retell call doesn't wait for auth
-  authService.getSecurityToken("EHR").catch(() => {});
+const httpServer = app.listen(PORT, () => {
+  // First token + login per configured system, then GetServerInfo (also pre-warms auth for the first Retell call).
+  // A failure is logged and shown as "unavailable"; it never stops the server.
+  diagnostics.start();
+  // Veradigm health probe every UNITY_HEALTH_CHECK_MIN (2-minute floor) and token keep-warm.
+  healthChecker.start();
+  keepWarm.start();
 
   console.log("");
   console.log(
@@ -471,3 +532,20 @@ app.listen(PORT, () => {
   console.log("Ready for Retell AI integration! 🎙️");
   console.log("");
 });
+
+// Graceful shutdown (SIGINT/SIGTERM, e.g. docker stop): stop taking requests, retire the Unity tokens
+// this process holds (RetireToken, PM and EHR), flush the audit log. Forced exit after 10 s.
+let shuttingDown = false;
+async function shutdown(signal: string): Promise<void> {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  console.log(`[Unity] ${signal}: shutting down`);
+  setTimeout(() => process.exit(0), 10_000).unref();
+  httpServer.close();
+  await unityService.cleanup();
+  await systemStatus.flush().catch(() => undefined);
+  await flushAudit().catch(() => undefined);
+  process.exit(0);
+}
+process.on("SIGINT", () => void shutdown("SIGINT"));
+process.on("SIGTERM", () => void shutdown("SIGTERM"));

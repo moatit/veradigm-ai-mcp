@@ -23,6 +23,13 @@ function getEnvironmentConfig(): EnvironmentConfig {
   if (!process.env.CLIENT_ID || !process.env.CLIENT_SECRET) {
     throw new Error('CLIENT_ID and CLIENT_SECRET environment variables are required');
   }
+  // Production: the FHIR, authorize and token URLs must be set and use TLS (HIPAA 164.312(e)(1)).
+  if (nodeEnv === 'production') {
+    const bad = ['FHIR_BASE_URL_PRODUCTION', 'AUTH_URL_PRODUCTION', 'TOKEN_URL_PRODUCTION'].filter(
+      (k) => !/^https:\/\//i.test(String(process.env[k] || '').trim())
+    );
+    if (bad.length) throw new Error(`NODE_ENV=production: ${bad.join(', ')} must be set to https:// URLs`);
+  }
 
   return {
     nodeEnv,

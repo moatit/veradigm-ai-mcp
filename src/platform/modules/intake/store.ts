@@ -93,10 +93,12 @@ export interface IntakeItem {
   part?: { index: number; of: number; pages: number[] };
   /** Shadow mode (INTAKE_MODE=shadow): what Drawbridge would have done. Nothing is filed. */
   shadow?: ShadowDecision;
-  /** Shadow mode: what staff confirmed (patient and category, or not an IKI patient / unreadable / several). */
+  /** Shadow mode: what staff confirmed (patient and category, or not a clinic patient / unreadable / several). */
   truth?: GroundTruth;
   /** Shadow mode: where staff were seen to file it in Veradigm® EHR (observe.ts, read-only). */
   observed?: StaffObservation;
+  /** Set when the record's patient details were removed by retention (purgeRecords); IDs, hash and history stay. */
+  purged_at?: string;
   history: IntakeHistory[];
 }
 
@@ -421,6 +423,43 @@ export class IntakeStore {
       }
     }
     return removed;
+  }
+
+  /**
+   * Record retention (HIPAA 164.310(d)(2)(i) disposal, 164.530(c)): items filed or sent to indexing more than
+   * `days` ago (a split file once all its parts are) keep only what the audit trail needs: IDs, status, the
+   * filed document ID, the file's SHA-256/size/type, the patient IDs of the match and the history. Extracted
+   * fields, names, dates of birth, notes, the sender's number, the file name and any leftover original or
+   * text are removed. Items still waiting for staff are never touched. Returns how many records were purged.
+   */
+  purgeRecords(days: number): number {
+    const cutoff = this.now().getTime() - days * 86_400_000;
+    const done = (i: IntakeItem | undefined) => !!i && (i.status === 'filed' || i.status === 'sent_to_indexing') && Date.parse(i.updated_at) <= cutoff;
+    const ts = this.now().toISOString();
+    let purged = 0;
+    for (const item of this.load()) {
+      if (item.purged_at) continue;
+      const parentDone = item.status === 'split' && !!item.split?.children.length && item.split.children.every((c) => done(this.get(c)));
+      if (!parentDone && !done(item)) continue;
+      for (const name of [item.file?.stored_as, `${item.id}.txt`]) {
+        if (!name || !/^[\w.-]+$/.test(name)) continue;
+        try {
+          fs.unlinkSync(path.join(this.filesDir, name));
+        } catch {
+          // already gone
+        }
+      }
+      const p = item.match?.patient;
+      for (const k of ['extracted', 'note', 'sender_fax', 'shadow', 'truth', 'observed', 'pages_check'] as const) delete item[k];
+      if (item.match) item.match = { ...item.match, reason: '', patient: p ? ({ patientId: p.patientId, chartPatientId: p.chartPatientId } as any) : undefined };
+      if (item.file) item.file = { ...item.file, name: 'document' };
+      item.has_text = false;
+      item.purged_at = ts;
+      item.history.push({ ts, action: `patient details removed after ${days} days (retention)`, by: 'drawbridge' });
+      purged++;
+    }
+    if (purged) this.persist();
+    return purged;
   }
 }
 

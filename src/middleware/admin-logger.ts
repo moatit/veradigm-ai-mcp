@@ -81,7 +81,7 @@ export class AdminLogger {
       if (status === 401) {
         console.error('[AdminLogger] Log rejected (401 Invalid API key). Ensure ADMIN_API_KEY in .env matches an active Client API key in the admin panel.')
       } else {
-        console.error('[AdminLogger] Failed to send log:', msg || error)
+        console.error(`[AdminLogger] Failed to send log: ${String(msg || error?.code || 'error').slice(0, 160)}`)
       }
     }
   }

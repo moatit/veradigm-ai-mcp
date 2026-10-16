@@ -103,15 +103,16 @@ export function createSchedulingModule(): PlatformModule {
       attach(d);
       const router = Router();
 
-      router.get(
-        '/',
-        safe(async (req, res) => {
-        const q = str(req.query.q).slice(0, 300);
-        const isForm = str(req.query.form) === '1';
-        const start = fromInput(req.query.start);
-        const end = fromInput(req.query.end);
-        const part = ['morning', 'afternoon', 'any'].includes(str(req.query.part)) ? str(req.query.part) : 'any';
-        const provider = str(req.query.provider).slice(0, 40);
+      // The free-text question is POSTed (staff may type a name into it): it never lands in a URL, browser
+      // history or a proxy log. The structured search (dates, provider) stays a GET.
+      const openingsScreen = safe(async (req, res) => {
+        const src: any = req.method === 'POST' ? req.body || {} : req.query;
+        const q = req.method === 'POST' ? str(src.q).slice(0, 300) : '';
+        const isForm = str(src.form) === '1';
+        const start = fromInput(src.start);
+        const end = fromInput(src.end);
+        const part = ['morning', 'afternoon', 'any'].includes(str(src.part)) ? str(src.part) : 'any';
+        const provider = str(src.provider).slice(0, 40);
 
         let result: any = null;
         if (q) result = await d.runTool('drawbridge_find_openings', { question: q });
@@ -131,8 +132,9 @@ export function createSchedulingModule(): PlatformModule {
             { user: user(req), active: '/assistant' }
           )
         );
-        })
-      );
+      });
+      router.get('/', openingsScreen);
+      router.post('/', openingsScreen);
 
       router.get(
         '/day',
