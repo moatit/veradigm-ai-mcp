@@ -8,7 +8,7 @@ Base URL (dev): `https://drawbridge.moatit.dev`. It runs on Ali's workstation in
 |---|---|
 | Method | POST |
 | URL | Veradigm PM / EHR tools and `drawbridge_*` tools: `https://drawbridge.moatit.dev/unity/api/retell`<br>Chart reads (FHIR tool names): `https://drawbridge.moatit.dev/fhir/api/retell` |
-| Header | `x-drawbridge-key: <DRAWBRIDGE_TOOL_KEY from deploy/local/.env>` |
+| Header | `x-drawbridge-key: <DRAWBRIDGE_AGENT_KEY from deploy/local/.env>` (the phone agent's own key, accepted on `/api/retell` only; until it is set, `DRAWBRIDGE_TOOL_KEY`. Once `DRAWBRIDGE_AGENT_KEY` is set the tool key no longer works here, so switch every custom function's header at the same time) |
 | Body | Retell's default `{ name, args, call }` |
 | Speak after execution | On |
 
