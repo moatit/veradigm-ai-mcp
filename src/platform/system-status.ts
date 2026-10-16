@@ -204,9 +204,9 @@ export class SystemStatus {
   }
 
   /**
-   * A real Veradigm call finished. Success brings a DOWN component back UP at once; a failure records
-   * the error class (no detail: real calls carry patient context) and returns true when an early probe
-   * is worth running.
+   * A real Veradigm call finished. Success brings a DOWN (or not yet checked) component UP at once (the
+   * health probe skips a system that answered in the last 2 minutes); a failure records the error class
+   * (no detail: real calls carry patient context) and returns true when an early probe is worth running.
    */
   recordPassive(target: string, ok: boolean, errorClass = ''): boolean {
     const c = this.component(target);
@@ -214,10 +214,10 @@ export class SystemStatus {
       const changed = c.state !== 'up';
       c.last_ok_at = this.iso();
       c.consecutive_failures = 0;
-      if (changed && c.state === 'down') {
+      if (changed) {
         this.setState(c, 'up');
         this.recompute();
-      } else if (changed) this.save();
+      }
       return false;
     }
     c.last_error_class = clip(errorClass || 'UNKNOWN_ERROR', 40);

@@ -477,8 +477,10 @@ const httpServer = app.listen(PORT, () => {
   // First token + login per configured system, then GetServerInfo (also pre-warms auth for the first Retell call).
   // A failure is logged and shown as "unavailable"; it never stops the server.
   diagnostics.start();
-  // Veradigm health probe every UNITY_HEALTH_CHECK_MIN (2-minute floor) and token keep-warm.
-  healthChecker.start();
+  // Veradigm health probe every UNITY_HEALTH_CHECK_MIN (default 15, 2-minute floor) and token keep-warm.
+  // The first probe waits for that start-up GetServerInfo (refreshServerInfo joins the call in flight, it
+  // does not send another), so a system that just answered is not probed again within 2 minutes.
+  healthChecker.start(diagnostics.refreshServerInfo(true));
   keepWarm.start();
 
   console.log("");
