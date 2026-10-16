@@ -1,15 +1,18 @@
 import { Router } from 'express';
 import { PlatformModule } from '../../registry';
-import { esc, fmtTime, page } from '../../shell';
+import { APP_BASE, esc, fmtTime, page, requireAdmin } from '../../shell';
 import { getUnityDiagnostics, LastLogsRecord, ServerInfoSummary } from '../../../unity/services/unity-diagnostics';
+import { AuthLatch, getUnityAuth } from '../../../unity/services/unity-auth.service';
 import { getSystemStatus } from '../../system-status';
 import { statusCard } from '../../status-ui';
 
 /**
- * Drawbridge module: Veradigm connection (staff screen /app/veradigm, read only).
+ * Drawbridge module: Veradigm connection (staff screen /app/veradigm, read only except "Retry sign-in").
  * Shows what GetServerInfo reported for Veradigm® PM and Veradigm® EHR (product, version, time zone)
  * and the troubleshooting entries Drawbridge fetched with LastLogs after a Veradigm-side error
- * (src/unity/services/unity-diagnostics.ts). No patient data is shown or stored here.
+ * (src/unity/services/unity-diagnostics.ts). When Veradigm refused a sign-in (auth latch, unity-auth.service.ts)
+ * a card says so; an administrator retries sign-in after the credentials are fixed (POST /retry-sign-in).
+ * No patient data is shown or stored here.
  */
 const SYSTEM_LABEL: Record<string, string> = { PM: 'Veradigm® PM', EHR: 'Veradigm® EHR' };
 
@@ -24,6 +27,12 @@ function infoCard(i: ServerInfoSummary): string {
 <dl style="margin-top:8px"><dt>Product</dt><dd>${esc(i.product) || '—'}</dd><dt>Version</dt><dd>${esc(i.version) || '—'}</dd>
 <dt>Time zone</dt><dd>${esc(i.time_zone) || '—'}</dd><dt>Server time</dt><dd>${esc(i.server_time) || '—'}</dd>
 <dt>Checked</dt><dd>${i.checked_at ? esc(fmtTime(i.checked_at)) : '—'}${i.error_code ? ` <span class="muted">(${esc(i.error_code)})</span>` : ''}</dd></dl></div>`;
+}
+
+function latchCard(l: AuthLatch): string {
+  return `<div class="card" style="border-color:var(--urgent)"><div class="row"><strong>${esc(SYSTEM_LABEL[l.target] || l.target)}: sign-in stopped</strong><span class="pill urgent">STOPPED</span></div>
+<p style="margin:8px 0">Veradigm refused ${esc(l.stage)} at ${esc(fmtTime(l.at))} (${esc(l.reason)}). Drawbridge sends nothing more for this system, so the account can't be locked out. Fix the credentials (a server restart loads new ones), then retry.</p>
+<form method="post" action="${APP_BASE}/veradigm/retry-sign-in" style="margin:0"><input type="hidden" name="target" value="${esc(l.target)}"><button>Retry sign-in</button> <span class="muted" style="font-size:13px">Administrators only. The next Veradigm call signs in once.</span></form></div>`;
 }
 
 function logRow(r: LastLogsRecord): string {
@@ -42,7 +51,7 @@ export const veradigmModule: PlatformModule = {
     router.get('/', (req, res) => {
       const d = getUnityDiagnostics();
       const body = d
-        ? `<h2 style="margin-top:4px">Veradigm connection</h2>${statusCard(getSystemStatus(), true)}<div class="grid">${d.serverInfo().map(infoCard).join('') || '<div class="card muted">No Veradigm® system is configured.</div>'}</div>
+        ? `<h2 style="margin-top:4px">Veradigm connection</h2>${(getUnityAuth()?.latchedTargets() || []).map(latchCard).join('')}${statusCard(getSystemStatus(), true)}<div class="grid">${d.serverInfo().map(infoCard).join('') || '<div class="card muted">No Veradigm® system is configured.</div>'}</div>
 <h2>Troubleshooting log</h2><p class="muted" style="font-size:13px">Fetched from Veradigm after a Veradigm-side error, at most once a minute per system. Dates and long numbers are masked.</p>
 ${(() => {
   const rows = d.lastLogs();
@@ -52,6 +61,12 @@ ${(() => {
 })()}`
         : '<div class="card muted">This server does not connect to Veradigm.</div>';
       res.send(page('Veradigm connection · Drawbridge', body, { user: (req as any).drawbridgeUser, active: '/veradigm' }));
+    });
+    // Clear the auth latch for one system (administrators; same-origin and staff audit apply to every POST).
+    router.post('/retry-sign-in', requireAdmin, (req, res) => {
+      const target = String(req.body?.target || '');
+      if (target === 'PM' || target === 'EHR') getUnityAuth()?.retrySignIn(target, `staff:${(req as any).drawbridgeUser || '?'}`);
+      res.redirect(303, `${APP_BASE}/veradigm`);
     });
     return router;
   },

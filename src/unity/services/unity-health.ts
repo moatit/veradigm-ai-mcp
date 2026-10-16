@@ -214,6 +214,8 @@ export interface KeepWarmAuth {
   tokenSecondsLeft(target: UnityTargetSystem): number | undefined;
   refreshSession(target: UnityTargetSystem): Promise<boolean>;
   getAuthenticatedSession(target: UnityTargetSystem): Promise<unknown>;
+  /** Set when Veradigm refused the target's sign-in (auth latch): keep-warm leaves it alone. */
+  latched?(target: UnityTargetSystem): unknown;
 }
 
 export class TokenKeepWarm {
@@ -255,7 +257,7 @@ export class TokenKeepWarm {
     for (const t of this.targets()) {
       const left = this.auth.tokenSecondsLeft(t);
       if (left !== undefined && left > keepWarmLeadSec()) continue;
-      if (this.busy.has(t)) continue;
+      if (this.busy.has(t) || this.auth.latched?.(t)) continue;
       const wait = this.backoff.get(t);
       if (wait && this.now() < wait.at) continue;
       this.busy.add(t);
@@ -279,7 +281,7 @@ export class TokenKeepWarm {
   async warmNow(): Promise<void> {
     this.noteActivity();
     await Promise.all(
-      this.targets().map((t) =>
+      this.targets().filter((t) => !this.auth.latched?.(t)).map((t) =>
         this.auth.getAuthenticatedSession(t).catch((e) => this.log(`[Unity Auth] warm ${t} failed: ${errorSummary(e, 120)}`))
       )
     );

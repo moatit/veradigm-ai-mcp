@@ -345,6 +345,10 @@ export class UnityService {
 
     // Errors thrown by UnityAuthService are plain Errors; classify them by message.
     const msg = String(error?.message || '');
+    if (error?.code === 'AUTH_ERROR') {
+      // Sign-in stopped (auth latch): refused locally, nothing was sent.
+      return new UnityAPIError(msg, 'AUTH_ERROR');
+    }
     if (/ECONNREFUSED|ENOTFOUND|EAI_AGAIN|ECONNRESET|socket hang up/i.test(msg)) {
       return new UnityAPIError(`Unity unreachable during ${action}`, 'NETWORK_ERROR');
     }

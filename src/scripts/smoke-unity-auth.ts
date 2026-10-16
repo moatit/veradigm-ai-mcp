@@ -1,7 +1,8 @@
 /**
  * Offline checks for Unity auth and Veradigm diagnostics (no network: axios.post is replaced by a fake).
  * Single-flight login, retry once after a rejected token, timeouts, no secrets in logs,
- * GetServerInfo summary/caching and LastLogs after server-side errors (rate-limited, no loop).
+ * GetServerInfo summary/caching and LastLogs after server-side errors (rate-limited, no loop),
+ * auth latch (Veradigm refused a sign-in: nothing more is sent until an operator retries; one alert).
  *
  *   npm run smoke:unity-auth
  */
@@ -25,6 +26,9 @@ Object.assign(process.env, {
   UNITY_TOKEN_REFRESH_BUFFER: '120',
 });
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'drawbridge-unity-auth-'));
+process.env.AUDIT_DIR = TMP;
+process.env.CALL_RECORDS_DIR = TMP;
+for (const k of ['HELPDESK_SMTP_URL', 'HELPDESK_WEBHOOK_URL', 'UNITY_KEEP_WARM_MINUTES']) delete process.env[k];
 
 import assert from 'assert';
 import axios from 'axios';
@@ -37,7 +41,7 @@ interface Call {
 }
 
 async function main(): Promise<void> {
-  const { UnityAuthService, tokenLifetimeSeconds, isTokenRejection } = await import('../unity/services/unity-auth.service');
+  const { UnityAuthService, tokenLifetimeSeconds, isTokenRejection, isCredentialRejection } = await import('../unity/services/unity-auth.service');
   const { UnityService } = await import('../unity/services/unity.service');
   const diag = await import('../unity/services/unity-diagnostics');
 
@@ -259,6 +263,124 @@ async function main(): Promise<void> {
   await new Promise((r) => setTimeout(r, 30));
   assert.strictEqual(count('LastLogs'), 1);
   ok('LastLogs only for unexpected Veradigm errors, not for validation messages');
+
+  // 13. Auth latch: Veradigm refused the sign-in -> nothing more is sent for that system until an operator retries
+  const health = await import('../unity/services/unity-health');
+  const { SystemStatus } = await import('../platform/system-status');
+  const { HelpdeskNotifier } = await import('../platform/helpdesk');
+  const alerts: string[] = [];
+  const mkLatched = () => {
+    const a = new UnityAuthService();
+    const st = new SystemStatus({
+      targets: () => ['PM', 'EHR'],
+      notifier: new HelpdeskNotifier(() => [{ name: 'fake', send: async (m: any) => void alerts.push(m.subject) }]),
+      dir: '',
+      log: () => undefined,
+      event: () => undefined,
+    });
+    a.onLatch((l) => st.markDown(l.target, 'AUTH_ERROR', `${l.stage}: sign-in stopped (${l.reason})`));
+    return { a, st, u: new UnityService(a) };
+  };
+  const httpErr = (status: number, data: any = {}) => () => {
+    throw Object.assign(new Error(`Request failed with status code ${status}`), { isAxiosError: true, response: { status, data } });
+  };
+  const timeoutErr = () => {
+    throw Object.assign(new Error('timeout of 30000ms exceeded'), { isAxiosError: true, code: 'ECONNABORTED' });
+  };
+  const refusedErr = () => {
+    throw Object.assign(new Error('connect ECONNREFUSED 10.0.0.1:443'), { isAxiosError: true, code: 'ECONNREFUSED' });
+  };
+
+  // 13a. ValidUser != YES (wrong EHR/PM password): latched, one alert, every later caller refused locally
+  reset();
+  let L = mkLatched();
+  script.GetUserAuthentication = [() => [{ getuserauthenticationinfo: [{ ValidUser: 'NO', ErrorMessage: 'Invalid password for VHCP001PM:PMGA02^8^pmuser on 10/15/2026' }] }]];
+  await assert.rejects(L.u.executeAction('GetSchedule', {}, '', 'PM'), (e: any) => e.code === 'AUTH_ERROR');
+  const latch = L.a.latched('PM')!;
+  assert.ok(latch && latch.stage === 'GetUserAuthentication', 'PM latched at GetUserAuthentication');
+  assert.ok(!latch.reason.includes('pmuser') && !latch.reason.includes('10/15/2026'), `reason scrubbed: ${latch.reason}`);
+  assert.strictEqual(L.a.latched('EHR'), undefined, 'EHR not affected');
+  await L.st.flush();
+  assert.strictEqual(L.st.snapshot().components.find((c) => c.target === 'PM')!.state, 'down', 'PM DOWN at once');
+  assert.strictEqual(alerts.length, 1, 'one help-desk alert when the latch engages');
+  const sentBefore = calls.length;
+  await assert.rejects(L.u.executeAction('GetSchedule', {}, '', 'PM'), (e: any) => e.code === 'AUTH_ERROR' && /sign-in stopped/.test(e.message));
+  await assert.rejects(L.u.executeAction('SaveTask', {}, '1', 'PM'), (e: any) => e.code === 'AUTH_ERROR');
+  await assert.rejects(L.a.getAuthenticatedSession('PM'), /sign-in stopped/);
+  await assert.rejects(L.a.refreshSession('PM'), /sign-in stopped/);
+  const probe = await new health.UnityHealthChecker({ auth: L.a, unity: L.u, status: L.st, targets: () => ['PM'], log: () => undefined }).probe('PM');
+  assert.deepStrictEqual([probe.ok, probe.error_class], [false, 'AUTH_ERROR'], 'health probe: local AUTH_ERROR');
+  process.env.UNITY_KEEP_WARM_MINUTES = '30';
+  let kwCalls = 0;
+  const kwAuth = {
+    tokenSecondsLeft: () => undefined, // token missing: keep-warm would renew it
+    refreshSession: async (t: any) => (kwCalls++, L.a.refreshSession(t)),
+    getAuthenticatedSession: async (t: any) => (kwCalls++, L.a.getAuthenticatedSession(t)),
+    latched: (t: any) => L.a.latched(t),
+  };
+  const kw = new health.TokenKeepWarm(kwAuth, () => ['PM'], { log: () => undefined });
+  kw.noteActivity();
+  assert.strictEqual(await kw.tick(), 0, 'keep-warm skips a latched system');
+  await kw.warmNow();
+  assert.strictEqual(kwCalls, 0, 'keep-warm and call-start warm-up leave a latched system alone');
+  delete process.env.UNITY_KEEP_WARM_MINUTES;
+  assert.strictEqual(calls.length, sentBefore, 'nothing sent to Veradigm while latched (tools, writes, probe, keep-warm)');
+  await L.st.flush();
+  assert.strictEqual(alerts.length, 1, 'still one alert');
+  // Operator retry: the next call signs in again (fresh GetToken + GetUserAuthentication) and works
+  assert.deepStrictEqual(L.a.retrySignIn('PM', 'staff:admin'), ['PM']);
+  assert.strictEqual(L.a.latched('PM'), undefined);
+  const after = await L.u.executeAction('GetSchedule', {}, '', 'PM');
+  assert.ok(after.success);
+  assert.deepStrictEqual([count('GetToken'), count('GetUserAuthentication'), count('GetSchedule')], [2, 2, 1], 'one new sign-in after the retry');
+  assert.ok(logged.some((l) => /PM sign-in STOPPED/.test(l)) && logged.some((l) => /PM sign-in retry requested by staff:admin/.test(l)), 'latch and retry are logged');
+  ok('auth latch: ValidUser != YES latches the system (DOWN, one help-desk alert); tools, writes, probe and keep-warm get a local AUTH_ERROR with nothing sent; operator retry signs in again');
+
+  // 13b. GetToken refused for a non-transient reason: latched
+  assert.ok(isCredentialRejection({ response: { status: 403, data: {} } }));
+  assert.ok(isCredentialRejection({ response: { status: 401, data: '' } }));
+  assert.ok(isCredentialRejection({ response: { status: 500, data: { error: 'Access is denied.' } } }), 'WCF fault: access denied on HTTP 500');
+  assert.ok(isCredentialRejection({ response: { status: 400, data: 'Invalid username or password' } }));
+  assert.ok(!isCredentialRejection({ code: 'ECONNABORTED', message: 'timeout of 30000ms exceeded' }), 'timeout');
+  assert.ok(!isCredentialRejection({ code: 'ECONNREFUSED' }), 'network');
+  assert.ok(!isCredentialRejection({ response: { status: 503, data: { Error: 'Service Unavailable' } } }), '5xx');
+  assert.ok(!isCredentialRejection({ response: { status: 500, data: { Error: 'Unity said no' } } }), '5xx without a denial');
+  assert.ok(!isCredentialRejection({ response: { status: 429, data: {} } }), '429');
+  reset();
+  alerts.length = 0;
+  L = mkLatched();
+  script.GetToken = [httpErr(500, { error: 'Access is denied' })];
+  await assert.rejects(L.u.executeAction('GetSchedule', {}, '', 'EHR'), (e: any) => e.code === 'AUTH_ERROR');
+  assert.strictEqual(L.a.latched('EHR')?.stage, 'GetToken');
+  await assert.rejects(L.u.executeAction('GetSchedule', {}, '', 'EHR'), (e: any) => e.code === 'AUTH_ERROR');
+  assert.strictEqual(count('GetToken'), 1, 'no second GetToken while latched');
+  await L.st.flush();
+  assert.strictEqual(alerts.length, 1);
+  reset();
+  L = mkLatched();
+  script.GetToken = [httpErr(403)];
+  await assert.rejects(L.u.executeAction('GetSchedule', {}, '', 'PM'));
+  assert.strictEqual(L.a.latched('PM')?.stage, 'GetToken', '403 latches');
+  ok('auth latch: GetToken 401/403 or "Access is denied" latches; one GetToken, no retries');
+
+  // 13c. Transient failures never latch: the next call tries again
+  for (const [label, fail] of [['timeout', timeoutErr], ['network', refusedErr], ['HTTP 503', httpErr(503, { Error: 'Service Unavailable' })], ['HTTP 500', httpErr(500, {})]] as const) {
+    reset();
+    L = mkLatched();
+    script.GetToken = [fail];
+    await assert.rejects(L.u.executeAction('GetSchedule', {}, '', 'EHR'));
+    assert.strictEqual(L.a.latched('EHR'), undefined, `${label} does not latch`);
+    const r = await L.u.executeAction('GetSchedule', {}, '', 'EHR');
+    assert.ok(r.success && count('GetToken') === 2, `${label}: the next call signs in`);
+  }
+  reset();
+  L = mkLatched();
+  script.GetUserAuthentication = [timeoutErr];
+  await assert.rejects(L.u.executeAction('GetSchedule', {}, '', 'EHR'));
+  assert.strictEqual(L.a.latched('EHR'), undefined, 'GetUserAuthentication timeout does not latch');
+  const text13 = logged.join('\n');
+  for (const s of [SECRET_SVC, SECRET_EHR, SECRET_PM]) assert.ok(!text13.includes(s), 'a password reached the log');
+  ok('auth latch: timeouts, network errors and 5xx (GetToken or GetUserAuthentication) never latch');
 
   console.error = origError;
   console.log = origLog;

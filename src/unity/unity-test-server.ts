@@ -13,7 +13,7 @@ import { adminLogger } from "../middleware/admin-logger";
 import { toVoiceSummary } from "../utils/response-formatter";
 import { agentToolAllowed, forAgent, staffOnlyFailure } from "../utils/minimum-necessary";
 import { unityConfig } from "./config/environment";
-import { configuredTargets, UnityAuthService } from "./services/unity-auth.service";
+import { configuredTargets, setUnityAuth, UnityAuthService } from "./services/unity-auth.service";
 import { setUnityDiagnostics, UnityDiagnostics } from "./services/unity-diagnostics";
 import { UnityService } from "./services/unity.service";
 import { UnityAppointmentTools } from "./tools/appointment.tools";
@@ -60,6 +60,10 @@ setUnityDiagnostics(diagnostics);
 const systemStatus = new SystemStatus({ targets: configuredTargets });
 setSystemStatus(systemStatus);
 setStatusBanner(() => statusBanner(systemStatus));
+// Auth latch: Veradigm refused a sign-in (wrong password, access denied) -> that system is DOWN at once (help-desk
+// alert) and nothing more is sent for it until an operator retries on the "Veradigm connection" screen.
+setUnityAuth(authService);
+authService.onLatch((l) => systemStatus.markDown(l.target, "AUTH_ERROR", `${l.stage}: sign-in stopped (${l.reason})`));
 const healthChecker = new UnityHealthChecker({ auth: authService, unity: unityService, status: systemStatus, targets: configuredTargets });
 unityService.onOutcome((action, target, ok, code) => healthChecker.onActionOutcome(action, target, ok, code));
 const keepWarm = new TokenKeepWarm(authService, configuredTargets);
