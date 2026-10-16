@@ -67,6 +67,9 @@ setStatusBanner(() => statusBanner(systemStatus));
 setUnityAuth(authService);
 const latchDown = (l: AuthLatch) => systemStatus.markDown(l.target, "AUTH_ERROR", `${l.stage}: sign-in stopped (${l.reason})`);
 authService.onLatch(latchDown);
+// The latch file is shared with other Drawbridge processes: look at it every 30 s (a local stat, no Veradigm
+// call) so a latch set elsewhere turns the status DOWN at once instead of at the next probe.
+setInterval(() => void authService.latchedTargets(), 30_000).unref();
 for (const l of authService.latchedTargets()) {
   if (!configuredTargets().includes(l.target)) continue;
   console.error(`[Unity Auth] ${l.target} sign-in still stopped (Veradigm refused ${l.stage} at ${l.at}); retry on the Veradigm connection screen after fixing the credentials`);

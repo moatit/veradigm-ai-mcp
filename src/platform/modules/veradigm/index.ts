@@ -31,7 +31,7 @@ function infoCard(i: ServerInfoSummary): string {
 
 function latchCard(l: AuthLatch): string {
   return `<div class="card" style="border-color:var(--urgent)"><div class="row"><strong>${esc(SYSTEM_LABEL[l.target] || l.target)}: sign-in stopped</strong><span class="pill urgent">STOPPED</span></div>
-<p style="margin:8px 0">Veradigm refused ${esc(l.stage)} at ${esc(fmtTime(l.at))} (${esc(l.reason)}). Drawbridge sends nothing more for this system, so the account can't be locked out. Fix the credentials (a server restart loads new ones and clears this), or retry once Veradigm has unlocked the account.</p>
+<p style="margin:8px 0">${l.stage === 'unknown' ? `The sign-in latch file was unreadable at ${esc(fmtTime(l.at))}, so every sign-in was stopped (fail closed).` : `Veradigm refused ${esc(l.stage)} at ${esc(fmtTime(l.at))} (${esc(l.reason)}).`} Drawbridge sends nothing more for this system, so the account can't be locked out. Fix the credentials (a server restart loads new ones and clears this), or retry once Veradigm has unlocked the account.</p>
 <form method="post" action="${APP_BASE}/veradigm/retry-sign-in" style="margin:0"><input type="hidden" name="target" value="${esc(l.target)}"><button>Retry sign-in</button> <span class="muted" style="font-size:13px">Administrators only. The next Veradigm call signs in once.</span></form></div>`;
 }
 

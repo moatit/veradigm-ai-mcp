@@ -1,6 +1,6 @@
 # Drawbridge: Veradigm® Unity actions for certification
 
-For the Veradigm API Assessment. This is the complete list of Veradigm Unity calls Drawbridge makes, taken from the code on branch `drawbridge/cert-hardening` after unused action names were removed from `src/unity/config/unity-endpoints.ts`. Every action name lives in that one file, and each can be overridden per client with `UNITY_ACTION_<KEY>`.
+For the Veradigm API Assessment. This is the complete list of Veradigm Unity calls Drawbridge makes, taken from the code on branch `drawbridge/cert-hardening` after unused action names were removed from `src/unity/config/unity-endpoints.ts`. Every action name lives in that one file. `UNITY_ACTION_<KEY>` may only repeat that key's declared name; any other value stops the server at start-up.
 
 Notes on the table:
 
@@ -75,6 +75,7 @@ These names were in `unity-endpoints.ts` but no code called them. They were remo
 - HTTPS to the Ubiquity endpoint (`UNITY_UBIQUITY_ENDPOINT`). In production the endpoint and both Ubiquity IDs must be set, because there are no sandbox defaults in production.
 - 30 s timeout per call. A read is retried once on 502/503/504 or a dropped connection. Writes (`Save*`, `Set*`) are never retried for those errors. After a rejected token the call is sent once more with a fresh login, which Veradigm never ran, so this is safe for writes too.
 - A failed call is reported as `{ success: false, error_code, retryable }` and never as an empty result.
-- Only the actions in this document are sent. `UnityService.executeAction` refuses any other name (`CERTIFIED_ACTIONS` in `unity-endpoints.ts`) before any login or request, so a `UNITY_ACTION_*` override can't add one.
+- Only the actions in this document are sent. `UnityService.executeAction` refuses any other name (`CERTIFIED_ACTIONS` in `unity-endpoints.ts`) before any login or request, so a `UNITY_ACTION_*` override can't add one. An override that names anything but its key's declared action stops the server at start-up.
+- GetToken, GetUserAuthentication and RetireToken each have a hard deadline (`UNITY_AUTH_TIMEOUT_MS`, 30 s) on top of the idle timeout, so a reply that never ends can't hold the sign-in queue.
 - Unity is never polled more often than every 2 minutes. The health check (`GetServerInfo`) runs every 15 minutes by default (`UNITY_HEALTH_CHECK_MIN`, never below 2) and skips a system that Drawbridge contacted in the background (probe, keep-warm renewal, `GetServerInfo` refresh; success or not), or that answered a real call, in the last 2 minutes. Session keep-warm retries a failed renewal after 2 minutes, doubling up to 30.
 - Every tool call is written to the audit log, and so is every action a staff module sends directly (intake, huddle, outreach, scheduling, diagnostics). Each line has the tool or action name, the patient ID if there is one, the outcome and the latency (`SECURITY_CONTROLS.md`).

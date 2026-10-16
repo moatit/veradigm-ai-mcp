@@ -60,7 +60,9 @@ export async function createShadowApp(startup: ShadowStartup) {
     // with any Drawbridge server using the same data directory). The auth service logs it and writes the
     // security event unity_signin_latched; this server has no status screen, so it alerts the help desk directly.
     const notifier = new HelpdeskNotifier();
-    auth.onLatch(async (l) => {
+    auth.onLatch(async (l, origin) => {
+      // Found in the shared latch file: the process that was refused alerts (no duplicate from here).
+      if (origin === 'file') return;
       const at = new Date().toISOString();
       const res = await notifier.send({
         kind: 'down',

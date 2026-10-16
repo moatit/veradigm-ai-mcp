@@ -7,7 +7,8 @@
  * one login per system at a time (no second refused login in a race), a late success while latched,
  * the latch file (survives a restart, shared between processes, scrypt fingerprint, cleared by a credential
  * change or a retry), security events, the declared-action allow-list, scrubbed refusal text and the
- * "Retry sign-in" route (administrators only, same origin, audited).
+ * "Retry sign-in" route (administrators only, same origin, audited); a plain 401 retried once with a fresh
+ * token, the hard deadline on auth requests, the fail-closed latch file, per-key action overrides.
  *
  *   npm run smoke:unity-auth
  */
@@ -48,6 +49,7 @@ interface Call {
   action: string;
   target: string;
   timeout: number | undefined;
+  signal: boolean;
 }
 
 async function main(): Promise<void> {
@@ -80,16 +82,16 @@ async function main(): Promise<void> {
   // ---- fake Unity ----
   const calls: Call[] = [];
   let tokenN = 0;
-  let script: Record<string, Array<() => any>> = {};
+  let script: Record<string, Array<(cfg?: any) => any>> = {};
   const next = (action: string) => script[action]?.shift();
   const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
   (axios as any).post = async (url: string, body: any, cfg: any) => {
     const action = url.endsWith('/GetToken') ? 'GetToken' : url.endsWith('/RetireToken') ? 'RetireToken' : String(body?.Action);
     const target = url.endsWith('/GetToken') ? (String(body?.Username).startsWith('VHCP') ? 'PM' : 'EHR') : '';
-    calls.push({ url, action, target, timeout: cfg?.timeout });
+    calls.push({ url, action, target, timeout: cfg?.timeout, signal: cfg?.signal instanceof AbortSignal });
     await delay(5);
     const step = next(action);
-    if (step) return { data: await step() };
+    if (step) return { data: await step(cfg) };
     if (action === 'GetToken') return { data: `tok-${++tokenN}` };
     if (action === 'RetireToken') return { data: 'ok' };
     if (action === 'GetUserAuthentication') return { data: [{ getuserauthenticationinfo: [{ ValidUser: 'YES', UserID: '1' }] }] };
@@ -415,7 +417,7 @@ async function main(): Promise<void> {
     return a;
   };
   await latchCase('GetUserAuthentication Error reply "Access is denied"', { GetUserAuthentication: [() => [{ Error: 'Magic Error - Access is denied for user ehruser' }]] }, true);
-  await latchCase('GetUserAuthentication HTTP 401', { GetUserAuthentication: [httpErr(401)] }, true);
+  await latchCase('GetUserAuthentication HTTP 401 twice (fresh token too)', { GetUserAuthentication: [httpErr(401), httpErr(401)] }, true);
   await latchCase('GetUserAuthentication HTTP 403', { GetUserAuthentication: [httpErr(403, { Error: 'Forbidden' })] }, true);
   await latchCase('GetUserAuthentication HTTP 401 that says the token expired', { GetUserAuthentication: [httpErr(401, { Error: 'Security token is invalid or expired' })] }, false);
   await latchCase('GetUserAuthentication HTML 500 page', { GetUserAuthentication: [httpErr(500, '<html><body>Access is denied</body></html>')] }, false);
@@ -614,9 +616,116 @@ async function main(): Promise<void> {
   }
   ok('"Retry sign-in": shown on the Veradigm connection screen, staff 403, cross-site / foreign Origin 403 (security event), administrator clears it (303), staff audit and unity_signin_retry with the user');
 
+  // 20. Last review round: plain 401 = stale token (one fresh retry), hard deadline, fail-closed latch file,
+  //     per-key action overrides, file-found latches reported at once.
+  // 20a. A plain HTTP 401 at GetUserAuthentication is retried once with a fresh token; a second one latches
+  let a20 = await latchCase('one plain 401, then the fresh token works', { GetUserAuthentication: [httpErr(401)] }, false);
+  assert.deepStrictEqual([count('GetToken'), count('GetUserAuthentication'), count('GetSchedule')], [2, 2, 1], 'fresh token, call went through');
+  a20 = await latchCase('plain 401 on the fresh token too', { GetUserAuthentication: [httpErr(401), httpErr(401)] }, true);
+  assert.deepStrictEqual([count('GetToken'), count('GetUserAuthentication'), count('GetSchedule')], [2, 2, 0], 'no third login');
+  await latchCase('401 that says access is denied: latched at once', { GetUserAuthentication: [httpErr(401, { Error: 'Access is denied' })] }, true);
+  assert.strictEqual(count('GetUserAuthentication'), 1);
+  reset();
+  a20 = new UnityAuthService({ latchDir: '' });
+  script.GetUserAuthentication = [httpErr(401)];
+  assert.strictEqual(await a20.refreshSession('PM'), true, 'keep-warm: plain 401, one fresh token, renewed');
+  assert.ok(!a20.latched('PM') && count('GetUserAuthentication') === 2);
+  script.GetUserAuthentication = [httpErr(401), httpErr(401)];
+  await assert.rejects(a20.refreshSession('PM'));
+  assert.ok(a20.latched('PM'), 'keep-warm: the fresh token refused too: latched');
+  ok('plain HTTP 401 at GetUserAuthentication: one retry with a fresh token (tools and keep-warm); a second 401 latches; a 401 that says access is denied latches at once');
+
+  // 20b. Hard deadline: a reply that never ends is aborted after UNITY_AUTH_TIMEOUT_MS and the login queue moves on
+  process.env.UNITY_AUTH_TIMEOUT_MS = '1000';
+  const never = (cfg: any) =>
+    new Promise((_, rej) => {
+      if (!cfg?.signal) return; // no deadline: hangs for good (the race below fails the test)
+      cfg.signal.addEventListener('abort', () => rej(Object.assign(new Error('canceled'), { code: 'ERR_CANCELED', name: 'CanceledError', isAxiosError: true })));
+    });
+  const within = <T>(p: Promise<T>, ms: number) => Promise.race([p, delay(ms).then(() => 'STUCK' as const)]);
+  for (const stage of ['GetToken', 'GetUserAuthentication'] as const) {
+    reset();
+    const a = new UnityAuthService({ latchDir: '' });
+    const u = new UnityService(a);
+    script[stage] = [never];
+    const t0 = Date.now();
+    const first = await within(u.executeAction('GetSchedule', {}, '', 'EHR').catch((e) => e), 4000);
+    assert.ok(first !== 'STUCK' && (first as any).code === 'TIMEOUT_ERROR', `${stage}: aborted as a timeout (${(first as any)?.code})`);
+    assert.ok(Date.now() - t0 < 3000, `${stage}: within the deadline`);
+    assert.ok(!a.latched('EHR'), `${stage}: a timeout never latches`);
+    const next = await within(u.executeAction('GetSchedule', {}, '', 'EHR'), 4000);
+    assert.ok(next !== 'STUCK' && (next as any).success, `${stage}: the login queue was released`);
+  }
+  reset();
+  script.RetireToken = [never];
+  const retired = await within(new UnityAuthService({ latchDir: '' }).retireToken('tok-x', 'EHR'), 4000);
+  assert.strictEqual(retired, false, 'RetireToken aborted too');
+  assert.ok(calls.every((c) => c.signal), 'every auth request carries the deadline signal');
+  delete process.env.UNITY_AUTH_TIMEOUT_MS;
+  ok('hard deadline: a never-ending GetToken / GetUserAuthentication / RetireToken reply is aborted (TIMEOUT_ERROR, no latch) and the per-system login queue is released');
+
+  // 20c. Unreadable latch file: fail closed (every system latched, file moved aside, security event), retry clears
+  const BDIR = path.join(TMP, 'latch-bad');
+  fs.mkdirSync(BDIR, { recursive: true });
+  const bfile = path.join(BDIR, 'unity-auth-latch.json');
+  fs.writeFileSync(bfile, '{"salt": "zz", "latches": [tru');
+  reset();
+  const b1 = new UnityAuthService({ latchDir: BDIR });
+  assert.deepStrictEqual(b1.latchedTargets().map((l) => `${l.target}:${l.stage}`), ['PM:unknown', 'EHR:unknown'], 'every system latched');
+  await assert.rejects(new UnityService(b1).executeAction('GetSchedule', {}, '', 'PM'), (e: any) => e.code === 'AUTH_ERROR');
+  assert.strictEqual(calls.length, 0, 'nothing sent');
+  assert.ok(fs.readdirSync(BDIR).some((f) => /^unity-auth-latch\.json\.bad-\d+$/.test(f)), 'bad file moved aside');
+  assert.ok(JSON.parse(fs.readFileSync(bfile, 'utf8')).latches.length === 2, 'a valid fail-closed file in its place');
+  assert.ok(new UnityAuthService({ latchDir: BDIR }).latched('EHR'), 'still latched after a restart');
+  // a file corrupted while a process runs: that process reports both systems through the hook at once
+  const seenB: string[] = [];
+  const b2 = new UnityAuthService({ latchDir: BDIR });
+  b2.onLatch((l, origin) => void seenB.push(`${l.target}:${l.stage}:${origin}`));
+  b2.retrySignIn(undefined, 'ada.admin');
+  assert.deepStrictEqual(b2.latchedTargets(), [], 'retry clears the fail-closed latch');
+  fs.writeFileSync(bfile, 'not json at all');
+  assert.ok(b2.latched('PM'), 'corrupted while running: latched again');
+  assert.deepStrictEqual(seenB.sort(), ['EHR:unknown:file', 'PM:unknown:file'], 'reported to the hook (status DOWN) at once');
+  const secB = (await auditLines()).filter((x) => x.kind === 'security' && x.tool === 'unity_signin_latched' && x.error_code === 'LATCH_FILE_UNREADABLE');
+  assert.ok(secB.length >= 2, 'security event LATCH_FILE_UNREADABLE');
+  ok('unreadable latch file: fails closed (every system latched, stage unknown, nothing sent, file moved aside, security event), survives a restart, reported at once to a running process; a retry clears it');
+
+  // 20d. Overrides: each UNITY_ACTION_<KEY> may only name its own declared action; anything else stops start-up
+  const { resolveActionName } = await import('../unity/config/unity-endpoints');
+  assert.strictEqual(resolveActionName('GET_PATIENT', 'GetPatient', {} as any), 'GetPatient');
+  assert.strictEqual(resolveActionName('GET_PATIENT', 'GetPatient', { UNITY_ACTION_GET_PATIENT: 'GetPatient' } as any), 'GetPatient');
+  assert.throws(() => resolveActionName('GET_PATIENT', 'GetPatient', { UNITY_ACTION_GET_PATIENT: 'SavePatient' } as any), /UNITY_ACTION_GET_PATIENT=SavePatient is not allowed/);
+  assert.throws(() => resolveActionName('GET_OPEN_SLOTS', 'GetAvailableSchedule', { UNITY_ACTION_GET_OPEN_SLOTS: 'GetAllAvailableAppointments' } as any), /not allowed/);
+  const { spawnSync } = await import('child_process');
+  const boot = spawnSync(process.execPath, ['-r', 'ts-node/register', '-e', "require('./src/unity/config/unity-endpoints')"], {
+    cwd: process.cwd(),
+    env: { ...process.env, TS_NODE_TRANSPILE_ONLY: 'true', UNITY_ACTION_GET_PATIENT: 'SavePatient' },
+    encoding: 'utf8',
+    timeout: 120_000,
+  });
+  assert.ok(boot.status !== 0 && /UNITY_ACTION_GET_PATIENT=SavePatient is not allowed/.test(boot.stderr), `start-up refused (${boot.status})`);
+  ok('action overrides: UNITY_ACTION_<KEY> may only name that key\'s declared action; UNITY_ACTION_GET_PATIENT=SavePatient stops start-up');
+
+  // 20e. A latch set by another process reaches this one's hook (status DOWN) as soon as it looks at the file
+  const SDIR = path.join(TMP, 'latch-shared');
+  reset();
+  const s1 = new UnityAuthService({ latchDir: SDIR });
+  const s2 = new UnityAuthService({ latchDir: SDIR });
+  const seenS: string[] = [];
+  s2.onLatch((l, origin) => void seenS.push(`${l.target}:${origin}`));
+  s2.latchedTargets(); // loaded, nothing latched
+  script.GetToken = [httpErr(403)];
+  await assert.rejects(new UnityService(s1).executeAction('GetSchedule', {}, '', 'PM'));
+  s2.latchedTargets(); // the server does this every 30 s
+  assert.deepStrictEqual(seenS, ['PM:file'], 'the other process reports it once, as found in the file');
+  s2.latchedTargets();
+  assert.deepStrictEqual(seenS, ['PM:file'], 'not twice');
+  ok('a latch set by another process reaches this process\'s hook (status DOWN) at its next look at the file, once');
+
   console.error = origError;
   console.warn = origWarn;
   console.log = origLog;
+  await audit.flushAudit();
   fs.rmSync(TMP, { recursive: true, force: true });
   console.log(`\n${passed} checks passed`);
 }

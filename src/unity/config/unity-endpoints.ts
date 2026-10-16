@@ -45,17 +45,29 @@ function getUnityEndpoints(): UnityEndpoints {
 export const unityEndpoints = getUnityEndpoints();
 
 /**
- * Resolve a Unity action name. Every name can be overridden per environment/client with
- * UNITY_ACTION_<KEY> (e.g. UNITY_ACTION_GET_APPOINTMENTS=GetScheduleByPatientID) so a
- * product difference between Veradigm environments is a config change, not a code change.
+ * Documented alternative names per key that an override may pick (each must also be in CERTIFIED_ACTIONS).
+ * None today: every key has exactly its certified default. Adding one needs Veradigm recertification.
+ */
+const ACTION_ALTERNATIVES: Record<string, readonly string[]> = {};
+
+/**
+ * Resolve a Unity action name. UNITY_ACTION_<KEY> may only name that key's certified default (or a documented
+ * alternative in ACTION_ALTERNATIVES): anything else, e.g. UNITY_ACTION_GET_PATIENT=SavePatient, stops the
+ * server at start-up, so an override can never send a different (or undeclared) action. Run-time check as
+ * well: UnityService.executeAction refuses anything outside CERTIFIED_ACTIONS.
  *
  * Only actions the app calls are listed here; docs/drawbridge/UNITY_ACTIONS_FOR_CERTIFICATION.md is the
- * certified list. An override can only pick another name from CERTIFIED_ACTIONS: anything else is refused
- * at run time (UnityService.executeAction). Adding an action means updating both lists (Veradigm
- * recertification).
+ * certified list. Adding an action means updating both lists (Veradigm recertification).
  */
+export function resolveActionName(key: string, fallback: string, env: NodeJS.ProcessEnv = process.env): string {
+  const override = String(env[`UNITY_ACTION_${key}`] || '').trim();
+  if (!override || override === fallback) return fallback;
+  if ((ACTION_ALTERNATIVES[key] || []).includes(override)) return override;
+  throw new Error(`UNITY_ACTION_${key}=${override.slice(0, 60)} is not allowed: ${key} may only be ${[fallback, ...(ACTION_ALTERNATIVES[key] || [])].join(' or ')} (declared Veradigm actions, UNITY_ACTIONS_FOR_CERTIFICATION.md)`);
+}
+
 function action(key: string, fallback: string): string {
-  return process.env[`UNITY_ACTION_${key}`] || fallback;
+  return resolveActionName(key, fallback);
 }
 
 /**

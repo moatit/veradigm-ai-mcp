@@ -3,11 +3,13 @@ import * as fs from 'fs';
 import * as path from 'path';
 import type { UnityTargetSystem } from '../config/unity-endpoints';
 import { errorSummary } from '../../utils/safe-log';
+import { securityEvent } from '../../platform/security-events';
 
 /** A system whose sign-in Veradigm refused: no login is sent for it until an operator retries or the credentials change. */
 export interface AuthLatch {
   target: UnityTargetSystem;
-  stage: 'GetToken' | 'GetUserAuthentication';
+  /** 'unknown': the latch file was unreadable, so every system is treated as refused (fail closed). */
+  stage: 'GetToken' | 'GetUserAuthentication' | 'unknown';
   /** Veradigm's reason, short and scrubbed (no account name, dates or long numbers). */
   reason: string;
   at: string;
@@ -34,11 +36,18 @@ const MAX_ENTRIES = 20;
  * per-file salt) of the service user and password, the Ubiquity ID and the system's EHR/PM user and password.
  * After the credentials change (new .env / SSM values, then a restart) the fingerprint no longer matches and
  * the latch no longer applies. An operator retry removes it.
+ *
+ * Fail closed: a file that can't be read or parsed is moved aside (unity-auth-latch.json.bad-<time>) and every
+ * system is latched (stage 'unknown', security event unity_signin_latched LATCH_FILE_UNREADABLE) until an
+ * operator retries. A latch that appears in the file (another process, a fail-closed reload) is reported
+ * through onNewLatch, so the status screen turns DOWN at once.
  */
 export class AuthLatchStore {
   private data: Persisted = { salt: '', latches: [] };
   private stamp = '';
   private fps = new Map<string, string>();
+  private loaded = false;
+  private newLatch: ((l: AuthLatch) => void) | null = null;
 
   /** `credentials(target)`: the values the fingerprint covers (read when needed, never stored). */
   constructor(
@@ -48,6 +57,20 @@ export class AuthLatchStore {
 
   private file(): string {
     return this.dir ? path.join(this.dir, 'unity-auth-latch.json') : '';
+  }
+
+  /** Called for a latch this process did not set itself (another process, a fail-closed reload). */
+  onNewLatch(cb: ((l: AuthLatch) => void) | null): void {
+    this.newLatch = cb;
+  }
+
+  private mine(): Map<string, AuthLatch> {
+    const out = new Map<string, AuthLatch>();
+    for (const t of ['PM', 'EHR'] as UnityTargetSystem[]) {
+      const e = this.data.latches.find((x) => this.matches(x, t));
+      if (e) out.set(`${e.target}|${e.at}|${e.fp}`, { target: e.target, stage: e.stage, reason: e.reason, at: e.at });
+    }
+    return out;
   }
 
   /** Re-read the file when another process (or an operator) changed it. Cheap: one stat per call. */
@@ -62,15 +85,49 @@ export class AuthLatchStore {
       stamp = 'none';
     }
     if (stamp === this.stamp) return;
+    const before = this.loaded && this.data.latches.length ? this.mine() : new Map<string, AuthLatch>();
     this.stamp = stamp;
     this.data = { salt: this.data.salt, latches: [] };
-    if (stamp === 'none') return;
-    try {
-      const d = JSON.parse(fs.readFileSync(f, 'utf8'));
-      if (d && typeof d.salt === 'string' && Array.isArray(d.latches)) this.data = { salt: d.salt, latches: d.latches.slice(-MAX_ENTRIES) };
-    } catch (e) {
-      console.error(`[Unity Auth] sign-in latch file unreadable: ${errorSummary(e)}`);
+    if (stamp !== 'none') {
+      try {
+        const d = JSON.parse(fs.readFileSync(f, 'utf8'));
+        const valid =
+          d && typeof d.salt === 'string' && /^[0-9a-f]{32}$/.test(d.salt) && Array.isArray(d.latches) &&
+          d.latches.every((e: any) => e && (e.target === 'PM' || e.target === 'EHR') && typeof e.fp === 'string' && /^[0-9a-f]{64}$/.test(e.fp));
+        if (!valid) throw new Error('not a latch file');
+        this.data = { salt: d.salt, latches: d.latches.slice(-MAX_ENTRIES) };
+      } catch (e) {
+        this.failClosed(f, e);
+      }
     }
+    const wasLoaded = this.loaded;
+    this.loaded = true;
+    if (!wasLoaded || !this.newLatch) return;
+    for (const [key, l] of this.mine()) {
+      if (before.has(key)) continue;
+      try {
+        this.newLatch(l);
+      } catch {
+        // never into the caller
+      }
+    }
+  }
+
+  /** Unreadable latch file: we can't tell what was refused, so latch every system until an operator retries. */
+  private failClosed(f: string, err: unknown): void {
+    console.error(`[Unity Auth] sign-in latch file unreadable (${errorSummary(err, 80)}): every Veradigm sign-in is STOPPED until an operator retries (docs/drawbridge/VERADIGM_SIGNIN_LATCH.md)`);
+    try {
+      fs.renameSync(f, `${f}.bad-${Date.now()}`);
+    } catch {
+      // left in place; the latches below still hold in memory
+    }
+    this.data = { salt: randomBytes(16).toString('hex'), latches: [] };
+    const at = new Date().toISOString();
+    for (const target of ['PM', 'EHR'] as UnityTargetSystem[]) {
+      this.data.latches.push({ target, stage: 'unknown', reason: 'latch file unreadable', at, fp: this.fingerprint(target) });
+    }
+    this.save();
+    securityEvent('unity_signin_latched', { code: 'LATCH_FILE_UNREADABLE', object: 'unity-auth-latch.json', channel: 'veradigm' });
   }
 
   private save(): void {
@@ -107,6 +164,7 @@ export class AuthLatchStore {
 
   get(target: UnityTargetSystem): AuthLatch | undefined {
     this.sync();
+    if (!this.data.latches.length) return undefined;
     const e = this.data.latches.find((x) => this.matches(x, target));
     return e ? { target: e.target, stage: e.stage, reason: e.reason, at: e.at } : undefined;
   }

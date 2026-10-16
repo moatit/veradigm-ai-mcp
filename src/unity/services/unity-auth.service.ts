@@ -8,6 +8,7 @@ import { scrubLogText } from './unity-diagnostics';
 import { AuthLatch, AuthLatchStore } from './unity-auth-latch';
 
 export type { AuthLatch } from './unity-auth-latch';
+export type LatchOrigin = 'refused' | 'file';
 
 /**
  * Unity Security Token Response
@@ -35,12 +36,35 @@ export interface UserAuthResult {
   error?: string;
   /** Veradigm refused the login itself: ValidUser != YES, or an error reply that says access is denied. */
   rejected?: boolean;
+  /** Refused because of the token (a token error, or a plain HTTP 401): one retry with a fresh token. */
+  tokenRefused?: boolean;
 }
 
 /** GetToken, GetUserAuthentication and RetireToken give up after this long (UNITY_AUTH_TIMEOUT_MS, default 30 s). */
 export function authTimeoutMs(): number {
   const n = Number(process.env.UNITY_AUTH_TIMEOUT_MS);
   return Number.isFinite(n) && n >= 1000 ? Math.floor(n) : 30_000;
+}
+
+/**
+ * Hard deadline for one GetToken / GetUserAuthentication / RetireToken request. axios' `timeout` only fires
+ * when the connection goes idle, so a reply that trickles in forever would otherwise hold the per-system
+ * login queue; the abort ends it after UNITY_AUTH_TIMEOUT_MS whatever the server does.
+ */
+export function authDeadline(): AbortSignal {
+  return AbortSignal.timeout(authTimeoutMs());
+}
+
+/** The request was aborted by authDeadline (or axios gave up): reported as a timeout, never a refusal. */
+function timedOut(error: unknown): boolean {
+  const e = error as any;
+  return e?.code === 'ERR_CANCELED' || e?.code === 'ECONNABORTED' || e?.name === 'CanceledError' || e?.name === 'AbortError' || e?.name === 'TimeoutError';
+}
+
+/** HTTP 401 with no denial text: usually a stale or not-yet-valid token, worth one try with a fresh token. */
+function plainUnauthorized(error: unknown): boolean {
+  const e = error as any;
+  return Number(e?.response?.status) === 401 && !isDenialText(faultText(e.response.data) || (typeof e.response.data === 'string' ? e.response.data : ''));
 }
 
 /**
@@ -156,7 +180,7 @@ export class UnityAuthService {
   private inflight = new Map<string, Promise<any>>();
   private loginQueue = new Map<UnityTargetSystem, Promise<unknown>>();
   private latches: AuthLatchStore;
-  private latchHook: ((latch: AuthLatch) => unknown) | null = null;
+  private latchHook: ((latch: AuthLatch, origin: LatchOrigin) => unknown) | null = null;
 
   private readonly TOKEN_CACHE_KEY_PREFIX = 'unity_token_';
   private readonly USER_AUTH_CACHE_KEY_PREFIX = 'user_auth_';
@@ -164,6 +188,13 @@ export class UnityAuthService {
   /** `latchDir`: where the latch file lives (default CALL_RECORDS_DIR, else ./data; '' = memory only). */
   constructor(opts: { latchDir?: string } = {}) {
     this.latches = new AuthLatchStore(latchCredentials, opts.latchDir);
+    // A latch found in the file (set by another process, or the fail-closed reload of an unreadable file):
+    // same effect here at once (cached token dropped, hook: status DOWN), no second security event.
+    this.latches.onNewLatch((l) => {
+      this.invalidate(l.target);
+      console.error(`[Unity Auth] ${l.target} sign-in STOPPED (found in the latch file: ${l.stage}, ${l.reason})`);
+      this.callHook(l, 'file');
+    });
     // Token cache: entries are set with tokenLifetimeSeconds(), a little less than Unity's 20-minute expiry
     this.tokenCache = new NodeCache({
       stdTTL: tokenLifetimeSeconds(),
@@ -186,10 +217,23 @@ export class UnityAuthService {
     return p;
   }
 
-  /** One login request per system at a time (GetToken and GetUserAuthentication alike), in arrival order. */
+  /**
+   * One login request per system at a time (GetToken and GetUserAuthentication alike), in arrival order.
+   * Every request has a hard deadline (authDeadline); as a second guard, a waiting request never waits more
+   * than that deadline plus 5 s for the one before it, so the queue can't stay blocked.
+   */
   private oneLoginAtATime<T>(target: UnityTargetSystem, fn: () => Promise<T>): Promise<T> {
-    const prev = this.loginQueue.get(target) || Promise.resolve();
-    const run = prev.then(fn, fn);
+    const before = this.loginQueue.get(target) || Promise.resolve();
+    const prev = new Promise<void>((resolve) => {
+      const guard = setTimeout(resolve, authTimeoutMs() + 5_000);
+      guard.unref?.();
+      const done = () => {
+        clearTimeout(guard);
+        resolve();
+      };
+      before.then(done, done);
+    });
+    const run = prev.then(fn);
     const tail = run.then(() => undefined, () => undefined);
     this.loginQueue.set(target, tail);
     void tail.then(() => {
@@ -198,9 +242,21 @@ export class UnityAuthService {
     return run;
   }
 
-  /** Register the latch hook (server: mark the system DOWN, which sends the help-desk alert). Must not throw. */
-  onLatch(hook: ((latch: AuthLatch) => unknown) | null): void {
+  /**
+   * Register the latch hook (server: mark the system DOWN, which sends the help-desk alert). Must not throw.
+   * `origin` is 'refused' when Veradigm refused a login in this process, 'file' when the latch was found in the
+   * shared latch file (another process latched it, or the file was unreadable).
+   */
+  onLatch(hook: ((latch: AuthLatch, origin: LatchOrigin) => unknown) | null): void {
     this.latchHook = hook;
+  }
+
+  private callHook(l: AuthLatch, origin: LatchOrigin): void {
+    try {
+      Promise.resolve(this.latchHook?.(l, origin)).catch(() => undefined);
+    } catch {
+      // alerting must never break the caller
+    }
   }
 
   /** The latch for a target, if Veradigm refused its sign-in with the credentials configured now. */
@@ -221,11 +277,7 @@ export class UnityAuthService {
     this.invalidate(target);
     console.error(`[Unity Auth] ${target} sign-in STOPPED: Veradigm refused ${stage} (${clean}). No login is sent for ${target} until an operator retries sign-in or the credentials change. Runbook: docs/drawbridge/VERADIGM_SIGNIN_LATCH.md`);
     securityEvent('unity_signin_latched', { code: target, object: `veradigm_${target.toLowerCase()}:${stage}`, channel: 'veradigm' });
-    try {
-      Promise.resolve(this.latchHook?.(l)).catch(() => undefined);
-    } catch {
-      // alerting must never break the caller
-    }
+    this.callHook(l, 'refused');
   }
 
   /** Local AUTH_ERROR for a latched target (nothing is sent to Veradigm). */
@@ -306,7 +358,8 @@ export class UnityAuthService {
             'Content-Type': 'application/json',
             'Accept': 'application/json'
           },
-          timeout: authTimeoutMs()
+          timeout: authTimeoutMs(),
+          signal: authDeadline()
         }
       );
 
@@ -323,6 +376,7 @@ export class UnityAuthService {
       // Status, code and message only: the axios error holds the request body with the service password.
       console.error(`[Unity Auth] Token request failed for ${target}: ${authErrorSummary(error)}`);
 
+      if (timedOut(error)) throw new Error(`Unity authentication failed: GetToken timeout after ${authTimeoutMs()} ms`);
       if (axios.isAxiosError(error)) {
         const authError = error.response?.data as UnityAuthError;
         const reason = scrubAuthText(authError?.error || error.message);
@@ -402,7 +456,8 @@ export class UnityAuthService {
               'Content-Type': 'application/json',
               'Accept': 'application/json'
             },
-            timeout: authTimeoutMs()
+            timeout: authTimeoutMs(),
+            signal: authDeadline()
           }
         );
 
@@ -425,13 +480,17 @@ export class UnityAuthService {
       } catch (error) {
         // Status, code and message only: the axios error holds the request body with the user's password.
         console.error(`[Unity Auth] User authentication error for ${target}: ${authErrorSummary(error)}`);
+        if (timedOut(error)) return { authenticated: false, error: `GetUserAuthentication timeout after ${authTimeoutMs()} ms` };
         const said = axios.isAxiosError(error) ? error.response?.data?.Error || error.message : String(error);
-        // HTTP 401/403 or a denial fault (not a token problem): refused, stop.
-        if (isCredentialRejection(error) && !isTokenRejection(said)) this.latch(target, 'GetUserAuthentication', said);
+        // A plain 401 (or a token error) may be a stale token: the caller retries once with a fresh one.
+        const tokenRefused = plainUnauthorized(error) || isTokenRejection(said);
+        // HTTP 403 or a denial fault (not a token problem): refused, stop.
+        if (!tokenRefused && isCredentialRejection(error)) this.latch(target, 'GetUserAuthentication', said);
 
         return {
           authenticated: false,
-          error: scrubAuthText(said)
+          error: scrubAuthText(said),
+          tokenRefused
         };
       }
     }));
@@ -445,7 +504,7 @@ export class UnityAuthService {
     const first = Array.isArray(data) ? data[0] : data;
     if (first?.Error) {
       const error = String(first.Error);
-      return { authenticated: false, error, rejected: isDenialText(error) && !isTokenRejection(error) };
+      return { authenticated: false, error, rejected: isDenialText(error) && !isTokenRejection(error), tokenRefused: isTokenRejection(error) };
     }
     const info = first?.getuserauthenticationinfo?.[0];
     if (info) {
@@ -463,7 +522,7 @@ export class UnityAuthService {
     // Check for error in response
     if (data?.Error) {
       const error = String(data.Error);
-      return { authenticated: false, error, rejected: isDenialText(error) && !isTokenRejection(error) };
+      return { authenticated: false, error, rejected: isDenialText(error) && !isTokenRejection(error), tokenRefused: isTokenRejection(error) };
     }
 
     // Successful authentication returns user info
@@ -505,7 +564,8 @@ export class UnityAuthService {
             'Content-Type': 'application/json',
             'Accept': 'application/json'
           },
-          timeout: authTimeoutMs()
+          timeout: authTimeoutMs(),
+          signal: authDeadline()
         }
       );
 
@@ -549,13 +609,14 @@ export class UnityAuthService {
       if (userAuth.authenticated) {
         return { token, userAuth };
       }
-      if (attempt === 0 && isTokenRejection(userAuth.error)) {
-        console.error(`[Unity Auth] ${target} token rejected at login; getting a new token`);
+      const tokenRefused = userAuth.tokenRefused || isTokenRejection(userAuth.error);
+      if (attempt === 0 && tokenRefused) {
+        console.error(`[Unity Auth] ${target} token refused at login; getting a new token`);
         this.invalidate(target, token);
         continue;
       }
       // A brand-new token refused as well: not a stale token, so stop like any other refusal.
-      if (attempt > 0 && isTokenRejection(userAuth.error)) this.latch(target, 'GetUserAuthentication', userAuth.error);
+      if (attempt > 0 && tokenRefused) this.latch(target, 'GetUserAuthentication', userAuth.error);
       throw new Error(`User authentication failed: ${userAuth.error}`);
     }
   }
@@ -567,11 +628,19 @@ export class UnityAuthService {
    */
   async refreshSession(target: UnityTargetSystem = 'EHR'): Promise<boolean> {
     return this.singleFlight(`refresh_${target}`, async () => {
-      const token = await this.requestNewToken(target);
-      const auth = await this.authenticateUser(token, target);
-      if (!auth.authenticated) throw new Error(`User authentication failed: ${auth.error}`);
-      this.tokenCache.set(`${this.TOKEN_CACHE_KEY_PREFIX}${target}`, token, tokenLifetimeSeconds());
-      return true;
+      for (let attempt = 0; ; attempt++) {
+        const token = await this.requestNewToken(target);
+        const auth = await this.authenticateUser(token, target);
+        if (auth.authenticated) {
+          this.tokenCache.set(`${this.TOKEN_CACHE_KEY_PREFIX}${target}`, token, tokenLifetimeSeconds());
+          return true;
+        }
+        // Same rule as getAuthenticatedSession: one more fresh token, then a refused token is a refusal.
+        const tokenRefused = auth.tokenRefused || isTokenRejection(auth.error);
+        if (attempt === 0 && tokenRefused) continue;
+        if (tokenRefused) this.latch(target, 'GetUserAuthentication', auth.error);
+        throw new Error(`User authentication failed: ${auth.error}`);
+      }
     });
   }
 

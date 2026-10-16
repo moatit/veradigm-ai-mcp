@@ -20,8 +20,19 @@ These never latch: network errors, timeouts, HTTP 408/429, HTML error pages and 
 - Two events go to the audit log: the security event `unity_signin_latched` (code PM/EHR) and a `[SECURITY]` log line.
 - The latch is saved in `<CALL_RECORDS_DIR>/unity-auth-latch.json` (mode 0600; default `./data`).
   - It survives restarts and crash loops.
-  - Every Drawbridge process that uses the same directory honours it.
+  - Every Drawbridge process that uses the same directory honours it. The HTTP server re-reads the file every 30 s, so a latch set by another process turns its status DOWN at once.
   - The file holds no password: only an scrypt fingerprint of the refused credentials, made with a random salt.
+  - Writes are rare (a refusal or a retry) and re-read the file before writing; there is no lock file.
+- **Fails closed:** if the file can't be read or parsed, it is moved aside (`unity-auth-latch.json.bad-<time>`) and **every** system is latched with stage `unknown`, plus the security event `unity_signin_latched` with code `LATCH_FILE_UNREADABLE`. Clear it with a retry once the file problem is understood.
+
+## One latch for every server that signs in with the same account
+
+The main Drawbridge server and the intake shadow server (`deploy/datacenter`) both sign in to Veradigm. A latch only protects the account if every process that uses it sees the same latch. So either:
+
+- give both servers the **same `CALL_RECORDS_DIR`** (the same volume on one host), or
+- give each host **its own Veradigm EHR/PM user**, so a refusal on one can't lock the other's account.
+
+Two hosts with separate directories but the same EHR user are not protected: each would send its own refused login.
 
 ## How to clear it
 

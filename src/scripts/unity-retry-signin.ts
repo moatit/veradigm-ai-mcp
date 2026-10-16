@@ -22,7 +22,13 @@ async function main(): Promise<void> {
     return;
   }
   for (const l of before) console.log(`${l.target}: stopped since ${l.at} (Veradigm refused ${l.stage}: ${l.reason})`);
-  const cleared = auth.retrySignIn(arg === 'ALL' ? undefined : (arg as 'PM' | 'EHR'), `cli:${os.userInfo().username}`);
+  let who = '';
+  try {
+    who = os.userInfo().username; // throws in some containers (no passwd entry for the uid)
+  } catch {
+    who = process.env.USER || process.env.USERNAME || '';
+  }
+  const cleared = auth.retrySignIn(arg === 'ALL' ? undefined : (arg as 'PM' | 'EHR'), `cli:${who || 'cli'}`);
   console.log(cleared.length ? `Cleared: ${cleared.join(', ')}. The next Veradigm call signs in once.` : `${arg} was not stopped.`);
 }
 
