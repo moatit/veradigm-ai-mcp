@@ -37,6 +37,11 @@ export function prepareShadowEnv(env: NodeJS.ProcessEnv = process.env): ShadowSt
   return { veradigm, roster: !!String(env.INTAKE_ROSTER_CSV || '').trim() };
 }
 
+/** The shadow server alerts the help desk for a refusal it saw itself, and for a fail-closed latch file. */
+export function shadowAlertsLatch(l: { stage: string }, origin: 'refused' | 'file'): boolean {
+  return origin === 'refused' || l.stage === 'unknown';
+}
+
 export async function createShadowApp(startup: ShadowStartup) {
   const express = (await import('express')).default;
   const { registerModule } = await import('./registry');
@@ -61,8 +66,9 @@ export async function createShadowApp(startup: ShadowStartup) {
     // security event unity_signin_latched; this server has no status screen, so it alerts the help desk directly.
     const notifier = new HelpdeskNotifier();
     auth.onLatch(async (l, origin) => {
-      // Found in the shared latch file: the process that was refused alerts (no duplicate from here).
-      if (origin === 'file') return;
+      // Found in the shared latch file: the process that was refused alerts (no duplicate from here),
+      // except a fail-closed latch (unreadable file, stage 'unknown'): every process that finds it alerts.
+      if (!shadowAlertsLatch(l, origin)) return;
       const at = new Date().toISOString();
       const res = await notifier.send({
         kind: 'down',

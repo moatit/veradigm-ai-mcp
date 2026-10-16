@@ -8,7 +8,8 @@
  * the latch file (survives a restart, shared between processes, scrypt fingerprint, cleared by a credential
  * change or a retry), security events, the declared-action allow-list, scrubbed refusal text and the
  * "Retry sign-in" route (administrators only, same origin, audited); a plain 401 retried once with a fresh
- * token, the hard deadline on auth requests, the fail-closed latch file, per-key action overrides.
+ * token, the hard deadline on auth requests, the fail-closed latch file (bad content only; I/O errors keep the
+ * last known latches), per-key action overrides.
  *
  *   npm run smoke:unity-auth
  */
@@ -721,6 +722,61 @@ async function main(): Promise<void> {
   s2.latchedTargets();
   assert.deepStrictEqual(seenS, ['PM:file'], 'not twice');
   ok('a latch set by another process reaches this process\'s hook (status DOWN) at its next look at the file, once');
+
+  // 20f. I/O errors on the latch file keep the last known latches (never "no latches", never fail-closed);
+  //      only bad content fails closed. The shadow server alerts for a fail-closed latch found in the file.
+  const IDIR = path.join(TMP, 'latch-io');
+  const ifile = path.join(IDIR, 'unity-auth-latch.json');
+  reset();
+  const i1 = new UnityAuthService({ latchDir: IDIR });
+  script.GetUserAuthentication = [() => [{ getuserauthenticationinfo: [{ ValidUser: 'NO', ErrorMessage: 'Invalid password' }] }]];
+  await assert.rejects(new UnityService(i1).executeAction('GetSchedule', {}, '', 'EHR'));
+  const i2 = new UnityAuthService({ latchDir: IDIR });
+  assert.ok(i2.latched('EHR'), 'loaded');
+  const realFs = require('fs');
+  const realStat = realFs.statSync;
+  const realRead = realFs.readFileSync;
+  const ioErr = (code: string) => Object.assign(new Error(`${code}: simulated`), { code });
+  const noBad = () => !fs.readdirSync(IDIR).some((f) => f.includes('.bad-'));
+  try {
+    // L-b: a stat error other than ENOENT keeps the previous state
+    realFs.statSync = (p: any, ...rest: any[]) => (String(p) === ifile ? (() => { throw ioErr('EBUSY'); })() : realStat(p, ...rest));
+    fs.utimesSync(ifile, new Date(), new Date(Date.now() + 5000)); // a change the store would otherwise re-read
+    assert.ok(i2.latched('EHR'), 'stat EBUSY: latch kept');
+    assert.ok(i2.latched('EHR'), 'and again');
+    realFs.statSync = realStat;
+    // L-a: a read error keeps the previous state and the old stamp; the next check reads again
+    for (const code of ['EIO', 'EMFILE', 'EISDIR']) {
+      realFs.readFileSync = (p: any, ...rest: any[]) => (String(p) === ifile ? (() => { throw ioErr(code); })() : realRead(p, ...rest));
+      assert.ok(i2.latched('EHR'), `read ${code}: latch kept`);
+      assert.ok(noBad(), `read ${code}: not treated as a corrupt file`);
+    }
+    realFs.readFileSync = realRead;
+    // the store retries: a retry written by another process is now seen
+    i1.retrySignIn('EHR', 'ada.admin');
+    assert.strictEqual(i2.latched('EHR'), undefined, 'readable again: re-read, the retry is seen');
+    // latched again, then the file changes but can't be read: the latch is kept
+    script.GetUserAuthentication = [() => [{ getuserauthenticationinfo: [{ ValidUser: 'NO', ErrorMessage: 'Invalid password' }] }]];
+    await assert.rejects(new UnityService(i1).executeAction('GetSchedule', {}, '', 'EHR'));
+    assert.ok(i2.latched('EHR'), 'latched again, seen');
+    realFs.readFileSync = (p: any, ...rest: any[]) => (String(p) === ifile ? (() => { throw ioErr('EIO'); })() : realRead(p, ...rest));
+    fs.utimesSync(ifile, new Date(), new Date(Date.now() + 9000));
+    assert.ok(i2.latched('EHR'), 'changed but unreadable: latch kept');
+  } finally {
+    realFs.statSync = realStat;
+    realFs.readFileSync = realRead;
+  }
+  assert.ok(noBad(), 'no file moved aside for an I/O error');
+  assert.ok(logged.some((l) => /latch file read failed \(EIO\)/.test(l)) && logged.some((l) => /latch file check failed \(EBUSY\)/.test(l)), 'I/O errors logged');
+  // bad content still fails closed
+  fs.writeFileSync(ifile, '{ broken');
+  assert.strictEqual(i2.latched('PM')?.stage, 'unknown', 'bad content: fail closed');
+  assert.ok(!noBad(), 'bad content moved aside');
+  const { shadowAlertsLatch } = await import('../platform/shadow-server');
+  assert.ok(shadowAlertsLatch({ stage: 'GetToken' }, 'refused'), 'refused here: alert');
+  assert.ok(!shadowAlertsLatch({ stage: 'GetToken' }, 'file'), 'refused by another process: that one alerts');
+  assert.ok(shadowAlertsLatch({ stage: 'unknown' }, 'file'), 'fail-closed latch found in the file: alert');
+  ok('latch file I/O errors (stat EBUSY, read EIO / EMFILE / EISDIR) keep the last known latches and retry at the next check (logged, nothing moved aside); only bad content fails closed; the shadow server alerts for a fail-closed latch found in the file');
 
   console.error = origError;
   console.warn = origWarn;

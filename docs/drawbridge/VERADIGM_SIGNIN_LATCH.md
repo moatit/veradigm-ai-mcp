@@ -23,7 +23,7 @@ These never latch: network errors, timeouts, HTTP 408/429, HTML error pages and 
   - Every Drawbridge process that uses the same directory honours it. The HTTP server re-reads the file every 30 s, so a latch set by another process turns its status DOWN at once.
   - The file holds no password: only an scrypt fingerprint of the refused credentials, made with a random salt.
   - Writes are rare (a refusal or a retry) and re-read the file before writing; there is no lock file.
-- **Fails closed:** if the file can't be read or parsed, it is moved aside (`unity-auth-latch.json.bad-<time>`) and **every** system is latched with stage `unknown`, plus the security event `unity_signin_latched` with code `LATCH_FILE_UNREADABLE`. Clear it with a retry once the file problem is understood.
+- **Fails closed:** if the file's content can't be parsed (or is not a latch file), it is moved aside (`unity-auth-latch.json.bad-<time>`) and **every** system is latched with stage `unknown`, plus the security event `unity_signin_latched` with code `LATCH_FILE_UNREADABLE`. Clear it with a retry once the file problem is understood. A file that is only temporarily unreadable (EBUSY, EIO, too many open files) keeps the last known latches and is read again at the next check; the server log says so once. The intake shadow server alerts the help desk for such a fail-closed latch even when another process wrote it.
 
 ## One latch for every server that signs in with the same account
 

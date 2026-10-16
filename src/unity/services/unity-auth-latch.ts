@@ -37,9 +37,10 @@ const MAX_ENTRIES = 20;
  * After the credentials change (new .env / SSM values, then a restart) the fingerprint no longer matches and
  * the latch no longer applies. An operator retry removes it.
  *
- * Fail closed: a file that can't be read or parsed is moved aside (unity-auth-latch.json.bad-<time>) and every
+ * Fail closed: a file whose content can't be parsed (or is not a latch file) is moved aside (unity-auth-latch.json.bad-<time>) and every
  * system is latched (stage 'unknown', security event unity_signin_latched LATCH_FILE_UNREADABLE) until an
- * operator retries. A latch that appears in the file (another process, a fail-closed reload) is reported
+ * operator retries. A file that can't be stat'ed or read (EBUSY, EIO, ...) keeps the last known latches and
+ * is tried again at the next check. A latch that appears in the file (another process, a fail-closed reload) is reported
  * through onNewLatch, so the status screen turns DOWN at once.
  */
 export class AuthLatchStore {
@@ -47,6 +48,7 @@ export class AuthLatchStore {
   private stamp = '';
   private fps = new Map<string, string>();
   private loaded = false;
+  private lastIoError = '';
   private newLatch: ((l: AuthLatch) => void) | null = null;
 
   /** `credentials(target)`: the values the fingerprint covers (read when needed, never stored). */
@@ -73,7 +75,21 @@ export class AuthLatchStore {
     return out;
   }
 
-  /** Re-read the file when another process (or an operator) changed it. Cheap: one stat per call. */
+  /**
+   * The file could not be stat'ed or read (EBUSY, EIO, EMFILE, EISDIR, ...): an I/O problem, not bad content.
+   * Keep the last known latches and the old stamp, so the next check tries again. Logged once per error code.
+   */
+  private ioError(op: string, err: unknown): void {
+    const code = String((err as any)?.code || 'ERROR');
+    if (code === this.lastIoError) return;
+    this.lastIoError = code;
+    console.error(`[Unity Auth] sign-in latch file ${op} failed (${code}): keeping the last known latches, trying again at the next check`);
+  }
+
+  /**
+   * Re-read the file when another process (or an operator) changed it. Cheap: one stat per call. Only a
+   * missing file (ENOENT) means "no latches"; only bad content (unparseable, not a latch file) fails closed.
+   */
   private sync(): void {
     const f = this.file();
     if (!f) return;
@@ -81,16 +97,27 @@ export class AuthLatchStore {
     try {
       const s = fs.statSync(f);
       stamp = `${s.mtimeMs}:${s.size}`;
-    } catch {
+    } catch (e: any) {
+      if (e?.code !== 'ENOENT') return this.ioError('check', e);
       stamp = 'none';
     }
     if (stamp === this.stamp) return;
+    let text = '';
+    if (stamp !== 'none') {
+      try {
+        text = fs.readFileSync(f, 'utf8');
+      } catch (e: any) {
+        if (e?.code !== 'ENOENT') return this.ioError('read', e);
+        stamp = 'none'; // removed between the check and the read
+      }
+    }
+    this.lastIoError = '';
     const before = this.loaded && this.data.latches.length ? this.mine() : new Map<string, AuthLatch>();
     this.stamp = stamp;
     this.data = { salt: this.data.salt, latches: [] };
     if (stamp !== 'none') {
       try {
-        const d = JSON.parse(fs.readFileSync(f, 'utf8'));
+        const d = JSON.parse(text);
         const valid =
           d && typeof d.salt === 'string' && /^[0-9a-f]{32}$/.test(d.salt) && Array.isArray(d.latches) &&
           d.latches.every((e: any) => e && (e.target === 'PM' || e.target === 'EHR') && typeof e.fp === 'string' && /^[0-9a-f]{64}$/.test(e.fp));
