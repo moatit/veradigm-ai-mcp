@@ -259,6 +259,34 @@ async function main(): Promise<void> {
     unity.proc.kill();
     ok('Unity server: staff-only tools (day schedule, changed appointments, huddle brief) not offered to the agent and refused (STAFF_ONLY, audited); wrong key → security event');
 
+    // ---- The phone agent's own key (DRAWBRIDGE_AGENT_KEY, launch audit 2026-10-16) ----
+    const AKEY = 'smoke-agent-key-9876543210';
+    unity = await start('src/unity/unity-test-server.ts', 'UNITY_PORT', { DRAWBRIDGE_TOOL_KEY: KEY, DRAWBRIDGE_AGENT_KEY: AKEY });
+    procs.push(unity.proc);
+    fhir = await start('src/test-server.ts', 'MCP_SERVER_PORT', { DRAWBRIDGE_TOOL_KEY: KEY, DRAWBRIDGE_AGENT_KEY: AKEY });
+    procs.push(fhir.proc);
+    const retell = (base: string, key: string) =>
+      fetch(`${base}/api/retell`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-drawbridge-key': key }, body: JSON.stringify({ name: 'unity_get_appointment_types', args: {}, call: { call_id: 'call_key1' } }) });
+    assert.strictEqual((await retell(unity.url, AKEY)).status, 200, 'Unity /api/retell with the agent key');
+    assert.strictEqual((await retell(unity.url, KEY)).status, 401, 'Unity /api/retell refuses the tool key once the agent key is set');
+    assert.strictEqual((await retell(fhir.url, AKEY)).status, 200, 'FHIR /api/retell with the agent key');
+    assert.strictEqual((await retell(fhir.url, KEY)).status, 401, 'FHIR /api/retell refuses the tool key once the agent key is set');
+    for (const [m, p] of unityRoutes.filter(([, p]) => p !== '/api/retell')) {
+      assert.strictEqual((await call(unity.url, m, p, { 'x-drawbridge-key': AKEY })).status, 401, `agent key must not open Unity ${m} ${p}`);
+      assert.notStrictEqual((await call(unity.url, m, p, { 'x-drawbridge-key': KEY })).status, 401, `tool key still opens Unity ${m} ${p}`);
+    }
+    for (const [m, p] of fhirRoutes.filter(([, p]) => p !== '/api/retell')) {
+      assert.strictEqual((await call(fhir.url, m, p, { 'x-drawbridge-key': AKEY })).status, 401, `agent key must not open FHIR ${m} ${p}`);
+    }
+    for (const p of ['/app', '/app/activity', '/app/oncall', '/app/intake', '/app/compliance']) {
+      const r = await fetch(`${unity.url}${p}`, { headers: { 'x-drawbridge-key': AKEY }, redirect: 'manual' });
+      assert.ok(r.status !== 200 && !/Sign out|Overview<\/h2>/.test(await r.text()), `agent key must not open staff page ${p} (${r.status})`);
+      const t = await fetch(`${unity.url}${p}`, { headers: { 'x-drawbridge-key': KEY }, redirect: 'manual' });
+      assert.ok(t.status !== 200, `tool key must not open staff page ${p} (${t.status})`);
+    }
+    unity.proc.kill();
+    fhir.proc.kill();
+    ok('DRAWBRIDGE_AGENT_KEY: the phone agent key opens /api/retell on both servers and nothing else (MCP, /tools, test, diagnostics, module APIs, FHIR REST, staff pages: 401 / sign-in); the tool key no longer opens /api/retell; neither key opens a staff page');
   } finally {
     for (const p of procs) if (p.exitCode === null) p.kill();
     await new Promise((r) => setTimeout(r, 300));

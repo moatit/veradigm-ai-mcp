@@ -27,7 +27,7 @@ import { callRecords } from "./oncall/call-records";
 import { currentMode } from "./oncall/call-mode";
 import { loadPlatformModules } from "../platform/modules";
 import { moduleForTool, platformTools, platformWriteTools, ToolContext } from "../platform/registry";
-import { mountPlatform, requireToolKey } from "../platform/app";
+import { mountPlatform, requireAgentKey, requireToolKey } from "../platform/app";
 import { corsFromEnv } from "../platform/cors";
 import { auditToolCall, flushAudit } from "../platform/audit";
 import { auditedUnity } from "../platform/audited-unity";
@@ -398,7 +398,7 @@ app.post("/", requireToolKey, async (req: Request, res: Response): Promise<void>
 // This is preferred over MCP because custom functions have the
 // "Speak After Execution" toggle in the Retell dashboard.
 // ═══════════════════════════════════════════════════════════════
-app.post("/api/retell", requireToolKey, async (req: Request, res: Response): Promise<void> => {
+app.post("/api/retell", requireAgentKey, async (req: Request, res: Response): Promise<void> => {
   const { name, args, call } = req.body;
   const t0 = Date.now();
   const requestTime = new Date();

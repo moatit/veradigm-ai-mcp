@@ -18,7 +18,7 @@ import { ProviderTools } from "./tools/provider.tools";
 import { ErrorHandler } from "./utils/error-handler";
 import { failureText, toVoiceSummary } from "./utils/response-formatter";
 import { markRedacted } from "./utils/redaction";
-import { requireToolKey } from "./platform/app";
+import { requireAgentKey, requireToolKey } from "./platform/app";
 import { corsFromEnv } from "./platform/cors";
 import { auditToolCall, setDefaultAuditServer } from "./platform/audit";
 import { forAgent } from "./utils/minimum-necessary";
@@ -49,7 +49,10 @@ app.use((req, res, next) => {
 
 // Every route that lists tools, returns patient data or acts on it needs the tool key (fails closed when unset).
 // Only /health stays open.
-app.use(["/mcp", "/tools", "/test", "/api"], requireToolKey);
+// POST /api/retell (the phone agent) takes its own key instead (requireAgentKey: DRAWBRIDGE_AGENT_KEY, else this one).
+app.use(["/mcp", "/tools", "/test", "/api"], (req, res, next) =>
+  req.baseUrl === "/api" && req.path === "/retell" ? next() : requireToolKey(req, res, next),
+);
 
 // Audit lines and security events from this process belong to the FHIR server's hash chain.
 setDefaultAuditServer("fhir");
@@ -578,7 +581,7 @@ app.post("/tools/call", async (req, res) => {
 // Preferred over MCP because custom functions have the
 // "Speak After Execution" toggle in the Retell dashboard.
 // ═══════════════════════════════════════════════════════════════
-app.post("/api/retell", requireToolKey, async (req, res): Promise<void> => {
+app.post("/api/retell", requireAgentKey, async (req, res): Promise<void> => {
   const { name, args, call } = req.body;
   const t0 = Date.now();
   const requestTime = new Date();

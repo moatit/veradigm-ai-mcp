@@ -6,7 +6,7 @@ ENV = r"D:\VeradigmAI-DrawBridge\veradigm-ai-mcp\deploy\local\.env"
 env = dict(l.split("=", 1) for l in open(ENV, encoding="utf-8").read().splitlines() if "=" in l and not l.startswith("#"))
 API = "https://api.retellai.com"
 KEY = env["RETELL_API_KEY"]
-TOOL_KEY = env["DRAWBRIDGE_TOOL_KEY"]
+TOOL_KEY = env.get("DRAWBRIDGE_AGENT_KEY") or env["DRAWBRIDGE_TOOL_KEY"]  # the phone agent's own key when set
 BASE = "https://drawbridge.moatit.dev"
 
 

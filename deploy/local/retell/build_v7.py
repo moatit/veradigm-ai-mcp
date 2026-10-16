@@ -97,7 +97,7 @@ def main(argv):
     prompt = open(os.path.join(REPO, "retell-prompts", "unity-healthcare-agent.md"), encoding="utf-8").read()
     live_llm = call("GET", f"/get-retell-llm/{LIVE_LLM}")
     live_agent = call("GET", f"/get-agent/{LIVE_AGENT}")
-    tools = retell_tools(live_llm, e["DRAWBRIDGE_TOOL_KEY"])
+    tools = retell_tools(live_llm, e.get("DRAWBRIDGE_AGENT_KEY") or e["DRAWBRIDGE_TOOL_KEY"])  # the phone agent's own key when set
     size = len(prompt) + sum(len(json.dumps({k: t.get(k) for k in ("name", "description", "parameters")})) for t in tools)
     print(f"prompt {len(prompt)} chars, {len(tools)} tools, prompt+tools {size} chars (~{size // 4} tokens)")
     if dry:

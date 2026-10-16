@@ -88,6 +88,40 @@ export function requireToolKey(req: Request, res: Response, next: NextFunction):
   res.status(401).json({ error: 'unauthorized' });
 }
 
+/**
+ * The phone agent's own key, for the Retell custom-function route (POST /api/retell on both servers) only.
+ *
+ *   DRAWBRIDGE_AGENT_KEY   set: /api/retell accepts this key and nothing else (DRAWBRIDGE_TOOL_KEY is refused there),
+ *                          and no other route accepts it. The key that sits in the Retell dashboard then opens only
+ *                          the per-call-gated agent tools, never MCP, /tools, test, diagnostics or module APIs.
+ *                          unset: /api/retell falls back to DRAWBRIDGE_TOOL_KEY (one warning), so agents configured
+ *                          before this setting keep working until their header is switched.
+ * Same comparison, 503/401 and security event as requireToolKey; the key is never logged.
+ */
+let agentKeyWarned = false;
+export function requireAgentKey(req: Request, res: Response, next: NextFunction): void {
+  const agentKey = process.env.DRAWBRIDGE_AGENT_KEY || '';
+  if (!agentKey) {
+    if (!agentKeyWarned) {
+      console.warn('[Drawbridge] DRAWBRIDGE_AGENT_KEY is not set: /api/retell accepts DRAWBRIDGE_TOOL_KEY. Give the phone agent its own key.');
+      agentKeyWarned = true;
+    }
+    requireToolKey(req, res, next);
+    return;
+  }
+  if (!agentKeyWarned && process.env.DRAWBRIDGE_TOOL_KEY && safeEqual(agentKey, process.env.DRAWBRIDGE_TOOL_KEY)) {
+    console.warn('[Drawbridge] DRAWBRIDGE_AGENT_KEY equals DRAWBRIDGE_TOOL_KEY: the phone agent key is not dedicated. Use two different keys.');
+    agentKeyWarned = true;
+  }
+  const given = String(req.headers['x-drawbridge-key'] || '');
+  if (given && safeEqual(given, agentKey)) {
+    next();
+    return;
+  }
+  throttledSecurityEvent('tool_key_rejected', { ip: clientIp(req), code: given ? 'WRONG_KEY' : 'NO_KEY', object: req.path });
+  res.status(401).json({ error: 'unauthorized' });
+}
+
 /** Mount the staff app (/app), module screens and module APIs on the Express app. */
 export function mountPlatform(app: Express, deps: PlatformDeps): void {
   const modules = platformModules();
