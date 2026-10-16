@@ -16,7 +16,7 @@ The server picks the tool from `name`, so every function on one server uses the 
 
 ## Functions to register (inbound agent, test line 208-904-3641)
 
-**`/unity/api/retell`**: `drawbridge_get_call_mode`, `drawbridge_save_call_record`, `unity_search_patients`, `unity_get_patient`, `unity_get_patient_appointments`, `unity_get_appointment_details`, `unity_get_open_slots`, `unity_get_appointment_types`, `unity_save_appointment`, `unity_get_cancellation_reasons`, `unity_cancel_appointment`, `unity_confirm_appointment`, `unity_get_account_balance`, `unity_get_insurance_policy`, `unity_create_staff_task`. Optional: `unity_get_patient_allergies`, `unity_get_patient_problems`, `unity_get_patient_medications`.
+**`/unity/api/retell`**: `drawbridge_get_call_mode`, `drawbridge_save_call_record`, `drawbridge_take_message` (v7), `unity_search_patients`, `unity_get_patient`, `unity_get_patient_appointments`, `unity_get_appointment_details`, `unity_get_open_slots`, `unity_get_appointment_types`, `unity_save_appointment`, `unity_get_cancellation_reasons`, `unity_cancel_appointment`, `unity_confirm_appointment`, `unity_get_account_balance`, `unity_get_insurance_policy`, `unity_create_staff_task`. Optional: `unity_get_patient_allergies`, `unity_get_patient_problems`, `unity_get_patient_medications`.
 
 **`/fhir/api/retell`**: `verify_patient_identity`, `get_patient_medications`, `get_allergies`, `check_refill_status`, `get_patient_conditions`, `get_recent_observations`.
 
@@ -30,7 +30,15 @@ docker exec drawbridge-dev-unity-1 node -e "fetch('http://localhost:3001/tools')
 
 ## Prompt
 
-Paste `retell-prompts/unity-healthcare-agent.md` as the agent prompt.
+Paste `retell-prompts/unity-healthcare-agent.md` as the agent prompt. Since v7 it is trimmed (about 6k characters) and uses the dynamic variables `{{call_mode}}`, `{{records_status}}`, `{{fhir_tools}}` plus Retell's `{{current_time_America/Boise}}` and `{{call_type}}`. Set the LLM's `default_dynamic_variables` to `call_mode=UNKNOWN`, `records_status=UNKNOWN`, `fhir_tools=OFF` so a call without the webhook still works (the agent then calls `drawbridge_get_call_mode`).
+
+## v7 agents (Oct 15, 2026, not published)
+
+`python deploy/local/retell/build_v7.py` creates or updates two test agents from the code: the compact tool list (`src/platform/agent-tools.ts`, about 8.7k characters for 28 custom functions instead of 16k), static fillers on lookups (`speak_during_execution`, `execution_message_type: static_text`), `timeout_ms` 8000, backchannel on, no ambient sound, medical vocabulary, and the live agent's PII redaction, signed URLs, data storage and 30-day retention. IDs are in `deploy/local/retell/v7-agents.json`. Results and the publish / rollback steps: `docs/drawbridge/VOICE_V7_EXPERIMENT.md`.
+
+## Inbound-call webhook (call mode at call start)
+
+Set the number's **Inbound Webhook URL** to `https://drawbridge.moatit.dev/webhooks/retell-inbound` (Phone Numbers in the Retell dashboard, or `PATCH /update-phone-number/<number>` with `inbound_webhook_url`). Retell signs the request with the account API key (`x-retell-signature`); Drawbridge verifies it with `RETELL_API_KEY`. The answer is `{ call_inbound: { dynamic_variables: { call_mode, records_status, fhir_tools } } }` and the Veradigm sessions are warmed for the call. If Drawbridge doesn't answer within Retell's 10 s, Retell still connects the call and the defaults apply. Web calls pass the same variables in `retell_llm_dynamic_variables` of `POST /v2/create-web-call`.
 
 ## Retell API (current endpoints only)
 

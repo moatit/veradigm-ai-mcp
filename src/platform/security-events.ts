@@ -12,7 +12,9 @@ import { auditToolCall, AuditServer, defaultAuditServer, safeUser } from './audi
  *
  * Events: login_ok, login_failed, login_locked, login_ip_locked, login_password_expired,
  * login_no_totp, logout, emergency_access_login, tool_key_rejected, webhook_rejected,
- * integrity_failed, export, export_volume_alert, view_volume_alert.
+ * integrity_failed, export, export_volume_alert, view_volume_alert, and the ops events system_down,
+ * system_recovered (Veradigm connection status, system-status.ts), helpdesk_alert and
+ * helpdesk_alert_failed (MOATiT help-desk notification sent / not sent).
  *
  *   DRAWBRIDGE_EXPORT_ALERT_PER_HOUR   exports (document downloads, disclosure reports) by one user in
  *                                      60 minutes before an export_volume_alert (default 20)
@@ -33,7 +35,11 @@ export type SecurityEvent =
   | 'integrity_failed'
   | 'export'
   | 'export_volume_alert'
-  | 'view_volume_alert';
+  | 'view_volume_alert'
+  | 'system_down'
+  | 'system_recovered'
+  | 'helpdesk_alert'
+  | 'helpdesk_alert_failed';
 
 /** Events that are failures or alerts (success=false in the audit line, console.warn in the log). */
 const ALERTS = new Set<SecurityEvent>([
@@ -48,6 +54,8 @@ const ALERTS = new Set<SecurityEvent>([
   'integrity_failed',
   'export_volume_alert',
   'view_volume_alert',
+  'system_down',
+  'helpdesk_alert_failed',
 ]);
 
 export interface SecurityDetails {

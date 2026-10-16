@@ -37,11 +37,28 @@ function slotLine(s: {
   date?: string;
   time?: string;
   duration?: number;
+  providerName?: string;
+  providerId?: string;
+  locationId?: string;
+  departmentId?: string;
 }): string {
+  // The IDs go back into unity_save_appointment for the slot the caller picks; never read aloud.
+  const ids = [
+    s.providerId ? `providerId ${s.providerId}` : "",
+    s.locationId ? `locationId ${s.locationId}` : "",
+    s.departmentId ? `departmentId ${s.departmentId}` : "",
+  ].filter(Boolean);
   return (
     `${s.date || "?"} at ${s.time || "?"}` +
-    (s.duration ? `, ${s.duration} min` : "")
+    (s.duration ? `, ${s.duration} min` : "") +
+    (s.providerName ? ` with ${s.providerName}` : "") +
+    (ids.length ? ` [${ids.join(", ")}]` : "")
   );
+}
+
+/** A successful lookup that found nothing: unmistakably not an error (v6 read "No appointments found." as a failure). */
+function successEmpty(what: string): string {
+  return `SUCCESS: ${what} This is a real answer, not an error.`;
 }
 
 function appointmentLine(a: {
@@ -68,12 +85,19 @@ function appointmentLine(a: {
  * (CLAUDE.md rule 5) and never carries raw error text to be read to a caller.
  */
 export function failureText(r: { error_code?: string; retryable?: boolean }): string {
+  if (r.error_code === "RECORDS_UNAVAILABLE") {
+    return (
+      "TOOL_ERROR (RECORDS_UNAVAILABLE, retryable=no). The clinic's records system is down right now; nothing was looked up or changed. " +
+      `Say: "I'm sorry, I can't reach our records system right now." Then offer to take a message (drawbridge_take_message) or transfer. ` +
+      "Do not call other record tools on this call."
+    );
+  }
   return (
     `TOOL_ERROR (${r.error_code || "UNKNOWN"}, retryable=${r.retryable ? "yes" : "no"}). ` +
     `The lookup FAILED; this is NOT an empty result. Do not say there is nothing on file. ` +
     `Say: "I'm having trouble pulling that up right now." ` +
     (r.retryable ? "You may retry once, then " : "Then ") +
-    `offer to transfer the caller or take a message for staff.`
+    `offer to transfer the caller or take a message for staff. Do not switch to other tools to work around it.`
   );
 }
 
@@ -115,7 +139,7 @@ export function toVoiceSummary(
     | Array<{ id?: string; description?: string }>
     | undefined;
   if (Array.isArray(lookup)) {
-    if (lookup.length === 0) return "The list came back empty.";
+    if (lookup.length === 0) return successEmpty("the list is empty.");
     return truncate(
       `Options: ${lookup.map((x) => `${x.description || x.id}${x.id && x.description ? ` [id ${x.id}]` : ""}`).join("; ")}.`,
       maxLength * 2,
@@ -130,7 +154,7 @@ export function toVoiceSummary(
   // Recent results and vitals (Unity EHR)
   if (Array.isArray(r.results) && r.success === true) {
     const arr = r.results as Array<{ name?: string; value?: string; date?: string }>;
-    if (arr.length === 0) return "No results on file.";
+    if (arr.length === 0) return successEmpty("no results on file.");
     const lines = arr.slice(0, 8).map((x) => `${x.name}${x.value ? `: ${x.value}` : ""}${x.date ? ` (${x.date})` : ""}`);
     const more = arr.length > 8 ? ` and ${arr.length - 8} more` : "";
     return truncate(`Recent results on file: ${lines.join("; ")}${more}.`, maxLength);
@@ -140,7 +164,7 @@ export function toVoiceSummary(
   for (const key of ["medications", "allergies", "problems", "diagnoses"]) {
     const arr = r[key];
     if (Array.isArray(arr) && r.success === true) {
-      if (arr.length === 0) return `No ${key} on file.`;
+      if (arr.length === 0) return successEmpty(`no ${key} on file.`);
       const names = (arr as Array<Record<string, string>>)
         .slice(0, 8)
         .map((x) => x.name || x.allergen || x.description || x.code || "?");
@@ -152,7 +176,10 @@ export function toVoiceSummary(
   // Unity: search_patients / unity_search_patients → patients array + total
   if (Array.isArray(r.patients) && typeof r.total === "number") {
     const n = r.total;
-    if (n === 0) return (r.message as string) || "No patients found.";
+    if (n === 0) {
+      return `NO MATCH (the search worked; not an error): ${(r.message as string) || "No patient matched."} ` +
+        "Ask the caller to spell their name letter by letter and search again with exactly those letters.";
+    }
     const list = (
       r.patients as Array<{
         firstName?: string;
@@ -167,9 +194,18 @@ export function toVoiceSummary(
       .map(patientLine);
     const andMore = n > 5 ? ` and ${n - 5} more` : "";
     const note = typeof r.note === "string" && r.note ? ` ${r.note}` : "";
+    // Upcoming visits of the one verified match (agent-edge.ts attachUpcomingVisits).
+    let visits = "";
+    if (Array.isArray(r.upcomingVisits)) {
+      const v = r.upcomingVisits as Array<Record<string, string>>;
+      const total = typeof r.upcomingTotal === "number" ? r.upcomingTotal : v.length;
+      visits = v.length
+        ? ` Upcoming visits (${total}, soonest first): ${v.map((a) => appointmentLine(a)).join("; ")}.`
+        : " Upcoming visits: SUCCESS, none scheduled (a real answer, not an error).";
+    }
     return truncate(
-      `Found ${n} patient(s): ${list.join("; ")}${andMore}.${note}`,
-      maxLength,
+      `Found ${n} patient(s): ${list.join("; ")}${andMore}.${note}${visits}`,
+      visits ? maxLength * 2 : maxLength,
     );
   }
 
@@ -188,16 +224,14 @@ export function toVoiceSummary(
   // Unity: open slots
   if (Array.isArray(r.slots) && typeof r.total === "number") {
     const n = r.total;
-    if (n === 0) return "No open slots in that range.";
-    const list = (
-      r.slots as Array<{ date?: string; time?: string; duration?: number }>
-    )
+    if (n === 0) return successEmpty("no open times in that range. Offer to look at other dates.");
+    const list = (r.slots as Array<Parameters<typeof slotLine>[0]>)
       .slice(0, 5)
       .map(slotLine);
     const andMore = n > 5 ? ` and ${n - 5} more` : "";
     return truncate(
-      `Found ${n} slot(s): ${list.join("; ")}${andMore}.`,
-      maxLength,
+      `Found ${n} slot(s): ${list.join("; ")}${andMore}. When booking, pass the providerId, locationId and departmentId of the slot the caller picked.`,
+      maxLength * 2,
     );
   }
 
@@ -209,7 +243,7 @@ export function toVoiceSummary(
       status?: string;
     }>;
     const n = arr.length;
-    if (n === 0) return "No appointments found.";
+    if (n === 0) return successEmpty("this patient has no upcoming appointments.");
     const list = arr.slice(0, 5).map(appointmentLine);
     const andMore = n > 5 ? ` and ${n - 5} more` : "";
     return truncate(

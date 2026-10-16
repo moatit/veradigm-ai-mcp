@@ -38,6 +38,12 @@ export interface CallRecord {
   staff_task_id: string;
   alert: { sent: boolean; at?: string; to?: string; note?: string };
   transcript_ref: string;
+  /** "message": taken with drawbridge_take_message (records unreachable, caller not verifiable, or no transfer). */
+  kind?: 'message';
+  /** What the caller said about themselves, NOT verified against the record (message records only). */
+  caller_stated?: { name: string; dob: string; callback: string };
+  /** The Veradigm connection was down when the message was taken (counted in the help-desk alert). */
+  records_down?: boolean;
   /** From Retell call events (activity module). Never the transcript itself. */
   call_meta?: { ended_at?: string; duration_ms?: number; disconnection_reason?: string; summary?: string };
 }

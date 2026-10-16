@@ -357,6 +357,19 @@ const APP_JS = `(function () {
 })();
 `;
 
+/** SYSTEM STATUS banner provider (status-ui.ts): HTML shown above every signed-in page, '' when all is well. */
+let statusBannerFn: (() => string) | null = null;
+export function setStatusBanner(fn: (() => string) | null): void {
+  statusBannerFn = fn;
+}
+function statusBannerHtml(): string {
+  try {
+    return statusBannerFn ? statusBannerFn() : '';
+  } catch {
+    return '';
+  }
+}
+
 /** Full page with header, nav and body. `active` is the nav path to highlight. */
 export function page(title: string, body: string, opts: { user?: string | null; active?: string } = {}): string {
   const tabs = opts.user
@@ -380,7 +393,7 @@ export function page(title: string, body: string, opts: { user?: string | null; 
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${esc(title)}</title><style>${CSS}</style><script src="${APP_BASE}/assets/drawbridge.js" defer></script></head><body${idle}>
 <header>${MARK}<h1>Drawbridge</h1><span class="muted" style="font-size:13px">VeradigmAI · ${esc(clinicLabel())}</span><span class="sp"></span>${who}</header>
-${emergency}${tabs}<main>${body}</main></body></html>`;
+${emergency}${opts.user ? statusBannerHtml() : ''}${tabs}<main>${body}</main></body></html>`;
 }
 
 /** Sign-in page messages (codes in ?e=, never user data). */

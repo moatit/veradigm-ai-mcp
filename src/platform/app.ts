@@ -6,6 +6,8 @@ import { platformModules, PlatformDeps, PlatformModule } from './registry';
 import { clientIp, throttledSecurityEvent, viewMonitor } from './security-events';
 import { APP_BASE, esc, navItems, page, registerNav, requireLogin, shellRouter } from './shell';
 import { errorSummary } from '../utils/safe-log';
+import { getSystemStatus } from './system-status';
+import { statusCard } from './status-ui';
 
 /**
  * A staff screen tells the access audit which patient (and which object) it showed or changed:
@@ -114,7 +116,7 @@ export function mountPlatform(app: Express, deps: PlatformDeps): void {
     res.send(
       page(
         'Drawbridge',
-        `<h2 style="margin-top:4px">Overview</h2><div class="grid">${cards || '<div class="card muted">No modules loaded.</div>'}</div>
+        `<h2 style="margin-top:4px">Overview</h2>${statusCard(getSystemStatus())}<div class="grid">${cards || '<div class="card muted">No modules loaded.</div>'}</div>
 <p class="muted" style="font-size:13px">Drawbridge connects the VeradigmAI phone agent and staff tools to Veradigm® EHR and Veradigm® PM through a fixed set of actions.</p>`,
         { user: (req as any).drawbridgeUser, active: '' }
       )

@@ -33,6 +33,7 @@
     "smoke:staff-login": "ts-node src/scripts/smoke-staff-login.ts",
     "smoke:config": "ts-node src/scripts/smoke-config.ts",
     "smoke:hipaa": "ts-node src/scripts/smoke-hipaa.ts",
+    "smoke:voice": "ts-node src/scripts/smoke-voice.ts",
     "smoke:intake": "ts-node src/scripts/smoke-intake.ts && ts-node src/scripts/smoke-intake-shadow.ts && ts-node src/scripts/smoke-intake-rules.ts",
     "smoke:intake-rules": "ts-node src/scripts/smoke-intake-rules.ts",
     "smoke:intake-shadow": "ts-node src/scripts/smoke-intake-shadow.ts",
@@ -64,7 +65,8 @@
     "dotenv": "^16.3.1",
     "express": "^4.21.2",
     "jsonwebtoken": "^9.0.2",
-    "node-cache": "^5.1.2"
+    "node-cache": "^5.1.2",
+    "nodemailer": "10.0.13"
   },
   "devDependencies": {
     "@types/express": "^4.17.21",

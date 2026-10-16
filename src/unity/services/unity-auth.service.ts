@@ -383,6 +383,27 @@ export class UnityAuthService {
   }
 
   /**
+   * Keep-warm: log in again now (GetToken + GetUserAuthentication) and swap the cached session only
+   * when both succeed, so callers keep using the current token meanwhile and never wait for a login.
+   * The replaced token simply expires on Veradigm's side. A failure leaves the cache as it was.
+   */
+  async refreshSession(target: UnityTargetSystem = 'EHR'): Promise<boolean> {
+    return this.singleFlight(`refresh_${target}`, async () => {
+      const token = await this.requestNewToken(target);
+      const auth = await this.authenticateUser(token, target);
+      if (!auth.authenticated) throw new Error(`User authentication failed: ${auth.error}`);
+      this.tokenCache.set(`${this.TOKEN_CACHE_KEY_PREFIX}${target}`, token, tokenLifetimeSeconds());
+      return true;
+    });
+  }
+
+  /** Seconds until the cached token for a target is replaced (undefined when none is cached). */
+  tokenSecondsLeft(target: UnityTargetSystem = 'EHR'): number | undefined {
+    const ttl = this.tokenCache.getTtl(`${this.TOKEN_CACHE_KEY_PREFIX}${target}`);
+    return ttl ? Math.max(0, Math.floor((ttl - Date.now()) / 1000)) : undefined;
+  }
+
+  /**
    * Clear all cached tokens and authentication
    */
   clearCache(): void {

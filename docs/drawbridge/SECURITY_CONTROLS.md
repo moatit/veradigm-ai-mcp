@@ -33,6 +33,7 @@ Drawbridge has three server processes:
 | FHIR server routes | `/mcp/*`, `/tools*`, `/test/*` and `/api/*` all need the key. That covers every route that lists tools or returns or acts on patient data (patient, medication, clinical, appointment, provider, location). |
 | Health checks | `GET /health` is open and returns only `{status, timestamp}`. It shows no Veradigm endpoint, app name or environment. |
 | Webhooks | Retell call events need a shared secret header or the Retell SDK signature. MOATiT Fax deliveries need an HMAC-SHA256 over the raw body. Both return 503 until their secret is configured, and 401 for a bad signature. |
+| Inbound-call webhook | `POST /webhooks/retell-inbound` (set per phone number in Retell) answers with the call's dynamic variables only (`call_mode`, `records_status`, `fhir_tools`), no patient data. It needs Retell's `x-retell-signature` (HMAC-SHA256 of the raw body plus timestamp with `RETELL_API_KEY`, timestamp within 5 minutes, constant-time compare) or the shared secret header. 503 when neither is configured, 401 and a `webhook_rejected` event for a bad signature. |
 | Admin portal client keys | When `ADMIN_PORTAL_URL` is set and a caller sends `x-api-key`, the FHIR server's MCP endpoint checks that key and the client's FHIR/Unity permissions with the admin portal. |
 
 ### 1.3 CORS
@@ -45,7 +46,9 @@ Drawbridge has three server processes:
 - **Tokens**: one `GetToken` + `GetUserAuthentication` per system, shared by concurrent callers. A token is reused for at most `UNITY_TOKEN_CACHE_TTL` − `UNITY_TOKEN_REFRESH_BUFFER` seconds. A token Veradigm rejects is dropped and replaced once. A wrong password is never retried, so the account can't be locked out. Tokens are retired (`RetireToken`) on graceful shutdown. GetToken, GetUserAuthentication, RetireToken and every action time out after 30 s.
 - **Least privilege by design**: Drawbridge calls a fixed list of actions, which is `docs/drawbridge/UNITY_ACTIONS_FOR_CERTIFICATION.md`. The phone agent's only writes are `SaveAppointment`, `SetAppointmentStatus`, `SavePatient` and `SaveTask`. Document filing (`SaveScanDocument`) is staff-side only and off by default (`INTAKE_FILING`). In shadow mode the Veradigm connection is locked to read actions in code.
 - **Required diagnostics**: `GetServerInfo` runs at start and every 6 h. `LastLogs` runs after Veradigm-side errors, rate-limited and without loops. Results go to the server log and the staff screen "Veradigm connection", with only product, version and time zone kept, and log messages scrubbed.
-- **Polling**: Veradigm is never polled more often than every 2 minutes (`INTAKE_OBSERVE_EVERY_MIN` is clamped).
+- **Polling**: Veradigm is never polled more often than every 2 minutes (`INTAKE_OBSERVE_EVERY_MIN` and `UNITY_HEALTH_CHECK_MIN` are clamped).
+- **Health check and system status** (`src/unity/services/unity-health.ts`, `src/platform/system-status.ts`): every 2 minutes (configurable, 2-minute floor) each configured system is probed with the tools' own session (GetToken and GetUserAuthentication only when the cached token is due) plus `GetServerInfo`, which carries no patient data. Two failed probes in a row mark a system DOWN; one good probe or one successful real call marks it UP. While both systems are DOWN the phone agent's Veradigm tools answer `RECORDS_UNAVAILABLE` at once and the agent takes a message in Drawbridge's call record or transfers. Staff see a SYSTEM STATUS banner on every screen. The MOATiT help desk gets one alert when the connection goes down, a reminder every 4 hours while it stays down and one when it recovers (e-mail over TLS and/or an HTTPS webhook with an HMAC signature). Alerts carry system, times, error class, a scrubbed probe detail and the number of messages taken, never patient data. Every transition and alert is a security/ops event in the audit log.
+- **Session keep-warm**: while calls ran in the last 30 minutes, a system's session is renewed 2 minutes before the cached token is due; the new session replaces the old one only after both GetToken and GetUserAuthentication succeed. A wrong password is still never retried.
 - **Errors are never empty results**: a failed call returns `{success:false, error_code, retryable}` to the agent, so it says "I'm having trouble" rather than "no appointments".
 - **FHIR is read only** (system app, `client_secret` or `private_key_jwt`).
 
@@ -62,7 +65,7 @@ Drawbridge has three server processes:
 
 - One JSON line per agent or staff tool call, and per Veradigm action a module sends directly: intake `SaveScanDocument`/`SaveTask`, filing-observer reads, provider and schedule reads, huddle and outreach reads, and `GetServerInfo`/`LastLogs`.
 - Each line holds: time, server, kind (`tool`/`action`), call ID, tool or action name, patient ID (only if it is a plain ID), success, error code, latency and channel. Never arguments, results, names, dates of birth or chart contents.
-- Staff access: every staff screen request is a `view` (GET) or `staff` (POST) line with the staff `user`, the opaque path or object (`call_record:<id>`, `intake_item:<id>`) and the patient ID when the screen is about one patient. Security events (sign-ins, failures, lockouts, expired passwords, emergency access, rejected keys and webhooks, integrity failures, export and record-view volume alerts) are `security` lines and `[SECURITY]` server-log lines. Administrators can export every line for one patient or one staff user for a date range (Activity → Access report).
+- Staff access: every staff screen request is a `view` (GET) or `staff` (POST) line with the staff `user`, the opaque path or object (`call_record:<id>`, `intake_item:<id>`) and the patient ID when the screen is about one patient. Security events (sign-ins, failures, lockouts, expired passwords, emergency access, rejected keys and webhooks, integrity failures, export and record-view volume alerts, and the ops events `system_down`, `system_recovered`, `helpdesk_alert`, `helpdesk_alert_failed`) are `security` lines and `[SECURITY]` server-log lines. Administrators can export every line for one patient or one staff user for a date range (Activity → Access report).
 - Retention: `AUDIT_RETENTION_DAYS`, default 2190 (6 years).
 - Files: `<AUDIT_DIR>/audit/YYYY-MM-DD.jsonl` (clinic-local day), mode 0600 in a 0700 directory, append only.
 - **Tamper evidence**: each line carries `prev` (the hash of the previous line from the same server in that file, starting from `sha256("drawbridge-audit|<day>|<server>")`) and `hash` (SHA-256 of the line without `hash`). `npm run audit:verify -- <YYYY-MM-DD>` (or `node dist/scripts/audit-verify.js` in the container) reports edited, deleted, reordered and inserted lines by line number. **Limitation**: the chain cannot show lines cut from the end of a file, or a whole day file deleted. **Deployment requirement**: copy the day files daily to append-only or versioned storage (for example S3 with Object Lock) for that.
@@ -108,6 +111,7 @@ There are no client-specific values in code. `CLINIC_NAME` (no default) sets the
 | `npm run smoke:hipaa` | Staff access audit, document integrity, access and disclosure report, volume alerts, minimum necessary for the agent, no patient IDs in URLs, intake record retention, HIPAA & Compliance page and checklist consistency |
 | `npm run smoke:activity` | Audit content, hash chain and tamper detection, audited module actions |
 | `npm run smoke:config` | `CLINIC_NAME`, intervals, the polling floor, the production sandbox refusal, retention |
+| `npm run smoke:voice` | System status and de-duplicated help-desk alerts (no PHI), SMTP only over TLS, webhook signature, health-check error classes and the 2-minute floor, keep-warm, `RECORDS_UNAVAILABLE`, upcoming visits only for one verified match, inbound-call webhook signature, `drawbridge_take_message`, the compact agent tool list and prompt safety lines |
 
 The suites `smoke`, `smoke:intake`, `smoke:outreach`, `smoke:huddle` and `smoke:scheduling` cover tool behaviour. Run `npx tsc --noEmit -p .` for the type-check.
 
@@ -133,6 +137,14 @@ The suites `smoke`, `smoke:intake`, `smoke:outreach`, `smoke:huddle` and `smoke:
 | `CALL_RECORDS_RETENTION_DAYS` / `OUTREACH_RETENTION_DAYS` | 30 / 30 | Retention |
 | `CLINIC_NAME` | none ("Drawbridge" shown) | Practice name |
 | `INTAKE_SCAN_INTERVAL_SEC` / `INTAKE_OCR_WAIT_SEC` | 30 / 60 | Intake timing |
+| `UNITY_HEALTH_CHECK_MIN` / `UNITY_HEALTH_ACTION` / `UNITY_HEALTH_TIMEOUT_SEC` / `UNITY_HEALTH_FAILS_TO_DOWN` | 2 (floor 2, `off`) / GetServerInfo / 15 / 2 | Veradigm health check |
+| `UNITY_FAIL_FAST_WHEN_DOWN` | on | Agent tools answer `RECORDS_UNAVAILABLE` while Veradigm is DOWN |
+| `UNITY_KEEP_WARM_MINUTES` / `UNITY_KEEP_WARM_LEAD_SEC` | 30 / 120 | Session keep-warm |
+| `UNITY_SEARCH_VISITS_BUDGET_MS` | 2500 (0 = off) | Upcoming visits with a verified search match |
+| `HELPDESK_SMTP_URL` (secret) / `HELPDESK_ALERT_TO` / `HELPDESK_ALERT_FROM` | none / help@moatit.com / drawbridge-alerts@moatit.com | Help-desk e-mail |
+| `HELPDESK_WEBHOOK_URL` / `HELPDESK_WEBHOOK_SECRET` (secret) | none | Help-desk ticketing webhook (https only) |
+| `HELPDESK_REMINDER_HOURS` / `DRAWBRIDGE_PUBLIC_URL` | 4 / none | Reminder interval, status link |
+| `DRAWBRIDGE_FHIR_TOOLS` | off | `fhir_tools` call variable: backup chart tools not in service |
 
 `UNITY_TOKEN_REFRESH_BUFFER` (60) is now used.
 

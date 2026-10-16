@@ -79,7 +79,7 @@ async function main(): Promise<void> {
   const empty = new UnityAppointmentTools(svc(() => ({ success: true, data: [{ getschedulebypatientidinfo: [] }] })));
   const none = await empty.getPatientAppointments({ patientId: '56500' });
   assert.strictEqual(none.total, 0);
-  assert.strictEqual(toVoiceSummary('unity_get_patient_appointments', none), 'No appointments found.');
+  assert.strictEqual(toVoiceSummary('unity_get_patient_appointments', none), 'SUCCESS: this patient has no upcoming appointments. This is a real answer, not an error.');
   ok('empty success → "No appointments found."');
 
   // 4. Appointment rows parse from wrapped shape and include the ID for the next tool call

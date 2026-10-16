@@ -398,6 +398,30 @@ export class UnityPatientTools {
           spellingNote = ` Matched on a spelling variant: the record's last name is ${spelled} (${spelled.toUpperCase().split("").join("-")}), not ${heard}. Read the spelling back and get a yes before sharing anything.`;
         }
       }
+
+      // First-name spelling variant (web test Oct 15: the caller spelled "T-E-O-D-O-R-O" and the agent searched
+      // "Theodoro"). Same rule: full name AND birth date, search by last name, then exact DOB, a last name that
+      // matches (or sounds the same) and a first name that sounds the same. Confirmation is still required.
+      if (patients.length === 0 && args.lastName && args.firstName && normalizeDob(args.dateOfBirth)) {
+        const heardFirst = args.firstName.trim();
+        const heardLast = args.lastName.trim();
+        const variant = await this.searchBoth(
+          { lastName: heardLast },
+          (list) =>
+            list.filter(
+              (p) =>
+                normalizeDob(p.dateOfBirth) === normalizeDob(args.dateOfBirth) &&
+                ((p.lastName || "").trim().toLowerCase() === heardLast.toLowerCase() || soundsAlike(p.lastName || "", heardLast)) &&
+                soundsAlike(p.firstName || "", heardFirst),
+            ),
+        ).catch(() => ({ patients: [] as ParsedPatient[], pmOk: false }));
+        if (variant.patients.length === 1) {
+          patients = variant.patients;
+          const first = (patients[0].firstName || "").trim();
+          const last = (patients[0].lastName || "").trim();
+          spellingNote = ` Matched on a spelling variant: the record's name is ${first} ${last} (${first.toUpperCase().split("").join("-")}), not ${heardFirst}. Read the spelling back and get a yes before sharing anything.`;
+        }
+      }
       if (args.limit) patients = patients.slice(0, args.limit);
 
       let message = `Found ${patients.length} patient(s)`;

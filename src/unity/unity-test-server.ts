@@ -32,7 +32,13 @@ import { corsFromEnv } from "../platform/cors";
 import { auditToolCall, flushAudit } from "../platform/audit";
 import { auditedUnity } from "../platform/audited-unity";
 import { mountRetellWebhook } from "../platform/modules/activity";
+import { mountRetellInbound } from "../platform/modules/activity/retell-inbound";
 import { mountFaxWebhook } from "../platform/modules/intake";
+import { failFastWhenDown, setSystemStatus, SystemStatus } from "../platform/system-status";
+import { setStatusBanner } from "../platform/shell";
+import { statusBanner } from "../platform/status-ui";
+import { TokenKeepWarm, UnityHealthChecker } from "./services/unity-health";
+import { attachUpcomingVisits, needsVeradigm, recordsUnavailable } from "./agent-edge";
 
 const app = express();
 const PORT = process.env.UNITY_PORT || 3001;
@@ -49,10 +55,19 @@ const taskTools = new UnityTaskTools(unityService);
 const diagnostics = new UnityDiagnostics({ unity: auditedUnity(unityService, "diagnostics"), targets: configuredTargets });
 unityService.onServerError((action, target, code) => diagnostics.onServerError(action, target, code));
 setUnityDiagnostics(diagnostics);
+// System status (staff banner, phone agent, help-desk alerts), the Veradigm health checker and token keep-warm.
+const systemStatus = new SystemStatus({ targets: configuredTargets });
+setSystemStatus(systemStatus);
+setStatusBanner(() => statusBanner(systemStatus));
+const healthChecker = new UnityHealthChecker({ auth: authService, unity: unityService, status: systemStatus, targets: configuredTargets });
+unityService.onOutcome((action, target, ok, code) => healthChecker.onActionOutcome(action, target, ok, code));
+const keepWarm = new TokenKeepWarm(authService, configuredTargets);
 loadPlatformModules();
 
 // Retell call events: needs the raw body for verification, so it goes before express.json().
 mountRetellWebhook(app);
+// Retell inbound-call webhook: line mode + records status as dynamic variables; warms the Veradigm sessions.
+mountRetellInbound(app, () => void keepWarm.warmNow());
 // MOATiT Fax deliveries (document intake): HMAC over the raw body, so also before express.json().
 mountFaxWebhook(app);
 
@@ -94,7 +109,20 @@ async function executeAgentTool(name: string, args: any, callId: string | undefi
     auditToolCall({ server: "unity", tool: name, args, callId, success: false, errorCode: "STAFF_ONLY", latencyMs: 0, channel });
     return staffOnlyFailure(name);
   }
-  return forAgent(name, args, await executeTool(name, args, callId, callerPhone, channel));
+  // Veradigm known down (health checks): answer at once instead of waiting through timeouts.
+  if (needsVeradigm(name) && failFastWhenDown() && systemStatus.isDown()) {
+    auditToolCall({ server: "unity", tool: name, args, callId, success: false, errorCode: "RECORDS_UNAVAILABLE", latencyMs: 0, channel });
+    return recordsUnavailable(name);
+  }
+  keepWarm.noteActivity();
+  const out = forAgent(name, args, await executeTool(name, args, callId, callerPhone, channel));
+  if (name === "unity_search_patients") {
+    // The verified patient's upcoming visits ride along (saves a tool round; agent-edge.ts).
+    return attachUpcomingVisits(args, out, (patientId) =>
+      executeTool("unity_get_patient_appointments", { patientId }, callId, callerPhone, channel),
+    );
+  }
+  return out;
 }
 
 // Get all tool definitions
@@ -441,6 +469,9 @@ const httpServer = app.listen(PORT, () => {
   // First token + login per configured system, then GetServerInfo (also pre-warms auth for the first Retell call).
   // A failure is logged and shown as "unavailable"; it never stops the server.
   diagnostics.start();
+  // Veradigm health probe every UNITY_HEALTH_CHECK_MIN (2-minute floor) and token keep-warm.
+  healthChecker.start();
+  keepWarm.start();
 
   console.log("");
   console.log(
@@ -504,6 +535,7 @@ async function shutdown(signal: string): Promise<void> {
   setTimeout(() => process.exit(0), 10_000).unref();
   httpServer.close();
   await unityService.cleanup();
+  await systemStatus.flush().catch(() => undefined);
   await flushAudit().catch(() => undefined);
   process.exit(0);
 }

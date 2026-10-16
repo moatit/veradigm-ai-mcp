@@ -15,13 +15,25 @@ import { OnCallTools } from './oncall.tools';
 const listOrDash = (items: string[]) =>
   items.length ? `<ul>${items.map((i) => `<li>${esc(i)}</li>`).join('')}</ul>` : '<span class="muted">Not captured</span>';
 
+/** Heading for a record: verified name, the caller's own (unverified) name on a message, else "Unverified caller". */
+const who = (r: CallRecord) =>
+  r.verified ? esc(r.patient_name || 'Verified caller') : r.kind === 'message' && r.caller_stated?.name ? `${esc(r.caller_stated.name)} <span class="muted" style="font-size:13px">(as stated)</span>` : 'Unverified caller';
+
+function statedBlock(r: CallRecord): string {
+  if (r.kind !== 'message' || !r.caller_stated) return '';
+  return `<h2>Caller said (not verified)</h2><dl><dt>Name</dt><dd>${esc(r.caller_stated.name) || '—'}</dd><dt>Date of birth</dt><dd>${esc(r.caller_stated.dob) || '—'}</dd><dt>Call back</dt><dd>${esc(r.caller_stated.callback) || '—'}</dd></dl>
+<p class="muted" style="font-size:13px">Verify the caller's identity before discussing their record when you call back.</p>`;
+}
+
 function detail(r: CallRecord): string {
   return `<p><a href="${APP_BASE}/oncall">← All calls</a></p>
 <div class="card"><div class="row">
-<strong style="font-size:17px">${r.verified ? esc(r.patient_name || 'Verified caller') : 'Unverified caller'}</strong>
+<strong style="font-size:17px">${who(r)}</strong>
 <span class="pill ${r.urgency === 'urgent' ? 'urgent' : ''}">${esc(r.urgency)}</span>
 <span class="pill ${r.verified ? 'ok' : ''}">${r.verified ? 'identity verified' : 'not verified'}</span>
+${r.kind === 'message' ? `<span class="pill warn">message${r.records_down ? ' · records system was down' : ''}</span>` : ''}
 <span class="pill">${r.mode === 'after_hours' ? 'after hours' : 'business hours'}</span></div>
+${statedBlock(r)}
 <h2>Message</h2><p style="margin:0;white-space:pre-wrap">${esc(r.reason_verbatim) || '<span class="muted">No message</span>'}</p>
 <h2>Caller</h2><dl><dt>Started</dt><dd>${esc(fmtTime(r.started_at))}</dd><dt>Phone</dt><dd>${esc(r.caller_phone) || '—'}</dd>
 <dt>Date of birth</dt><dd>${esc(r.dob) || '—'}</dd><dt>Record</dt><dd>${r.patient_ref.id ? `${r.patient_ref.system === 'veradigm_ehr' ? 'Veradigm® EHR' : 'Veradigm® PM'} · ${esc(r.patient_ref.id)}` : '—'}</dd>
@@ -43,6 +55,7 @@ export const onCallModule: PlatformModule = {
   async run(name, args, ctx) {
     if (name === 'drawbridge_get_call_mode') return tools.getCallMode();
     if (name === 'drawbridge_save_call_record') return tools.saveCallRecord(args, ctx.callId, ctx.callerPhone);
+    if (name === 'drawbridge_take_message') return tools.takeMessage(args, ctx.callId, ctx.callerPhone);
     throw new Error(`Unknown tool ${name}`);
   },
 
@@ -71,7 +84,7 @@ ${override ? `<form method="post" action="${APP_BASE}/oncall/mode" style="margin
             .map(
               (r) => `<a class="card row" href="${APP_BASE}/oncall/call/${encodeURIComponent(r.call_id)}">
 <span class="pill ${r.urgency === 'urgent' ? 'urgent' : ''}">${esc(r.urgency)}</span>
-<strong>${r.verified ? esc(r.patient_name || 'Verified caller') : 'Unverified caller'}</strong>
+<strong>${who(r)}</strong>${r.kind === 'message' ? `<span class="pill warn">message${r.records_down ? ' · records down' : ''}</span>` : ''}
 <span class="muted" style="flex:1;min-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(r.reason_verbatim.slice(0, 120))}</span>
 <span class="muted" style="font-size:13px">${esc(fmtTime(r.started_at))}</span></a>`
             )

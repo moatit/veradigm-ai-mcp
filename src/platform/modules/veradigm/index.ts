@@ -2,6 +2,8 @@ import { Router } from 'express';
 import { PlatformModule } from '../../registry';
 import { esc, fmtTime, page } from '../../shell';
 import { getUnityDiagnostics, LastLogsRecord, ServerInfoSummary } from '../../../unity/services/unity-diagnostics';
+import { getSystemStatus } from '../../system-status';
+import { statusCard } from '../../status-ui';
 
 /**
  * Drawbridge module: Veradigm connection (staff screen /app/veradigm, read only).
@@ -40,7 +42,7 @@ export const veradigmModule: PlatformModule = {
     router.get('/', (req, res) => {
       const d = getUnityDiagnostics();
       const body = d
-        ? `<h2 style="margin-top:4px">Veradigm connection</h2><div class="grid">${d.serverInfo().map(infoCard).join('') || '<div class="card muted">No Veradigm® system is configured.</div>'}</div>
+        ? `<h2 style="margin-top:4px">Veradigm connection</h2>${statusCard(getSystemStatus(), true)}<div class="grid">${d.serverInfo().map(infoCard).join('') || '<div class="card muted">No Veradigm® system is configured.</div>'}</div>
 <h2>Troubleshooting log</h2><p class="muted" style="font-size:13px">Fetched from Veradigm after a Veradigm-side error, at most once a minute per system. Dates and long numbers are masked.</p>
 ${(() => {
   const rows = d.lastLogs();

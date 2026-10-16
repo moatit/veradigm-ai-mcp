@@ -58,10 +58,32 @@ export class UnityAPIError extends Error {
 /** Called when an action fails on Veradigm's side (diagnostics: LastLogs). Must not throw or block. */
 export type ServerErrorHook = (action: string, target: UnityTargetSystem, code: string) => unknown;
 
+/**
+ * Called after every action (system status: a real success brings a DOWN system back UP, an
+ * infrastructure failure asks for an early health probe). `code` is the error class, never message text.
+ * Must not throw or block.
+ */
+export type OutcomeHook = (action: string, target: UnityTargetSystem, ok: boolean, code: string) => unknown;
+
 export class UnityService {
   private authService: UnityAuthService;
   private currentTarget: UnityTargetSystem = 'EHR';
   private serverErrorHook: ServerErrorHook | null = null;
+  private outcomeHook: OutcomeHook | null = null;
+
+  /** Register the outcome hook (UnityHealthChecker.onActionOutcome). */
+  onOutcome(hook: OutcomeHook | null): void {
+    this.outcomeHook = hook;
+  }
+
+  private notifyOutcome(action: string, target: UnityTargetSystem, ok: boolean, code: string): void {
+    if (!this.outcomeHook) return;
+    try {
+      Promise.resolve(this.outcomeHook(action, target, ok, code)).catch(() => undefined);
+    } catch {
+      // status tracking must never break the call
+    }
+  }
 
   constructor(authService: UnityAuthService) {
     this.authService = authService;
@@ -169,6 +191,8 @@ export class UnityService {
           continue;
         }
         if (!parsed.success && isUnexpectedUnityError(parsed.error)) this.notifyServerError(action, targetSystem, 'UNITY_ERROR');
+        // A Unity validation answer (success:false) still proves the system answers.
+        this.notifyOutcome(action, targetSystem, true, parsed.success ? '' : 'UNITY_ANSWERED');
         return parsed;
       } catch (error: any) {
         if (attempt === 0 && token && error?.response?.status === 401) {
@@ -182,6 +206,7 @@ export class UnityService {
         if (isServerSideError(handled.code) || (handled.code === 'API_ERROR' && Number(error?.response?.status) >= 500)) {
           this.notifyServerError(action, targetSystem, handled.code);
         }
+        this.notifyOutcome(action, targetSystem, false, handled.code);
         throw handled;
       }
     }
