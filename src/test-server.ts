@@ -401,7 +401,7 @@ app.post("/", requireToolKey, async (req, res): Promise<void> => {
         message: fhirError.message,
         data: {
           code: fhirError.code,
-          details: fhirError.details,
+          // never details: they hold the stack and the raw FHIR reply
           timestamp: fhirError.timestamp,
         },
       },

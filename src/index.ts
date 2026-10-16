@@ -201,7 +201,7 @@ class VeradigmFHIRMCPServer {
                 {
                   error: fhirError.code,
                   message: fhirError.message,
-                  details: fhirError.details,
+                  // never details: they hold the stack and the raw FHIR reply
                   timestamp: fhirError.timestamp,
                 },
                 null,

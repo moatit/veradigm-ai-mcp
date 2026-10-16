@@ -132,6 +132,22 @@ async function main(): Promise<void> {
   assert.ok(DISABLED_FHIR_TOOLS.has('create_appointment') && DISABLED_FHIR_TOOLS.has('get_medication_statements'));
   ok('FHIR appointment tools and get_medication_statements disabled');
 
+  // 9. FHIR error replies never reach error messages (logged and sent to the admin portal); launch audit 2026-10-16
+  {
+    process.env.CLIENT_ID = process.env.CLIENT_ID || 'offline-smoke';
+    process.env.CLIENT_SECRET = process.env.CLIENT_SECRET || 'offline-smoke';
+    const { FHIRService } = await import('../services/fhir.service');
+    const svc: any = new FHIRService({} as any);
+    const outcome = { resourceType: 'OperationOutcome', issue: [{ diagnostics: 'name=Quillfeather&birthdate=1985-12-10', details: { text: 'Ada Quillfeather 1985-12-10' } }] };
+    for (const status of [400, 422, 500, 503]) {
+      const e: Error = svc.handleFHIRError({ isAxiosError: true, message: 'x', response: { status, data: outcome }, config: {} });
+      assert.ok(!/Quillfeather|1985|Ada/.test(e.message), `FHIR ${status} message carries the reply: ${e.message}`);
+    }
+    const nf: Error = svc.handleFHIRError({ isAxiosError: true, message: 'x', response: { status: 500, data: { issue: [{ details: { text: 'ResourceNotFoundException' } }] } }, config: {} });
+    assert.match(nf.message, /^Resource not found/);
+    ok('FHIR error messages carry the HTTP status only (no OperationOutcome text, search parameters or names); 500 "not found" still recognised');
+  }
+
   console.log(`\n${passed} checks passed`);
 }
 

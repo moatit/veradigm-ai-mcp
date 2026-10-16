@@ -201,16 +201,18 @@ export class FHIRService {
           case 404:
             return new Error("Resource not found");
           case 400:
-            return new Error(`Bad request: ${JSON.stringify(data)}`);
+            // Status only: a FHIR error body (OperationOutcome) can echo search parameters (names, birth dates).
+            return new Error("Bad request (400)");
           case 429:
             return new Error("Rate limit exceeded: Too many requests");
           case 500:
             // Check if there's more detail in the response
-            const errorDetail =
+            const errorDetail = String(
               data?.issue?.[0]?.details?.text ||
               data?.text?.div ||
               data?.message ||
-              JSON.stringify(data);
+              ""
+            );
             // Check if it's actually a ResourceNotFoundException (common in Veradigm API)
             if (
               errorDetail &&
@@ -222,11 +224,9 @@ export class FHIRService {
                 "Resource not found: The requested resource does not exist or is not accessible"
               );
             }
-            return new Error(`Internal server error: ${errorDetail}`);
+            return new Error("Internal server error (500)");
           default:
-            return new Error(
-              `FHIR API error (${status}): ${JSON.stringify(data)}`
-            );
+            return new Error(`FHIR API error (${status})`);
         }
       } else if (axiosError.request) {
         return new Error("Network error: Unable to connect to FHIR server");
