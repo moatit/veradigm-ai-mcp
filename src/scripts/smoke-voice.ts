@@ -26,7 +26,7 @@ process.env.AUDIT_DIR = TMP;
 for (const k of ['UNITY_APP_NAME', 'UNITY_SVC_USERNAME', 'UNITY_SVC_PASSWORD', 'UNITY_EHR_USERNAME', 'UNITY_EHR_PASSWORD', 'CLIENT_ID', 'CLIENT_SECRET']) {
   process.env[k] = process.env[k] || 'offline-smoke';
 }
-for (const k of ['HELPDESK_SMTP_URL', 'HELPDESK_WEBHOOK_URL', 'HELPDESK_WEBHOOK_SECRET', 'RETELL_WEBHOOK_SECRET', 'RETELL_API_KEY', 'UNITY_HEALTH_CHECK_MIN', 'UNITY_KEEP_WARM_MINUTES', 'DRAWBRIDGE_FHIR_TOOLS']) delete process.env[k];
+for (const k of ['HELPDESK_SMTP_URL', 'HELPDESK_WEBHOOK_URL', 'HELPDESK_WEBHOOK_SECRET', 'RETELL_WEBHOOK_SECRET', 'RETELL_API_KEY', 'RETELL_WEBHOOK_API_KEY', 'UNITY_HEALTH_CHECK_MIN', 'UNITY_KEEP_WARM_MINUTES', 'DRAWBRIDGE_FHIR_TOOLS']) delete process.env[k];
 process.env.CLINIC_NAME = 'Sagebrush Kidney Care';
 
 import assert from 'assert';
@@ -359,9 +359,17 @@ async function main(): Promise<void> {
   assert.strictEqual(warmed, 1, 'call start warms the Veradigm sessions');
   const bad = await quiet(() => fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-retell-signature': sig }, body: body.replace('abc', 'xyz') }));
   assert.strictEqual(bad.status, 401);
+  // Live failure Oct 15: Retell signs with the webhook-badged key, not RETELL_API_KEY. RETELL_WEBHOOK_API_KEY wins.
+  process.env.RETELL_API_KEY = 'key_test_api_calls_only';
+  const rejected = await quiet(() => fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-retell-signature': sig }, body }));
+  assert.strictEqual(rejected.status, 401, 'signed with another key than RETELL_API_KEY: 401');
+  process.env.RETELL_WEBHOOK_API_KEY = key;
+  const accepted = await quiet(() => fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-retell-signature': sig }, body }));
+  assert.strictEqual(accepted.status, 200, 'RETELL_WEBHOOK_API_KEY verifies');
   srv.close();
   delete process.env.RETELL_API_KEY;
-  ok('inbound-call webhook: Retell signature (HMAC over body+timestamp, 5-minute window), 503 unconfigured, 401 tampered, call_mode/records_status/fhir_tools variables, no caller number, warms sessions');
+  delete process.env.RETELL_WEBHOOK_API_KEY;
+  ok('inbound-call webhook: Retell signature (HMAC over body+timestamp, 5-minute window) with RETELL_WEBHOOK_API_KEY else RETELL_API_KEY, 503 unconfigured, 401 tampered, call_mode/records_status/fhir_tools variables, no caller number, warms sessions');
 
   // ── 7. drawbridge_take_message ─────────────────────────────────────────────
   const tools = new OnCallTools();

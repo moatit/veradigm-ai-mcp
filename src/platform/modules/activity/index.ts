@@ -208,21 +208,23 @@ function eventResponse(res: Response, body: unknown): void {
 export function mountRetellWebhook(app: Express): void {
   app.post('/webhooks/retell', express.raw({ type: () => true, limit: '5mb' }), async (req: Request, res: Response) => {
     try {
-      const raw = Buffer.isBuffer(req.body)
-        ? req.body.toString('utf8')
-        : req.body && typeof req.body === 'object'
-          ? JSON.stringify(req.body)
-          : '';
-      const v = await verifyWebhook(raw, req.headers);
+      // Verify the exact bytes received (express.raw), never re-serialized JSON. If another parser ran
+      // first there are no raw bytes to verify: that is a mounting error, not a bad signature.
+      if (!Buffer.isBuffer(req.body)) {
+        console.error('[Drawbridge] call event: raw body unavailable (a body parser ran before this route)');
+        res.status(500).json({ error: 'failed' });
+        return;
+      }
+      const v = await verifyWebhook(req.body, req.headers);
       if (!v.ok) {
-        console.warn(`[Drawbridge] call event rejected: ${v.reason}`);
+        console.warn(`[Drawbridge] call event rejected (${v.status}): ${v.reason}`);
         if (v.status === 401) throttledSecurityEvent('webhook_rejected', { ip: clientIp(req), code: 'RETELL_SIGNATURE', object: '/webhooks/retell' });
-        res.status(v.status).json({ error: v.reason });
+        res.status(v.status).json({ error: v.status === 401 ? 'bad signature' : 'webhook not configured' });
         return;
       }
       let body: unknown;
       try {
-        body = JSON.parse(raw);
+        body = JSON.parse(req.body.toString('utf8'));
       } catch {
         res.status(400).json({ error: 'invalid json' });
         return;

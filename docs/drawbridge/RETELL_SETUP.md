@@ -38,7 +38,17 @@ Paste `retell-prompts/unity-healthcare-agent.md` as the agent prompt. Since v7 i
 
 ## Inbound-call webhook (call mode at call start)
 
-Set the number's **Inbound Webhook URL** to `https://drawbridge.moatit.dev/webhooks/retell-inbound` (Phone Numbers in the Retell dashboard, or `PATCH /update-phone-number/<number>` with `inbound_webhook_url`). Retell signs the request with the account API key (`x-retell-signature`); Drawbridge verifies it with `RETELL_API_KEY`. The answer is `{ call_inbound: { dynamic_variables: { call_mode, records_status, fhir_tools } } }` and the Veradigm sessions are warmed for the call. If Drawbridge doesn't answer within Retell's 10 s, Retell still connects the call and the defaults apply. Web calls pass the same variables in `retell_llm_dynamic_variables` of `POST /v2/create-web-call`.
+Set the number's **Inbound Webhook URL** to `https://drawbridge.moatit.dev/webhooks/retell-inbound` (Phone Numbers in the Retell dashboard, or `PATCH /update-phone-number/<number>` with `inbound_webhook_url`). Retell signs the request (`x-retell-signature`) with the API key that has the "webhook" badge; Drawbridge verifies it with `RETELL_WEBHOOK_API_KEY` (see Webhook signature key below). The answer is `{ call_inbound: { dynamic_variables: { call_mode, records_status, fhir_tools } } }` and the Veradigm sessions are warmed for the call. If Drawbridge doesn't answer within Retell's 10 s, Retell still connects the call and the defaults apply. Web calls pass the same variables in `retell_llm_dynamic_variables` of `POST /v2/create-web-call`.
+
+## Webhook signature key (`RETELL_WEBHOOK_API_KEY`)
+
+Retell signs every webhook (call events at `/webhooks/retell` and the inbound-call webhook at `/webhooks/retell-inbound`) with **one** API key: the one marked with the **"webhook"** badge. That key can differ from the key Drawbridge uses for API calls (`RETELL_API_KEY`). When it differs, every webhook is rejected with 401 and the server log says `digest mismatch (verified with RETELL_API_KEY ...)`. That is what happened on the first live inbound call.
+
+1. Retell dashboard, **Settings**, **API Keys**. Find the key with the **webhook** badge.
+2. Put it in `deploy/local/.env` (production: SSM) as `RETELL_WEBHOOK_API_KEY=<that key>`. Never in Git, chat or tickets.
+3. Restart the unity container (`docker compose up -d unity` in `deploy/local`).
+
+When `RETELL_WEBHOOK_API_KEY` is unset, Drawbridge falls back to `RETELL_API_KEY`, which works only if that is the webhook-badged key. Rejections log one reason without the key or the body: `missing signature`, `bad signature format`, `stale timestamp (Ns off)` (check the server clock), `digest mismatch` (wrong key, or something rewrote the body), or `shared secret mismatch`.
 
 ## Retell API (current endpoints only)
 

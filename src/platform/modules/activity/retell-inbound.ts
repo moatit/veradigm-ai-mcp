@@ -1,10 +1,11 @@
-import { createHash, createHmac, timingSafeEqual } from 'crypto';
 import express, { Express, Request, Response } from 'express';
 import { currentMode } from '../../../unity/oncall/call-mode';
 import { getSystemStatus } from '../../system-status';
 import { clientIp, throttledSecurityEvent } from '../../security-events';
 import { safeId } from '../../audit';
-import { SECRET_HEADER } from './retell-events';
+import { verifyRetellWebhook, VerifyResult } from './retell-signature';
+
+export { verifyRetellSignature } from './retell-signature';
 
 /**
  * Retell inbound-call webhook (POST /webhooks/retell-inbound), set per phone number in Retell
@@ -19,41 +20,16 @@ import { SECRET_HEADER } from './retell-events';
  * It also warms the Veradigm sessions for the call (keep-warm), without waiting for them.
  * No patient data in or out; the caller's number is not stored here.
  *
- * Verification (Retell signs with the account API key; it cannot send custom headers here):
- *   x-retell-signature: v=<ms timestamp>,d=<hex HMAC-SHA256(raw body + timestamp, RETELL_API_KEY)>,
- *   timestamp within 5 minutes; or x-drawbridge-webhook-secret = RETELL_WEBHOOK_SECRET (relays, tests).
- * With neither configured: 503. Bad signature: 401 + webhook_rejected security event.
+ * Verification (retell-signature.ts; Retell cannot send custom headers here):
+ *   x-retell-signature: v=<ms timestamp>,d=<hex HMAC-SHA256(raw body + timestamp, key)>, timestamp within 5 minutes,
+ *   key = RETELL_WEBHOOK_API_KEY (the API key with the "webhook" badge in Retell), else RETELL_API_KEY;
+ *   or x-drawbridge-webhook-secret = RETELL_WEBHOOK_SECRET (relays, tests).
+ * With neither configured: 503. Bad signature: 401, the reason in the server log, a webhook_rejected security event.
  * If Drawbridge does not answer within Retell's 10 s (3 attempts), Retell still connects the call to
  * the number's agent and the prompt falls back to drawbridge_get_call_mode (default variables UNKNOWN).
  */
-const TOLERANCE_MS = 5 * 60_000;
-
-function safeEqual(a: string, b: string): boolean {
-  return timingSafeEqual(createHash('sha256').update(a).digest(), createHash('sha256').update(b).digest());
-}
-
-/** Retell's documented signature check, without the SDK. */
-export function verifyRetellSignature(rawBody: string, apiKey: string, header: string, now: number = Date.now()): boolean {
-  const m = /^v=(\d+),d=([0-9a-fA-F]+)$/.exec(String(header || '').trim());
-  if (!m || !apiKey) return false;
-  const ts = Number(m[1]);
-  if (!Number.isFinite(ts) || Math.abs(now - ts) > TOLERANCE_MS) return false;
-  const digest = createHmac('sha256', apiKey).update(rawBody + m[1]).digest('hex');
-  return safeEqual(digest, m[2].toLowerCase());
-}
-
-export function verifyInbound(rawBody: string, headers: Record<string, string | string[] | undefined>, now: number = Date.now()): { ok: boolean; status: number; reason: string } {
-  const h = (k: string) => {
-    const v = headers[k];
-    return Array.isArray(v) ? v[0] || '' : v || '';
-  };
-  const secret = process.env.RETELL_WEBHOOK_SECRET || '';
-  const apiKey = process.env.RETELL_API_KEY || '';
-  if (!secret && !apiKey) return { ok: false, status: 503, reason: 'webhook not configured' };
-  const given = h(SECRET_HEADER);
-  if (secret && given && safeEqual(given, secret)) return { ok: true, status: 200, reason: 'shared secret' };
-  if (apiKey && verifyRetellSignature(rawBody, apiKey, h('x-retell-signature'), now)) return { ok: true, status: 200, reason: 'retell signature' };
-  return { ok: false, status: 401, reason: 'bad signature' };
+export function verifyInbound(rawBody: Buffer | string, headers: Record<string, string | string[] | undefined>, now: number = Date.now()): VerifyResult {
+  return verifyRetellWebhook(rawBody, headers, now);
 }
 
 const fhirTools = () => (/^(1|true|on|yes)$/i.test(String(process.env.DRAWBRIDGE_FHIR_TOOLS || '').trim()) ? 'ON' : 'OFF');
@@ -80,16 +56,22 @@ export function inboundResponse(body: any): { status: number; json?: unknown; ca
 export function mountRetellInbound(app: Express, onCallStart?: () => void): void {
   app.post('/webhooks/retell-inbound', express.raw({ type: () => true, limit: '256kb' }), (req: Request, res: Response) => {
     try {
-      const raw = Buffer.isBuffer(req.body) ? req.body.toString('utf8') : '';
-      const v = verifyInbound(raw, req.headers);
+      // The exact bytes received (express.raw). If another parser ran first there are none to verify.
+      if (!Buffer.isBuffer(req.body)) {
+        console.error('[Drawbridge] inbound webhook: raw body unavailable (a body parser ran before this route)');
+        res.status(500).json({ error: 'failed' });
+        return;
+      }
+      const v = verifyInbound(req.body, req.headers);
       if (!v.ok) {
+        console.warn(`[Drawbridge] inbound webhook rejected (${v.status}): ${v.reason}`);
         if (v.status === 401) throttledSecurityEvent('webhook_rejected', { ip: clientIp(req), code: 'RETELL_INBOUND', object: '/webhooks/retell-inbound' });
-        res.status(v.status).json({ error: v.reason });
+        res.status(v.status).json({ error: v.status === 401 ? 'bad signature' : 'webhook not configured' });
         return;
       }
       let body: unknown;
       try {
-        body = JSON.parse(raw);
+        body = JSON.parse(req.body.toString('utf8'));
       } catch {
         res.status(400).json({ error: 'invalid json' });
         return;

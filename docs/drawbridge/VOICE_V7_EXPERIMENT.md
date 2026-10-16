@@ -38,7 +38,7 @@ The sample is small (3 web calls per variant, 39 turns per variant). Web calls h
   - `records_status`: UP, DOWN, DEGRADED or UNKNOWN;
   - `fhir_tools`: OFF unless `DRAWBRIDGE_FHIR_TOOLS=on`.
 - It also warms the Veradigm sessions for the call.
-- Verification: Retell's `x-retell-signature` (HMAC-SHA256 of raw body + timestamp with `RETELL_API_KEY`, 5-minute window). It is implemented natively, with no SDK needed.
+- Verification: Retell's `x-retell-signature` (HMAC-SHA256 of raw body + timestamp, 5-minute window) with `RETELL_WEBHOOK_API_KEY`, the Retell API key with the "webhook" badge (falls back to `RETELL_API_KEY`). It is implemented natively, with no SDK needed. The first live call got 401 because the badged key was not `RETELL_API_KEY`.
 - The prompt reads `{{call_mode}}`. The LLM's default variables are `UNKNOWN`, and only then does the agent call `drawbridge_get_call_mode`, which stays for compatibility.
 - **Not yet active**: the webhook URL is set per phone number, and this task did not change any number (see section 9).
 
@@ -331,7 +331,7 @@ What the voice path needs from the AWS deployment (`infra/`, see also `SECURITY_
    - The Cloudflare BAA question (Enterprise only) goes away for the tool path.
 3. **Keep-alive**: nginx `keepalive` to the upstream, plus HTTP keep-alive from Retell. The review measured about 95 ms on a reused connection vs about 200 ms on a fresh one.
 4. **SSM parameters**:
-   - `DRAWBRIDGE_TOOL_KEY`, `RETELL_API_KEY` (inbound-webhook verification);
+   - `DRAWBRIDGE_TOOL_KEY`, `RETELL_WEBHOOK_API_KEY` (webhook verification: the Retell key with the "webhook" badge), `RETELL_API_KEY`;
    - `HELPDESK_SMTP_URL` (secret) or `HELPDESK_WEBHOOK_URL` (+ `HELPDESK_WEBHOOK_SECRET`);
    - `HELPDESK_ALERT_TO`, `HELPDESK_ALERT_FROM`, `DRAWBRIDGE_PUBLIC_URL`;
    - plus the existing list in `SECURITY_CONTROLS.md` §10.5.
