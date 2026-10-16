@@ -1,4 +1,4 @@
-# QA report (local build, Oct 16, 2026)
+# QA report (local build, Oct 16, 2026; re-run after revision 2: turnkey + capacity copy)
 
 Served by `scripts/serve.mjs` on `http://127.0.0.1:4417` with production-equivalent headers and Brotli compression. Lighthouse 12.8.2, default mobile (Moto G Power, slow 4G, 4× CPU) and `--preset=desktop`.
 
@@ -20,7 +20,7 @@ Served by `scripts/serve.mjs` on `http://127.0.0.1:4417` with production-equival
 | `/legal/privacy/`, `/terms/`, `/hipaa/`, `/accessibility/` | 100 / 100 / 100 / 100 | 100 / 100 / 100 / 100 |
 | `/lp/fax/`, `/lp/phone/` | 99 / 100 / 100 / 100 | 100 / 100 / 100 / 100 |
 
-Mobile LCP 1.8–2.3 s, CLS 0–0.003, TBT 0 ms. Remaining hints are informational (network-dependency tree; a 9 KB image-format saving on the hero).
+Mobile LCP 1.8–2.3 s, CLS ≤ 0.042, TBT 0 ms (revision 2: same scores on every page; no horizontal overflow at 390 px; no console errors). Remaining hints are informational (network-dependency tree; a 9 KB image-format saving on the hero).
 
 What got the scores there: the stylesheet is minified and inlined (allowed by CSP hash, so no `unsafe-inline`), fonts are self-hosted and preloaded with metric-matched fallbacks (no layout shift on swap), the hero image is AVIF/WebP with `srcset` and `fetchpriority=high`, and the only script is 5 KB, deferred.
 

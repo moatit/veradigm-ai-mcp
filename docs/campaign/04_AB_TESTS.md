@@ -29,6 +29,8 @@ All three share the rules, proof, rollout, FAQ and CTA sections, so only the her
 
 ## Copy bank for future variants
 
-- Hero D (time): "Give your front desk its mornings back."
+- Hero D (capacity): "More capacity for the team you already have."
+- Hero F (vision): "Is your Veradigm® practice ready to be agentified?" (test against A for owner/physician personas; trademark attribution stays on the page)
+- Hero G (vision): "Are you ready for the future of your practice?"
 - Hero E (after hours): "Your clinic line, answered after hours, by an assistant that can see the schedule."
 - Proof-first: open with the four labeled proof cards above the fold.

@@ -1,6 +1,6 @@
 import { ORG, COMPAT_LINE, TRADEMARK_NOTE } from "../site.mjs";
 import { pageHero } from "../layout.mjs";
-import { icon, btnPrimary, btnSecondary, ctaBand, esc, emailLink, phoneLinks } from "../partials.mjs";
+import { icon, btnPrimary, btnSecondary, ctaBand, esc, emailLink, phoneLinks, itNeedsBlock } from "../partials.mjs";
 
 // Status legend for the trust center. Keep in sync with docs/CLAIMS_REGISTER.md.
 const S = {
@@ -34,7 +34,7 @@ export const security = {
     <div class="grid grid-3">
       <div class="card"><div class="icon">${icon("fax")}</div><h3>Incoming documents</h3><p>Faxes, lab results and other documents sent to your practice, so they can be read, matched and filed to the right chart.</p></div>
       <div class="card"><div class="icon">${icon("phone")}</div><h3>Calls to your line</h3><p>Who is calling and what they need, so the assistant can verify them and help with visits, balances and messages.</p></div>
-      <div class="card"><div class="icon">${icon("calendar")}</div><h3>Schedule and chart data</h3><p>Only what each task needs, read from and written to your EHR and practice-management system through a dedicated integration user.</p></div>
+      <div class="card"><div class="icon">${icon("calendar")}</div><h3>Schedule and chart data</h3><p>Only what each task needs, read from and written to your EHR and practice-management system through a dedicated Drawbridge user that your practice administrator creates.</p></div>
     </div>
     <p class="mt-2 lede">MOATiT is your business associate under HIPAA. We sign a BAA with every practice before any patient data flows, and hold BAAs with the service providers that handle patient information for us.</p>
   </div>
@@ -151,7 +151,7 @@ export const integrations = {
   body: `${pageHero({
     eyebrow: "Integrations",
     title: 'Works inside the systems <span class="accent-i">you already use.</span>',
-    lede: `${COMPAT_LINE}. Drawbridge files into the chart and books into the schedule your staff already work in. No new EHR, no double entry.`,
+    lede: `${COMPAT_LINE}. Turnkey: Drawbridge works alongside the systems you already have, filing into the chart and booking into the schedule your staff already work in. No rip-and-replace, no double entry.`,
     crumbs: [{ name: "Integrations", href: "/integrations/" }],
     actions: btnPrimary(),
   })}
@@ -160,7 +160,7 @@ export const integrations = {
     <div class="section-head">
       <p class="eyebrow">EHR &amp; practice management</p>
       <h2 id="ehr-title">Veradigm® EHR and Veradigm® Practice Management</h2>
-      <p class="lede">Drawbridge connects through Veradigm's secure partner interface with a dedicated integration user for your practice, over encrypted connections.</p>
+      <p class="lede">Drawbridge connects through Veradigm's secure partner interface, over encrypted connections, as a dedicated Drawbridge user that your practice administrator creates in your EHR and PM.</p>
     </div>
     <div class="grid grid-2">
       <div class="card">
@@ -193,14 +193,19 @@ export const integrations = {
       <h2 id="other-title">Everything around the chart</h2>
     </div>
     <div class="grid grid-3">
-      <div class="card"><div class="icon">${icon("fax")}</div><h3>Fax line</h3><p>Works with MOATiT Fax: faxes arrive on MOATiT's servers and are handed to Drawbridge over signed, encrypted connections.</p></div>
-      <div class="card"><div class="icon">${icon("flask")}</div><h3>Lab drop folders</h3><p>Daily lab files (PDF, TIFF, PNG, JPEG) from a secure folder or SFTP drop. Batch files are split by patient.</p></div>
+      <div class="card"><div class="icon">${icon("fax")}</div><h3>Fax line</h3><p>Keep your fax number, your fax line and your fax service. A small setting sends Drawbridge a copy of each incoming fax; it is received on MOATiT's servers and handed to Drawbridge over signed, encrypted connections.</p></div>
+      <div class="card"><div class="icon">${icon("flask")}</div><h3>Lab drop folders</h3><p>Daily lab files (PDF, TIFF, PNG, JPEG) read from the folder your lab already uses, with read-only access; the lab's flow doesn't change. Batch files are split by patient.</p></div>
       <div class="card"><div class="icon">${icon("mail")}</div><h3>Emailed results &amp; uploads</h3><p>Results from other systems, or a staff upload on the intake screen, go through the same checks.</p></div>
-      <div class="card"><div class="icon">${icon("phone")}</div><h3>Your clinic number</h3><p>Keep your number. Calls are routed to the assistant by hours or overflow, and transferred back to your staff or on-call provider.</p></div>
+      <div class="card"><div class="icon">${icon("phone")}</div><h3>Your clinic number</h3><p>Keep your number and your phone system. Forward the calls you choose (after hours, overflow or all) to the assistant, or connect it over SIP; calls transfer back to your staff or on-call provider.</p></div>
       <div class="card"><div class="icon">${icon("bell")}</div><h3>Help-desk alerts</h3><p>Status alerts by encrypted email or signed webhook to your IT help desk.</p></div>
-      <div class="card"><div class="icon">${icon("hospital")}</div><h3>MOATiT-hosted</h3><p>Single-tenant per practice, run by the team that may already host your EHR, phones and network.</p></div>
+      <div class="card"><div class="icon">${icon("hospital")}</div><h3>MOATiT-hosted</h3><p>Drawbridge runs single-tenant per practice on MOATiT's infrastructure. Your own IT team or IT provider keeps running your network, phones and computers.</p></div>
     </div>
     <p class="tm-note">${esc(TRADEMARK_NOTE)}</p>
+  </div>
+</section>
+<section class="section" id="it-needs" aria-labelledby="int-it-needs">
+  <div class="wrap">
+    ${itNeedsBlock({ headingId: "int-it-needs", tag: "h2" })}
   </div>
 </section>
 ${ctaBand({ title: "Not on Veradigm? Talk to us.", text: "Drawbridge launches for practices on Veradigm® EHR and Veradigm® Practice Management. If you use another system, tell us which one; it helps us decide what comes next." })}`,

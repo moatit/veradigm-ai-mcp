@@ -13,7 +13,7 @@ export const about = {
   body: `${pageHero({
     eyebrow: "About",
     title: 'Drawbridge is <span class="accent-i">MOATiT\'s</span> AI technology for healthcare practices.',
-    lede: "MOATiT, LLC has been the IT department for businesses and medical practices in Idaho, Utah and Wyoming since 2013. Drawbridge is what we built after years of watching front desks drown in faxes and phone calls.",
+    lede: "MOATiT, LLC has been the IT department for businesses and medical practices in Idaho, Utah and Wyoming since 2013. Drawbridge is what we built to give front-desk teams more capacity: the same people, serving more patients, with the repetitive work handled.",
     crumbs: [{ name: "About MOATiT", href: "/about/" }],
   })}
 <section class="section" aria-labelledby="who-title">
@@ -22,7 +22,7 @@ export const about = {
       <p class="eyebrow">Who we are</p>
       <h2 id="who-title">A local technology team, not a call center.</h2>
       <p>Founded in Pocatello, Idaho, in 2013, MOATiT provides managed IT, cybersecurity, business phone systems, online fax, backup and disaster recovery, and EHR hosting. Many of the practices we support have run on our networks, phones and fax lines for years.</p>
-      <p>That is why Drawbridge looks the way it does. We already guard the moat around your practice's systems; Drawbridge is the one controlled way in, for documents and calls, and it only comes down for the right patient.</p>
+      <p>That is where the name comes from. A moat protects a practice's systems; Drawbridge is the one controlled way in, for documents and calls, and it only comes down for the right patient. You don't need MOATiT as your IT provider to use it: we set it up with your own IT team or IT provider, and if MOATiT already supports your IT, we handle everything.</p>
       <div class="badge-row"><span class="badge">${icon("pin", "")}Pocatello, Idaho</span><span class="badge">Since 2013</span><span class="badge">Idaho · Utah · Wyoming</span></div>
     </div>
     <figure class="figure">${picture({ name: "documents", widths: [640, 960, 1280], sizes: "(min-width: 960px) 50vw, 100vw", alt: "Blank paper documents sorted neatly into blue folders on a deep indigo desk.", w: 1280, h: 960 })}<figcaption>AI-generated illustration</figcaption></figure>
@@ -162,7 +162,7 @@ export const pricing = {
   body: `${pageHero({
     eyebrow: "Pricing",
     title: 'Simple to start. <span class="accent-i">Priced to your volume.</span>',
-    lede: "We quote each practice on its fax and call volumes and the parts of Drawbridge it uses. Tell us about your practice and we'll send a clear quote.",
+    lede: "Turnkey for every practice, quoted on its fax and call volumes and the parts of Drawbridge it uses. Tell us about your practice and we'll send a clear quote.",
     crumbs: [{ name: "Pricing", href: "/pricing/" }],
   })}
 <section class="section" aria-labelledby="plan-title">
@@ -173,7 +173,7 @@ export const pricing = {
       <p class="lede">for a quote for your practice</p>
       <h3 class="mt-2">Every plan includes</h3>
       <ul class="checks">
-        <li><span>Setup by MOATiT: fax line, lab folders, EHR and PM connection, phone routing</span></li>
+        <li><span><strong>Turnkey:</strong> we enable Drawbridge on your existing Veradigm® setup with your permission. No new fax lines, no changes to your lab flow, and nothing new to install: results and review tasks appear in Veradigm® EHR, where your team already works.</span></li>
         <li><span>The 15-question setup sheet turned into your practice's rules</span></li>
         <li><span>One week in shadow mode, with a review of every difference</span></li>
         <li><span>A business associate agreement</span></li>
@@ -198,6 +198,7 @@ export const pricing = {
         </ul>
       </div>
       <p class="mt-2"><a class="btn-link" href="/roi/">Estimate your time savings first</a></p>
+      <p class="small">Your IT team or IT provider keeps running your network, phones and computers. <a href="/integrations/#it-needs">See the few permissions we ask for.</a></p>
     </div>
   </div>
 </section>`,

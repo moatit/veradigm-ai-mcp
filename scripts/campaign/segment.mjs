@@ -57,6 +57,7 @@ const ALIASES = {
   contact_phone: ["phone", "phone_number"],
   linkedin_url: ["linkedin"],
   is_moatit_client: ["client", "moatit_client", "customer"],
+  it_contact: ["it", "it_provider", "msp", "it_support"],
   do_not_contact: ["dnc", "unsubscribed", "opt_out"],
 };
 const norm = (h) => h.trim().toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "");
@@ -90,8 +91,8 @@ function score(r) {
   const p = parseInt(String(r.providers).replace(/[^0-9].*$/, ""), 10);
   if (p >= 2 && p <= 40) s += 20;
   else if (p === 1 || (p > 40 && p <= 100)) s += 8;
-  if (DOC_HEAVY.test(r.specialty || "")) s += 15;
-  if (yes(r.is_moatit_client)) s += 15;
+  if (DOC_HEAVY.test(r.specialty || "")) s += 20;
+  if (r.it_contact) s += 10; // knowing who runs their IT makes setup easier
   if (REGION.has(String(r.state || "").trim().toUpperCase())) s += 10;
   if (r.persona === "practice_manager") s += 10;
   return Math.min(100, s);
@@ -138,11 +139,12 @@ for (const r of records) {
   keep.push(r);
 }
 
-const OUT_COLS = ["company_id", "practice_name", "website", "specialty", "providers", "state", "ehr", "pm", "is_moatit_client", "contact_first", "contact_last", "contact_title", "persona", "contact_email", "linkedin_url", "consent_basis", "source", "fit_score", "tier", "lp_variant", "landing_url"];
+const OUT_COLS = ["company_id", "it_contact", "practice_name", "website", "specialty", "providers", "state", "ehr", "pm", "is_moatit_client", "contact_first", "contact_last", "contact_title", "persona", "contact_email", "linkedin_url", "consent_basis", "source", "fit_score", "tier", "lp_variant", "landing_url"];
 mkdirSync(join(outdir, "by_persona"), { recursive: true });
 const write = (name, rows, c = OUT_COLS) => writeFileSync(join(outdir, name), toCsv(c, rows));
-write("seg_A_existing_clients.csv", keep.filter((r) => r.tier === "A" && yes(r.is_moatit_client)));
-write("seg_A_new.csv", keep.filter((r) => r.tier === "A" && !yes(r.is_moatit_client)));
+// Existing MOATiT IT clients are an optional priority segment, not an assumption: they also stay in their tier file.
+write("seg_priority_moatit_clients.csv", keep.filter((r) => r.tier !== "C" && yes(r.is_moatit_client)));
+write("seg_A.csv", keep.filter((r) => r.tier === "A"));
 write("seg_B.csv", keep.filter((r) => r.tier === "B"));
 write("seg_C_nurture.csv", keep.filter((r) => r.tier === "C"));
 for (const p of ["owner_physician", "practice_manager", "front_desk_lead", "it_security", "other"]) write(`by_persona/${p}.csv`, keep.filter((r) => r.persona === p));
@@ -154,6 +156,7 @@ const summary = {
   kept: keep.length,
   rejected: rejected.length,
   companies: new Set(keep.map((r) => r.company_id)).size,
+  priority_moatit_clients: count((r) => r.tier !== "C" && yes(r.is_moatit_client)),
   tiers: { A: count((r) => r.tier === "A"), B: count((r) => r.tier === "B"), C: count((r) => r.tier === "C") },
   personas: Object.fromEntries(["owner_physician", "practice_manager", "front_desk_lead", "it_security", "other"].map((p) => [p, count((r) => r.persona === p)])),
   variants: { fax: count((r) => r.lp_variant === "fax"), phone: count((r) => r.lp_variant === "phone") },

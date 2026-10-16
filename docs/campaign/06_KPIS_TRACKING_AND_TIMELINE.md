@@ -44,7 +44,7 @@ Open rates are unreliable (Apple Mail Privacy Protection); report them, don't op
 | 0 | Oct 16–23 | Ali reviews site, brand kit and campaign; collects the company list; decides demo CTA destination (calendar link or form → CRM) | Ali |
 | 1 | Oct 26–30 | Fix review notes; legal review of `/legal/*`; Musab confirms Veradigm wording; resolve CONFIRM items in `docs/CLAIMS_REGISTER.md` | Ali, Musab, counsel |
 | 1 | Oct 26–30 | DNS for `drawbridge.moatit.com` (Ali/Martyn); static hosting + TLS; real form endpoint; sending domain authenticated | Ali, Martyn |
-| 2 | Nov 2–6 | Soft launch: site public; LinkedIn launch post; personal emails to Tier A existing MOATiT clients (Ali) | Ali |
+| 2 | Nov 2–6 | Soft launch: site public; LinkedIn launch post; optional personal notes to the priority segment of existing MOATiT IT clients on the list (Ali) | Ali |
 | 3–4 | Nov 9–20 | Sequence to Tier A new (≤ 50/day/sender), then Tier B; LinkedIn touches | Sales |
 | 5 | Nov 23–27 | Thanksgiving week: pause sends; review KPIs and A/B data | Ali |
 | 6–8 | Nov 30–Dec 18 | Continue Tier B; first shadow weeks; update the site's proof section if a client agrees to be named | Ali, Musab |

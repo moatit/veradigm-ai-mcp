@@ -1,4 +1,4 @@
-company_id,practice_name,website,specialty,providers,locations,city,state,zip,ehr,pm,is_moatit_client,contact_first,contact_last,contact_title,contact_email,contact_phone,linkedin_url,source,consent_basis,do_not_contact
-C-EX0001,Example Kidney Care (fictional),example.com,Nephrology,8,2,Boise,ID,83702,Veradigm EHR,Veradigm PM,no,Pat,Example,Practice Manager,pat@example.com,,,"template example",business_contact,no
-C-EX0002,Sample Pediatrics (fictional),example.org,Pediatrics,4,1,Ogden,UT,84401,Veradigm EHR,unknown,yes,Sam,Sample,Office Manager,sam@example.org,,,"template example",existing_customer,no
-C-EX0003,Test Clinic (fictional),example.net,Dermatology,1,1,Denver,CO,80202,Other,Other,no,Tess,Test,Physician Owner,not-an-email,,,"template example",business_contact,no
+company_id,it_contact,practice_name,website,specialty,providers,locations,city,state,zip,ehr,pm,is_moatit_client,contact_first,contact_last,contact_title,contact_email,contact_phone,linkedin_url,source,consent_basis,do_not_contact
+C-EX0001,In-house IT,Example Kidney Care (fictional),example.com,Nephrology,8,2,Boise,ID,83702,Veradigm EHR,Veradigm PM,no,Pat,Example,Practice Manager,pat@example.com,,,"template example",business_contact,no
+C-EX0002,MOATiT,Sample Pediatrics (fictional),example.org,Pediatrics,4,1,Ogden,UT,84401,Veradigm EHR,unknown,yes,Sam,Sample,Office Manager,sam@example.org,,,"template example",existing_customer,no
+C-EX0003,,Test Clinic (fictional),example.net,Dermatology,1,1,Denver,CO,80202,Other,Other,no,Tess,Test,Physician Owner,not-an-email,,,"template example",business_contact,no

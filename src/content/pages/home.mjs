@@ -1,7 +1,7 @@
 import { CTA, COMPAT_LINE } from "../site.mjs";
 import {
   icon, btnPrimary, btnSecondary, picture, trustStrip, gateCard, reviewCard, callCard, proofCards,
-  ctaBand, FAQS, faqList, faqSchema, phoneLinks, emailLink,
+  ctaBand, FAQS, faqList, faqSchema, phoneLinks, emailLink, itNeedsBlock,
 } from "../partials.mjs";
 
 export const heroImage = {
@@ -14,12 +14,12 @@ export const HEROES = {
   a: {
     kicker: "Drawbridge — MOATiT's AI technology for healthcare practices",
     h1: 'Lab results filed. Calls answered. <span class="accent-i">Nothing guessed.</span>',
-    lede: `For practices on <strong>Veradigm® EHR and Veradigm® Practice Management</strong>. Drawbridge reads incoming faxes and lab results and files them to the right patient's chart, and its phone assistant answers your line 24/7, verifying every caller before it shares a thing. When it isn't sure, it hands the work to a person.`,
+    lede: `For practices on <strong>Veradigm® EHR and Veradigm® Practice Management</strong>. Drawbridge reads incoming faxes and lab results and files them to the right patient's chart, and its phone assistant answers your line 24/7, verifying every caller before it shares a thing. When it isn't sure, it hands the work to a person. <strong>More capacity for the team you already have.</strong>`,
   },
   fax: {
     kicker: "Drawbridge fax & lab intake — A MOATiT Service",
     h1: 'Stop indexing faxes <span class="accent-i">by hand.</span>',
-    lede: `Drawbridge reads every incoming fax and lab result, matches it to exactly one patient on full name and date of birth, and files it to the right category in <strong>Veradigm® EHR</strong>, with a review task for the ordering provider. Anything uncertain lands in your staff queue, already read.`,
+    lede: `Drawbridge reads every incoming fax and lab result, matches it to exactly one patient on full name and date of birth, and files it to the right category in <strong>Veradigm® EHR</strong>, with a review task for the ordering provider. Anything uncertain lands in your staff queue, already read, so your team spends its time on patients instead of paperwork.`,
   },
   phone: {
     kicker: "Drawbridge phone assistant — A MOATiT Service",
@@ -96,14 +96,15 @@ export const rolloutSection = () => `<section class="section" id="rollout" aria-
     <div class="section-head">
       <p class="eyebrow">05 — Going live</p>
       <h2 id="rollout-title">Nothing changes for your staff until you've seen <span class="accent-i">a week of proof.</span></h2>
-      <p class="lede">MOATiT usually already runs your IT, phones or fax, so we gather the technical details ourselves. You answer questions about policy, not plumbing.</p>
+      <p class="lede">Turnkey. With your permission, we enable Drawbridge on your existing Veradigm® setup. Nothing about how you work has to change: no new fax lines, no change to how your lab sends results, nothing for staff to install. If MOATiT already supports your IT, we take care of all of it.</p>
     </div>
     <ol class="flow cols-4">
       <li><h3>Five-minute setup sheet</h3><p>Your practice manager answers 15 policy questions: who reviews results, which documents always go to a person, booking rules.</p></li>
-      <li><h3>We connect the pieces</h3><p>Fax line, lab drop folder, EHR and PM access with a dedicated integration user, phone routing and hours. BAA signed first.</p></li>
+      <li><h3>A few permissions</h3><p>BAA signed first. Your administrator authorizes the Veradigm® activation; your IT team or IT provider shares a copy of incoming faxes, read access to lab files and the calls you choose. We do the rest.</p></li>
       <li><h3>One week in shadow mode</h3><p>Drawbridge reads everything and files nothing. It compares its decisions with where your staff filed each document. We review every difference with you.</p></li>
       <li><h3>Switch on, step by step</h3><p>Start with staff-click filing, then auto-filing for the senders and document types that earned it. Your call, at every step.</p></li>
     </ol>
+    ${itNeedsBlock({ headingId: "rollout-it-needs" })}
   </div>
 </section>`;
 
@@ -130,9 +131,24 @@ ${demoBand()}
         <li><span><strong>The phone line.</strong> "Can I move my appointment?" "What's my balance?" Calls queue while staff check patients in.</span></li>
         <li><span><strong>After hours.</strong> Voicemail until morning, or an answering service that can't see the schedule.</span></li>
       </ul>
-      <p>Drawbridge takes the routine crossings and hands your staff only the ones that need judgment, already read and explained.</p>
+      <p>Drawbridge takes the routine crossings and hands your staff only the ones that need judgment, already read and explained, so your people spend their day on the work they're great at: patients and care.</p>
     </div>
     <figure class="figure">${picture({ name: "front-desk", widths: [640, 960, 1280], sizes: "(min-width: 960px) 50vw, 100vw", alt: "A quiet medical front desk in early morning light, with a desk phone and a tray of papers.", w: 1280, h: 960 })}<figcaption>AI-generated illustration</figcaption></figure>
+  </div>
+</section>
+<section class="section on-night blueprint" id="vision" aria-labelledby="vision-title">
+  <div class="wrap">
+    <div class="section-head">
+      <p class="eyebrow">The future of your practice</p>
+      <h2 id="vision-title">Is your Veradigm® practice ready to be <span class="accent-i">agentified?</span></h2>
+      <p class="lede">Drawbridge adds capacity. It isn't a replacement for your current system or your staff; it multiplies what they can do. Your team does the work they're great at, with patients and care, while Drawbridge handles the repetitive indexing and the routine calls.</p>
+    </div>
+    <div class="grid grid-3">
+      <div class="card"><div class="icon">${icon("users")}</div><h3>More capacity, same team</h3><p>Drawbridge is built so the same team can serve many times more patients. Imagine your front desk handling ten times the volume without adding headcount.</p></div>
+      <div class="card"><div class="icon">${icon("gauge")}</div><h3>Room to grow</h3><p>More calls answered, results routed sooner and fewer bottlenecks at the desk give the practice room to see more patients and grow revenue.</p></div>
+      <div class="card"><div class="icon">${icon("link")}</div><h3>Turnkey</h3><p>Enabled on your existing Veradigm® setup with your permission. No new fax lines, no change to your lab flow, no rip-and-replace.</p></div>
+    </div>
+    <p class="small mt-2 vision-note">This is our vision for what Drawbridge makes possible, not a measured result. Our measured numbers are under "Results so far".</p>
   </div>
 </section>
 <section class="section on-paper-2" id="products" aria-labelledby="products-title">
@@ -207,7 +223,7 @@ ${rolloutSection()}
   <div class="wrap split">
     <div>
       <p class="eyebrow">07 — Security &amp; HIPAA</p>
-      <h2 id="sec-title">Built by the people who already guard your network.</h2>
+      <h2 id="sec-title">Built by a security-first IT company.</h2>
       <p class="lede">MOATiT has run IT, phones and security for businesses since 2013. Drawbridge was built to the HIPAA Security Rule from the first line of code, and audited independently before launch.</p>
       <div class="btn-row mt-1">${btnSecondary(CTA.security.label, CTA.security.href)}</div>
     </div>
@@ -258,7 +274,7 @@ ${rolloutSection()}
     </div>
     <blockquote>
       <p>For more than a decade we've run the networks, phones, fax lines and EHR hosting behind medical practices in Idaho and the Intermountain West. We've watched front-desk teams spend their mornings indexing faxes and their afternoons on hold.</p>
-      <p>We built Drawbridge to take that load off, without ever trading safety for speed. It files what it is sure of, explains what it isn't, and leaves the judgment calls to your people.</p>
+      <p>We built Drawbridge to give that time back to patients and care, without ever trading safety for speed. It isn't a replacement for your systems or your people; it multiplies what they can do. It files what it is sure of, explains what it isn't, and leaves the judgment calls to your team.</p>
       <footer class="small note-sign">— The MOATiT team, Pocatello, Idaho</footer>
     </blockquote>
   </div>

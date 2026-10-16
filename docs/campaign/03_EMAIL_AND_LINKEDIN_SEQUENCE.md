@@ -21,18 +21,21 @@ Status: **draft copy, not loaded into any tool, nothing sent.** Sending needs Al
 
 Persona variants change only the first two sentences of each email (section "Persona openers").
 
+**Never assume the prospect is a MOATiT IT client.** Most aren't. Don't write "we already run your…", "as your IT provider" or "we'll gather it ourselves". For the optional priority segment of existing MOATiT IT clients, Ali adds one personal line at the top of email 1 instead.
+
 ---
 
 ## Email 1: the problem and the promise (day 1)
 
 **Subject A:** The fax pile at {{practice_name}}
 **Subject B:** Lab results filed before your first patient
+**Subject C:** Is your Veradigm® practice ready to be agentified?
 
 Hi {{first_name}},
 
 Most practices on Veradigm® EHR that we talk to have someone spending a good part of each morning indexing faxed lab results: open, read, find the patient, pick the category, route to the provider. Then the phones start.
 
-We built Drawbridge, MOATiT's AI technology for healthcare practices, to take that load off. It reads incoming faxes and lab results, matches each to exactly one patient on full name and date of birth, files it to the right category in the chart and sends the ordering provider a review task. Its phone assistant answers your line 24/7 and books or moves visits in Veradigm® PM, verifying every caller first.
+We built Drawbridge, MOATiT's AI technology for healthcare practices, to add capacity to the team you already have: not a replacement for your system or your staff, but a way to multiply what they can do. It reads incoming faxes and lab results, matches each to exactly one patient on full name and date of birth, files it to the right category in the chart and sends the ordering provider a review task. Its phone assistant answers your line 24/7 and books or moves visits in Veradigm® PM, verifying every caller first.
 
 When it isn't sure, it doesn't guess: the document goes to your staff, already read, with the reason.
 
@@ -74,6 +77,8 @@ We're new, so we won't show you logos. Here's what our testing shows, labeled fo
 - 0 wrong-patient filings across held-out synthetic test sets of 3,000 documents (invented patients, Oct 2026).
 - On a vendor test system, 20 of 20 auto-filed documents landed in the right chart; everything uncertain went to staff.
 
+It's turnkey. With your permission we enable Drawbridge on your existing Veradigm® setup: no new fax lines, no change to how your lab sends results, nothing for your staff to install. Your administrator and IT side grant a few permissions, and we do the rest.
+
 Your own documents will differ, so every practice starts with a shadow week: Drawbridge reads everything and files nothing, and compares its decisions with where your staff filed each document. We review every difference with you before anything is switched on.
 
 If that sounds reasonable, pick a time: {{landing_url}}
@@ -99,18 +104,18 @@ Ali
 
 | Persona | Email 1 opener | Email 2 opener |
 |---|---|---|
-| Owner / physician | "Results reaching the right chart, and the right provider, is a safety issue before it's an efficiency one." | "As a physician you'll want to know exactly when it files on its own and when it doesn't." |
+| Owner / physician | "What if the same team could serve many more patients? It starts with results reaching the right chart, and the right provider, safely." | "As a physician you'll want to know exactly when it files on its own and when it doesn't." |
 | Practice manager | "Between the fax pile, the daily lab batch and the phones, front-desk hours disappear before 10 a.m." | "Your staff stay in charge: Drawbridge only files what passes every check." |
-| Front-desk lead | "If your morning starts with the fax queue and the lab batch, this is for you." | "You'd still review every uncertain document, just with it already read and matched." |
-| IT / security | "We're the IT, phone and security team behind practices across the Intermountain West, and we built Drawbridge to our own standard." | "MFA for every user, a six-year tamper-evident audit log and server-enforced caller verification; the details are on our trust center." |
+| Front-desk lead | "If your morning starts with the fax queue and the lab batch, this gives you time back for patients." | "It isn't a replacement for anyone: you still review every uncertain document, just with it already read and matched." |
+| IT / security | "You keep running the practice's IT. Drawbridge is turnkey: a few permissions, listed in plain words on our integrations page, and nothing installed on staff PCs." | "MFA for every user, a six-year tamper-evident audit log and server-enforced caller verification; the details are on our trust center." |
 
 ## LinkedIn
 
-**A. Connection note (≤ 300 chars):** "Hi {{first_name}}, I run MOATiT in Pocatello. We work with practices on Veradigm® on their IT and phones, and just launched Drawbridge for fax/lab intake and calls. Happy to connect."
+**A. Connection note (≤ 300 chars):** "Hi {{first_name}}, I run MOATiT, an IT and security company in Pocatello. We just launched Drawbridge, which files faxed lab results and answers clinic calls for practices on Veradigm® EHR and PM. Happy to connect."
 
 **B. Message after connecting:** "Thanks for connecting, {{first_name}}. One question I'm asking practice leaders: how much of your team's morning goes to indexing faxed results? We built Drawbridge to file what it's sure of and hand staff the rest, already read. If useful, here's a 2-minute overview: https://drawbridge.moatit.com/?utm_source=linkedin&utm_medium=social&utm_campaign=drawbridge_launch_2026q4 . No pressure either way."
 
-**Company page launch post (Ali + MOATiT page):** "Today we're launching Drawbridge, MOATiT's AI technology for healthcare practices. It files faxed lab results to the right chart and answers the clinic line 24/7, verifying every caller. Our rule: when it isn't sure, a person decides. Integrates with Veradigm® EHR and Veradigm® Practice Management. drawbridge.moatit.com"
+**Company page launch post (Ali + MOATiT page):** "Are you ready for the future of your practice? Today we're launching Drawbridge, MOATiT's AI technology for healthcare practices. It files faxed lab results to the right chart and answers the clinic line 24/7, verifying every caller, so the same team can serve more patients and spend its time on care. It isn't a replacement for your system or your staff; it multiplies what they can do. When it isn't sure, a person decides. Turnkey, and it integrates with Veradigm® EHR and Veradigm® Practice Management. drawbridge.moatit.com"
 
 LinkedIn rules: manual sends only (no automation tools that violate LinkedIn's terms), ≤ 20 connection requests per day per person, no messages to people who decline or ignore twice, never mention patients or clients by name.
 

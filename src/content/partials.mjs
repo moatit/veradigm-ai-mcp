@@ -65,7 +65,7 @@ export const trustStrip = () => `<div class="trust-strip" role="list">
   <div role="listitem">${icon("shield")}<span><strong>BAA with every practice</strong>HIPAA business associate agreement before any patient data flows.</span></div>
   <div role="listitem">${icon("eye")}<span><strong>A shadow week first</strong>Drawbridge watches and compares for a week before it files anything.</span></div>
   <div role="listitem">${icon("user")}<span><strong>Unsure? It goes to a person</strong>No guessing between patients. Ever.</span></div>
-  <div role="listitem">${icon("link")}<span><strong>${COMPAT_LINE}</strong>Files into the chart and books into the schedule you already use.</span></div>
+  <div role="listitem">${icon("link")}<span><strong>${COMPAT_LINE}</strong>Turnkey: enabled on your existing setup with your permission. No new fax lines, no rip-and-replace.</span></div>
 </div>`;
 
 // ---------------------------------------------------------------- sample filing (animated)
@@ -137,10 +137,29 @@ ${keys
   .join("\n")}
 </div>`;
 
+// ---------------------------------------------------------------- what we need from the practice's IT side
+// Most prospects have their own IT team or another IT provider; never assume MOATiT already runs their systems.
+export const IT_NEEDS = [
+  ["key", "Veradigm® activation and a Drawbridge user", "Your practice administrator authorizes the Veradigm® activation and creates a dedicated Drawbridge user in Veradigm® EHR and Veradigm® Practice Management, with only the permissions it needs."],
+  ["fax", "A copy of incoming faxes", "A small setting with your fax provider sends Drawbridge a copy of each incoming fax. Your fax number, your fax line and the way faxes reach you today stay the same."],
+  ["flask", "Read access to lab result files", "Read-only access to the folder where your lab already drops its result files. The lab keeps sending results exactly as it does today. (If a folder can't be shared, the lab can send a copy to a secure SFTP drop.)"],
+  ["phone", "Call forwarding for the calls you choose", "Your phone provider forwards the calls you pick (after hours, overflow, or all) to the assistant, or connects it over SIP. Your number and phone system stay the same."],
+  ["mail", "An alert contact", "An email address for your IT help desk, so it hears right away if the EHR connection goes down."],
+];
+
+export const itNeedsBlock = ({ title = "A few permissions, no changes to how you work", lede = "Drawbridge is turnkey and works alongside the systems you already have. Your practice administrator and your IT team or IT provider grant a few permissions; we do the setup and walk them through each one. If MOATiT already supports your IT, we take care of all of it.", headingId = "it-needs-title", tag = "h3" } = {}) => `<div class="it-needs" role="region" aria-labelledby="${headingId}">
+  <${tag} id="${headingId}">${title}</${tag}>
+  <p>${lede}</p>
+  <ul class="it-list">
+${IT_NEEDS.map(([ic, t, d]) => `    <li><span class="icon">${icon(ic)}</span><span><strong>${t}</strong>${d}</span></li>`).join("\n")}
+  </ul>
+  <p class="small mb-0">No new fax lines, no change to your lab flow, nothing to install on staff computers. Filed results and review tasks appear in Veradigm® EHR, where your team already works.</p>
+</div>`;
+
 // ---------------------------------------------------------------- CTA band
 export const ctaBand = ({
-  title = "See Drawbridge on your kind of day.",
-  text = "A 20-minute walkthrough with a MOATiT engineer: a fax filed live on synthetic data, a sample call, and what your shadow week would look like. No pressure, no patient data needed.",
+  title = "Are you ready for the future of your practice?",
+  text = "See Drawbridge in a 20-minute walkthrough with a MOATiT engineer: a fax filed live on synthetic data, a sample call, and what your shadow week would look like. No pressure, no patient data needed.",
 } = {}) => `<section class="section-tight" aria-labelledby="cta-title">
   <div class="wrap">
     <div class="cta-band">
@@ -192,8 +211,18 @@ export const FAQS = [
     a: "It asks for first name, last name and date of birth, and these must match exactly one patient. This is enforced by Drawbridge's server, not just by the assistant's instructions: until a caller is verified on that call, the system refuses to return or change any patient record. Each call can verify at most two people (for example, a parent and a child), and repeated lookups are capped and logged.",
   },
   {
+    q: "Does Drawbridge replace our staff or our current systems?",
+    a: "No. Drawbridge isn't a replacement for your current system or your staff; it multiplies what they can do. It works alongside Veradigm® EHR and Veradigm® Practice Management, your fax line, your lab's result flow and your phones, and takes on the repetitive indexing and routine calls. Your team spends more of its time on patients and care, and the practice has room to grow without the front desk becoming the bottleneck.",
+    home: true,
+  },
+  {
     q: "What does going live look like?",
-    a: "Your practice manager answers a 15-question setup sheet (about five minutes). MOATiT collects the technical details itself. Then Drawbridge runs in shadow mode for one week: your staff keep working as usual, and Drawbridge records what it would have done and compares it with what your staff did. We review the differences with you, fix them, and only then switch filing on.",
+    a: "It's turnkey. With your permission (the Veradigm® activation and a BAA), we enable Drawbridge on your existing setup: no new fax lines, no change to how your lab sends results, nothing for staff to install. Your practice manager answers a 15-question setup sheet (about five minutes), and your IT team or IT provider grants a few permissions. Then Drawbridge runs in shadow mode for one week: your staff keep working as usual, and Drawbridge records what it would have done and compares it with what your staff did. We review the differences with you, fix them, and only then switch filing on.",
+    home: true,
+  },
+  {
+    q: "What do you need from our IT team or IT provider?",
+    a: "A few permissions, and no changes to how you work. (1) Your practice administrator authorizes the Veradigm® activation and creates a dedicated Drawbridge user in Veradigm® EHR and Veradigm® Practice Management. (2) A small setting with your fax provider sends Drawbridge a copy of each incoming fax; your fax number and line stay the same. (3) Read-only access to the folder where your lab already drops its files; the lab keeps sending results as it does today. (4) Your phone provider forwards the calls you choose to the assistant, or connects it over SIP; your number stays the same. (5) An email address for system alerts. Nothing is installed on staff computers. You don't need to be a MOATiT IT client; if you are, we handle all of it.",
     home: true,
   },
   {
@@ -215,7 +244,7 @@ export const FAQS = [
   },
   {
     q: "Who is MOATiT?",
-    a: "MOATiT, LLC is a technology company founded in Pocatello, Idaho, in 2013. It provides managed IT, cybersecurity, business phone systems, online fax and EHR hosting to businesses and medical practices across Idaho, Utah and Wyoming. Drawbridge is MOATiT's AI technology and product for healthcare practices.",
+    a: "MOATiT, LLC is a technology company founded in Pocatello, Idaho, in 2013. It provides managed IT, cybersecurity, business phone systems, online fax and EHR hosting to businesses and medical practices across Idaho, Utah and Wyoming. Drawbridge is MOATiT's AI technology and product for healthcare practices, and it works the same whether your IT is run by your own team, another provider or MOATiT.",
   },
   {
     q: "Is Drawbridge certified by Veradigm?",

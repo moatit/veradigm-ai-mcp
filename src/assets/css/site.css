@@ -528,3 +528,18 @@ tbody th { font-weight: 650; }
   .page-hero::after { content: ""; position: absolute; right: max(2vw, calc((100vw - var(--wrap)) / 2 - 40px)); top: 50%; transform: translateY(-46%); width: clamp(260px, 30vw, 420px); aspect-ratio: 1; background: url("/assets/brand/drawbridge-mark-reverse.svg") no-repeat center / contain; opacity: 0.08; pointer-events: none; }
 }
 @media (max-width: 600px) { .utility .wrap { gap: 0.1rem 1rem; } .utility .u-label { display: none; } }
+
+/* what we need from the practice's IT side */
+.it-needs { margin-top: 2.5rem; background: var(--white); border: 1px solid var(--line); border-radius: var(--radius-lg); padding: clamp(1.25rem, 3vw, 2rem); }
+.it-needs h2, .it-needs h3 { font-size: clamp(1.35rem, 2vw, 1.6rem); margin-bottom: 0.4rem; }
+.it-needs > p { color: var(--ink-2); max-width: 70ch; }
+.it-list { list-style: none; padding: 0; margin: 1.25rem 0; display: grid; gap: 1rem 1.75rem; }
+@media (min-width: 860px) { .it-list { grid-template-columns: 1fr 1fr; } }
+.it-list li { display: grid; grid-template-columns: 40px 1fr; gap: 0.8rem; align-items: start; margin: 0; line-height: 1.5; color: var(--ink-2); }
+.it-list li strong { display: block; color: var(--ink); }
+.it-list .icon { width: 40px; height: 40px; border-radius: 10px; display: grid; place-items: center; background: var(--sky-100); color: var(--sky-700); }
+.it-list .icon svg { width: 22px; height: 22px; }
+@media (min-width: 1100px) { .it-list { grid-template-columns: repeat(3, 1fr); } }
+#it-needs .it-needs { margin-top: 0; }
+
+.on-night .vision-note { color: var(--on-night-2); }

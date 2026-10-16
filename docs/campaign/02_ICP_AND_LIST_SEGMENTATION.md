@@ -12,9 +12,11 @@
 **Strong fit signals (score up)**
 - Specialty with heavy outside results: nephrology, internal medicine, family medicine, endocrinology, cardiology, oncology, rheumatology, gastroenterology, urology, OB/GYN, pediatrics.
 - Daily lab batch files from a reference lab.
-- Located where MOATiT already operates (Idaho, Utah, Wyoming, Montana; Intermountain West) or already a MOATiT IT / phone / fax / EHR-hosting client.
+- Located where MOATiT has on-site staff (Idaho, Utah, Wyoming, Montana; Intermountain West). Practices anywhere in the US qualify; most will have their own IT team or another IT provider.
 - Practice-management staff titles present (practice manager, administrator, office manager).
 - Hiring for front-desk / medical records / indexing roles (manual research signal).
+
+**Optional priority segment: existing MOATiT IT clients.** A small part of the list may already use MOATiT for IT, phones, fax or EHR hosting. Treat them as a priority segment for a personal note from Ali, never as the default: every message, page and script must work for a practice with its own IT team or another IT provider. Being a MOATiT client does not change the fit score.
 
 **Disqualifiers**
 - Hospital-owned or health-system-employed groups with central IT procurement (route to a separate enterprise track later).
@@ -28,6 +30,7 @@ Ali's company list may arrive in any shape; map it to these columns (`docs/campa
 | Column | Required | Example | Notes |
 |---|---|---|---|
 | `company_id` | yes | `C-000123` | Stable ID; generated if missing |
+| `it_contact` | no | `In-house IT` / `Acme IT Services` | Who runs the practice's IT, if known (own staff or provider name) |
 | `practice_name` | yes | `Example Family Medicine, PLLC` | |
 | `website` | no | `examplefm.com` | Used for dedupe and research |
 | `specialty` | no | `Internal Medicine` | Free text; normalized by the script |
@@ -36,7 +39,7 @@ Ali's company list may arrive in any shape; map it to these columns (`docs/campa
 | `city`, `state`, `zip` | state yes | `Boise`, `ID`, `83702` | |
 | `ehr` | yes | `Veradigm EHR` | Any of: Veradigm EHR, Veradigm PM, both, other, unknown |
 | `pm` | no | `Veradigm PM` | |
-| `is_moatit_client` | no | `yes` | yes/no |
+| `is_moatit_client` | no | `no` | yes/no; optional priority flag only (most rows will be `no`) |
 | `contact_first`, `contact_last` | no | | One row per contact; company repeats |
 | `contact_title` | no | `Practice Manager` | Mapped to a persona |
 | `contact_email` | no | | Business email only |
@@ -62,9 +65,9 @@ Script: `node scripts/campaign/segment.mjs <input.csv> [outdir]` (default `data/
 |---|---:|
 | On Veradigm® EHR **and** PM | 30 (one of them: 20; unknown: 5) |
 | Providers 2–40 | 20 (1 or 41–100: 8) |
-| High-document specialty | 15 |
-| Existing MOATiT client | 15 |
+| High-document specialty | 20 |
 | In MOATiT's region (ID, UT, WY, MT, NV, OR, WA, CO) | 10 |
+| Named IT contact or IT provider known (helps setup) | 10 |
 | Named practice-manager-type contact | 10 |
 
 **Tiers:** A ≥ 70 (personal outreach by Ali/Musab + sequence), B 45–69 (sequence), C < 45 (newsletter / nurture only, after opt-in).
@@ -73,9 +76,9 @@ Script: `node scripts/campaign/segment.mjs <input.csv> [outdir]` (default `data/
 
 | File | Who | Track |
 |---|---|---|
-| `seg_A_existing_clients.csv` | Tier A, MOATiT clients | Personal email from Ali + walkthrough offer |
-| `seg_A_new.csv` | Tier A, not clients | 4-email + LinkedIn sequence, fax-first or phone-first variant by specialty |
-| `seg_B.csv` | Tier B | 4-email sequence |
+| `seg_priority_moatit_clients.csv` | Optional: existing MOATiT IT clients in tiers A and B | Personal note from Ali + walkthrough offer (they are still sent the standard site and copy) |
+| `seg_A.csv` | Tier A (any IT setup) | 4-email + LinkedIn sequence, fax-first or phone-first variant by specialty |
+| `seg_B.csv` | Tier B (any IT setup) | 4-email sequence |
 | `seg_C_nurture.csv` | Tier C | No cold sequence; content/newsletter only with opt-in |
 | `by_persona/*.csv` | All contacts by persona | Persona-specific copy |
 | `rejected.csv` | Invalid email, suppressed, duplicates | With reason column |

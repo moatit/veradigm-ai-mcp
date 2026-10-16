@@ -1,9 +1,9 @@
 import { CTA, COMPAT_LINE } from "../site.mjs";
 import { pageHero } from "../layout.mjs";
-import { icon, btnPrimary, btnSecondary, picture, gateCard, reviewCard, callCard, proofCards, ctaBand, faqList, faqSchema, FAQS } from "../partials.mjs";
+import { icon, btnPrimary, btnSecondary, picture, gateCard, reviewCard, callCard, proofCards, ctaBand, faqList, faqSchema, FAQS, itNeedsBlock } from "../partials.mjs";
 
-const faxFaqs = FAQS.filter((f) => /right patient|isn't sure|always handled|going live|train AI|stored/i.test(f.q));
-const phoneFaqs = FAQS.filter((f) => /medical advice|verify callers|isn't sure|HIPAA/i.test(f.q));
+const faxFaqs = FAQS.filter((f) => /right patient|isn't sure|always handled|going live|IT team|train AI|stored/i.test(f.q));
+const phoneFaqs = FAQS.filter((f) => /medical advice|verify callers|isn't sure|IT team|HIPAA/i.test(f.q));
 
 export const fax = {
   path: "/fax-lab-intake/",
@@ -94,6 +94,7 @@ export const fax = {
       <li><span>Filing mode: watch only, staff click to file, or automatic for proven senders</span></li>
     </ul>
   </div>
+  <div class="wrap mt-3">${itNeedsBlock({ headingId: "fax-it-needs" })}</div>
 </section>
 <section class="section on-white" aria-labelledby="fax-faq-title">
   <div class="wrap narrow"><h2 id="fax-faq-title">Questions about intake</h2>${faqList(faxFaqs)}</div>
@@ -112,7 +113,7 @@ export const phone = {
   body: `${pageHero({
     eyebrow: "AI phone assistant",
     title: 'Every call answered. <span class="accent-i">Every caller verified.</span>',
-    lede: "Drawbridge answers your clinic line day and night. It checks who is calling before it shares anything, handles the routine requests your front desk takes all day, and passes everything else to a person.",
+    lede: "Drawbridge answers your clinic line day and night. It checks who is calling before it shares anything, handles the routine requests your front desk takes all day, and passes everything else to a person, so your staff can focus on the patients in front of them.",
     crumbs: [{ name: "Phone assistant", href: "/phone-assistant/" }],
     actions: btnPrimary() + btnSecondary("See a sample call", "#sample-call"),
   })}
