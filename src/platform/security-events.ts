@@ -45,7 +45,8 @@ export type SecurityEvent =
   | 'agent_not_verified'
   | 'agent_verified_limit'
   | 'agent_search_limit'
-  | 'agent_no_call_id';
+  | 'agent_no_call_id'
+  | 'cross_site_request';
 
 /** Events that are failures or alerts (success=false in the audit line, console.warn in the log). */
 const ALERTS = new Set<SecurityEvent>([
@@ -66,6 +67,7 @@ const ALERTS = new Set<SecurityEvent>([
   'agent_verified_limit',
   'agent_search_limit',
   'agent_no_call_id',
+  'cross_site_request',
 ]);
 
 export interface SecurityDetails {

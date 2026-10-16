@@ -156,6 +156,27 @@ async function main(): Promise<void> {
     if (process.platform !== 'win32') assert.strictEqual(fs.statSync(auth.sessionsFile()).mode & 0o777, 0o600);
     ok('logout is server-side: the cookie (and the user\'s other sessions) stop working; revocation saved to a 0600 file');
 
+    // 2b. Cross-site requests (launch audit 2026-10-16): SameSite=Strict still sends the cookie from a sibling
+    // subdomain of the same site, so state-changing requests must come from this origin.
+    {
+      const d = cookieOf(await login('pat.reviewer', PAT_PW));
+      const postOut = (headers: Record<string, string>) => fetch(`${url}/app/logout`, { method: 'POST', redirect: 'manual', headers: { cookie: d, ...headers } });
+      assert.strictEqual((await postOut({ 'sec-fetch-site': 'same-site', origin: 'https://evil.moatit.dev' })).status, 403, 'sibling subdomain refused');
+      assert.strictEqual((await postOut({ 'sec-fetch-site': 'cross-site' })).status, 403, 'cross-site refused');
+      assert.strictEqual((await postOut({ origin: 'https://evil.moatit.dev' })).status, 403, 'foreign Origin refused (no Sec-Fetch-Site)');
+      assert.strictEqual((await postOut({ origin: 'null' })).status, 403, 'opaque origin refused');
+      assert.ok(await signedIn(d), 'refused requests changed nothing');
+      const csrfLogin = await fetch(`${url}/app/login`, { method: 'POST', redirect: 'manual', headers: { 'content-type': 'application/x-www-form-urlencoded', 'sec-fetch-site': 'cross-site' }, body: form({ u: 'pat.reviewer', p: PAT_PW, otp: '', next: '/app/x' }) });
+      assert.strictEqual(csrfLogin.status, 403, 'login CSRF refused');
+      assert.strictEqual((await postOut({ 'sec-fetch-site': 'same-origin', origin: url })).status, 302, 'same origin works');
+      assert.ok(!(await signedIn(d)));
+      const bad = await fetch(`${url}/app/x`, { redirect: 'manual', headers: { cookie: '__Host-drawbridge_session=%E0%A4%A' } });
+      assert.ok(bad.status === 302 || bad.status === 401, `malformed cookie → sign-in, not ${bad.status}`);
+      const l2 = await auditLines();
+      assert.ok(l2.some((x: any) => x.kind === 'security' && x.tool === 'cross_site_request'), 'cross-site request is a security event');
+      ok('cross-site requests: POSTs with Sec-Fetch-Site same-site/cross-site or a foreign Origin are refused (403, security event, session untouched), login CSRF too; same-origin works; a malformed cookie signs out instead of a 500');
+    }
+
     // 3. Removal and password change end existing sessions; re-adding does not revive them
     const lee = cookieOf(await login('lee.staff', LEE_PW));
     assert.ok(await signedIn(lee));

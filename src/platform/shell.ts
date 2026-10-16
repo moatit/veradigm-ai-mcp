@@ -2,7 +2,7 @@ import { createHmac, randomBytes, scryptSync, timingSafeEqual } from 'crypto';
 import * as fs from 'fs';
 import express, { NextFunction, Request, Response, Router } from 'express';
 import { clinicLabel } from './clinic';
-import { clientIp, securityEvent } from './security-events';
+import { clientIp, securityEvent, throttledSecurityEvent } from './security-events';
 import {
   formatStaffLine,
   LoginThrottle,
@@ -181,9 +181,43 @@ function verify(signed: string | undefined): string | null {
 function readCookie(req: Request, name: string): string | undefined {
   for (const part of (req.headers.cookie || '').split(';')) {
     const [k, ...v] = part.trim().split('=');
-    if (k === name) return decodeURIComponent(v.join('='));
+    if (k !== name) continue;
+    try {
+      return decodeURIComponent(v.join('='));
+    } catch {
+      return undefined; // malformed cookie: signed out, never a 500
+    }
   }
   return undefined;
+}
+
+/**
+ * GET/HEAD always pass. Otherwise a browser request must be same-origin: Sec-Fetch-Site (set by the browser, so
+ * proxies cannot change it) must be same-origin or none; without it, an Origin header must name this host (Host or
+ * X-Forwarded-Host, or DRAWBRIDGE_PUBLIC_URL). Non-browser clients send neither and still need the session cookie.
+ */
+export function sameOriginRequest(req: Request): boolean {
+  if (req.method === 'GET' || req.method === 'HEAD' || req.method === 'OPTIONS') return true;
+  const site = String(req.headers['sec-fetch-site'] || '').toLowerCase();
+  if (site) return site === 'same-origin' || site === 'none';
+  const origin = String(req.headers.origin || '');
+  if (!origin) return true;
+  let host = '';
+  try {
+    host = new URL(origin).host.toLowerCase();
+  } catch {
+    return false;
+  }
+  const hosts = [req.headers.host, req.headers['x-forwarded-host']]
+    .flatMap((h) => String(h || '').split(','))
+    .map((h) => h.trim().toLowerCase())
+    .filter(Boolean);
+  try {
+    if (process.env.DRAWBRIDGE_PUBLIC_URL) hosts.push(new URL(process.env.DRAWBRIDGE_PUBLIC_URL).host.toLowerCase());
+  } catch {
+    // ignore a malformed setting
+  }
+  return hosts.includes(host);
 }
 
 function sameSecret(a: string, b: string): boolean {
@@ -416,6 +450,16 @@ export function shellRouter(): Router {
     // HTTPS only (the session cookie is Secure and __Host-); browsers ignore this header over plain HTTP.
     res.setHeader('Strict-Transport-Security', 'max-age=31536000');
     next();
+  });
+  // Cross-site requests: SameSite=Strict still sends the cookie from a sibling subdomain of the same site, so a
+  // browser's state-changing request (sign-in, sign-out, file, call, mode) must also come from this origin.
+  router.use((req, res, next) => {
+    if (sameOriginRequest(req)) {
+      next();
+      return;
+    }
+    throttledSecurityEvent('cross_site_request', { ip: clientIp(req), code: 'CROSS_SITE', object: String(req.originalUrl || '').split('?')[0] });
+    res.status(403).type('text/plain').send('Cross-site request refused.');
   });
 
   // Page behaviour (upload, confirm, print) as a same-origin script: no inline script anywhere.
