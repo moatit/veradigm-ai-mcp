@@ -52,7 +52,7 @@ const ACTION_ALTERNATIVES: Record<string, readonly string[]> = {};
 
 /**
  * Resolve a Unity action name. UNITY_ACTION_<KEY> may only name that key's certified default (or a documented
- * alternative in ACTION_ALTERNATIVES): anything else, e.g. UNITY_ACTION_GET_PATIENT=SavePatient, stops the
+ * alternative in ACTION_ALTERNATIVES): anything else, e.g. UNITY_ACTION_GET_PATIENT=SaveTask, stops the
  * server at start-up, so an override can never send a different (or undeclared) action. Run-time check as
  * well: UnityService.executeAction refuses anything outside CERTIFIED_ACTIONS.
  *
@@ -91,10 +91,9 @@ export const UnityActions = {
   Patient: {
     GET_PATIENT: action('GET_PATIENT', 'GetPatient'),
     GET_PATIENT_BY_MRN: action('GET_PATIENT_BY_MRN', 'GetPatientByMRN'),
-    SEARCH_PATIENTS: action('SEARCH_PATIENTS', 'SearchPatients'),
-    SAVE_PATIENT: action('SAVE_PATIENT', 'SavePatient'),
-    // PM has no UpdateDemographics action; demographic changes are SavePatient (Kanhaiya, main 0a4e3c4).
-    UPDATE_DEMOGRAPHICS: action('UPDATE_DEMOGRAPHICS', 'SavePatient')
+    SEARCH_PATIENTS: action('SEARCH_PATIENTS', 'SearchPatients')
+    // SavePatient is not used in this release (sandbox: "AccountID must be an integer"; no certified
+    // workflow needs it). It is not in CERTIFIED_ACTIONS, so it is refused with ACTION_NOT_ALLOWED.
   },
 
   // Appointment/Scheduling Actions (Veradigm PM)
@@ -184,7 +183,7 @@ export const UnityActions = {
  */
 export const CERTIFIED_ACTIONS: ReadonlySet<string> = new Set([
   'GetUserAuthentication', 'GetServerInfo', 'LastLogs',
-  'SearchPatients', 'GetPatient', 'GetPatientByMRN', 'SavePatient',
+  'SearchPatients', 'GetPatient', 'GetPatientByMRN',
   'GetSchedule', 'GetScheduleByPatientID', 'GetAppointmentById', 'GetAvailableSchedule', 'GetResources',
   'GetAppointmentTypes', 'GetAppointmentCancellationReasons', 'GetAppointmentConfirmationResults',
   'GetSchedulingLocations', 'GetSchedulingDepartments', 'SaveAppointment', 'SetAppointmentStatus',

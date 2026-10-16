@@ -50,7 +50,8 @@ async function main(): Promise<void> {
   const { toVoiceSummary } = await import('../utils/response-formatter');
   const audit = await import('../platform/audit');
   const { UnityAppointmentTools } = await import('../unity/tools/appointment.tools');
-  const { UnityActions } = await import('../unity/config/unity-endpoints');
+  const { UnityActions, CERTIFIED_ACTIONS } = await import('../unity/config/unity-endpoints');
+  const { UnityPatientTools } = await import('../unity/tools/patient.tools');
   const { previsitCheck } = await import('../platform/modules/huddle/previsit');
 
   let passed = 0;
@@ -98,7 +99,6 @@ async function main(): Promise<void> {
         message: `Found ${hits.length} patient(s)`,
       };
     }
-    if (name === 'unity_save_patient') return { success: true, patientId: '300', message: 'Patient created successfully' };
     if (name === 'unity_get_patient_by_mrn') return { success: true, patient: { id: args.mrn === 'M-1' ? '9001' : '9099', firstName: 'X', lastName: 'Y' }, message: 'ok' };
     if (name === 'verify_patient_identity') {
       const hit = ROSTER.find((p) => p.firstName === args.firstName && p.lastName === args.lastName && args.birthDate === '1985-12-10');
@@ -147,7 +147,6 @@ async function main(): Promise<void> {
     ['unity_get_patient', { patientId: '9001' }],
     ['unity_save_appointment', { patientId: '101', appointmentDate: '10/20/2026', appointmentTime: '09:00', duration: 15 }],
     ['unity_create_staff_task', { patientId: '9001', reason: 'callback', message: 'call me' }],
-    ['unity_update_demographics', { patientId: '101', cellPhone: '555-0101' }],
     ['unity_get_patient_recalls', { patientId: '101' }],
     ['drawbridge_previsit_check', { patientId: '101' }],
     ['unity_get_patient_appointments', {}],
@@ -346,13 +345,20 @@ async function main(): Promise<void> {
   assert.strictEqual(code(await apptAgent('unity_cancel_appointment', { appointmentId: 'A-101' }, 'call_D0')), 'NOT_VERIFIED', 'no verified patient');
   ok('appointment IDs: another patient\'s visit refused (unverified ID: before Veradigm; verified ID: GetScheduleByPatientID ownership check, no status change); appointmentId alone uses the one verified patient, two need patientId');
 
-  // ── 7. Registration, outreach, MRN, call record, unknown tools, FHIR, TTL ──
-  assert.strictEqual(code(await agent('unity_save_patient', { firstName: 'New', lastName: 'Person', dateOfBirth: '05/05/1995' }, 'call_D')), 'OK');
-  assert.deepStrictEqual(store.verified('call_D').map((p) => p.pm), ['300'], 'new patient bound');
-  assert.strictEqual(code(await agent('unity_save_appointment', { patientId: '300', appointmentDate: '10/20/2026', appointmentTime: '09:00', duration: 30 }, 'call_D')), 'OK');
-  assert.strictEqual(code(await agent('unity_save_patient', { patientId: '101', firstName: 'Ada', lastName: 'Q' }, 'call_D')), 'NOT_VERIFIED', 'update of an unverified existing patient');
+  // ── 7. SavePatient removed, outreach, MRN, call record, unknown tools, FHIR, TTL ──
+  // SavePatient is not used in this release: the tools are not offered and the gate denies them even for a
+  // verified patient, so nothing runs and nobody is bound.
+  n = ran.length;
+  assert.strictEqual(code(await agent('unity_save_patient', { firstName: 'New', lastName: 'Person', dateOfBirth: '05/05/1995' }, 'call_D')), 'NOT_VERIFIED', 'registration refused');
+  assert.strictEqual(store.verified('call_D').length, 0, 'nobody bound');
   await search('call_D', ADA);
-  assert.strictEqual(code(await agent('unity_save_patient', { firstName: 'Third', lastName: 'Person' }, 'call_D')), 'VERIFIED_LIMIT', 'no registration past the cap');
+  assert.strictEqual(code(await agent('unity_save_patient', { patientId: '101', firstName: 'Ada', lastName: 'Q' }, 'call_D')), 'NOT_VERIFIED', 'update refused, even verified');
+  assert.strictEqual(code(await agent('unity_update_demographics', { patientId: '101', cellPhone: '555-0101' }, 'call_D')), 'NOT_VERIFIED', 'demographics update refused, even verified');
+  assert.ok(!ran.slice(n).some((r) => /save_patient|update_demographics/.test(r.name)), 'never ran');
+  const patientToolNames = new UnityPatientTools({} as any).getTools().map((t) => t.name);
+  assert.ok(!patientToolNames.includes('unity_save_patient') && !patientToolNames.includes('unity_update_demographics'), 'not in the tool list');
+  assert.ok(!('savePatient' in UnityPatientTools.prototype) && !('updateDemographics' in UnityPatientTools.prototype), 'no code path left');
+  assert.ok(!CERTIFIED_ACTIONS.has('SavePatient'), 'SavePatient is not a declared action');
 
   n = ran.length;
   assert.strictEqual(code(await agent('drawbridge_outreach_context', {}, 'call_E')), 'OK', 'outreach context before verification');
@@ -397,7 +403,7 @@ async function main(): Promise<void> {
   t += 2 * 60_000;
   assert.strictEqual(clocked.resolve('call_T', 'pm', '101'), undefined, 'binding gone after 2 hours');
   assert.strictEqual(clocked.size, 0);
-  ok('registration binds the new patient (an existing patientId must be verified; cap applies); outreach verifiedPatientId, MRN lookup, call record (saved unverified), unknown tools fail closed; FHIR verify binds, search_patient withheld, appointment-by-ID denied; 2-hour TTL');
+  ok('SavePatient removed: unity_save_patient / unity_update_demographics not listed, no code path, denied by the gate even for a verified patient, nothing runs, nobody bound; outreach verifiedPatientId, MRN lookup, call record (saved unverified), unknown tools fail closed; FHIR verify binds, search_patient withheld, appointment-by-ID denied; 2-hour TTL');
 
   // ── 8. Staff side unaffected ────────────────────────────────────────────────
   const staffRan: string[] = [];
@@ -432,6 +438,18 @@ async function main(): Promise<void> {
     assert.ok(/NOT_VERIFIED/.test(r4.result.content[0].text), JSON.stringify(r4));
     const r5 = await post(unity.url, '/api/retell', { name: 'unity_get_appointment_types', args: {} });
     assert.ok(!/NOT_VERIFIED|CALL_ID_MISSING/.test(String(r5)), 'lookup not gated');
+    // SavePatient tools: not offered (MCP tools/list, GET /tools) and refused when called anyway
+    const listed = await post(unity.url, '/', { jsonrpc: '2.0', id: 5, method: 'tools/list', params: {} });
+    const listedNames: string[] = (listed.result?.tools || []).map((t: any) => t.name);
+    assert.ok(listedNames.includes('unity_search_patients') && !listedNames.includes('unity_save_patient') && !listedNames.includes('unity_update_demographics'), 'MCP tools/list');
+    const all13 = (await fetch(`${unity.url}/tools`, { headers: { 'x-drawbridge-key': KEY } }).then((r) => r.json() as Promise<any>)).tools.map((t: any) => t.name);
+    assert.ok(all13.length > 5 && !all13.includes('unity_save_patient') && !all13.includes('unity_update_demographics'), 'GET /tools');
+    for (const tool of ['unity_save_patient', 'unity_update_demographics']) {
+      const viaMcp = await post(unity.url, '/', { jsonrpc: '2.0', id: 6, method: 'tools/call', params: { name: tool, arguments: { firstName: 'New', lastName: 'Person', patientId: '101' } } }, { 'x-call-id': 'call_http4' });
+      assert.ok(/NOT_VERIFIED/.test(JSON.stringify(viaMcp)) && !/created|success":true/i.test(JSON.stringify(viaMcp)), `${tool} refused over MCP: ${JSON.stringify(viaMcp)}`);
+      const viaRetell = await post(unity.url, '/api/retell', { name: tool, args: { firstName: 'New', lastName: 'Person' }, call: { call_id: 'call_http4' } });
+      assert.ok(/^TOOL_ERROR \(NOT_VERIFIED/.test(String(viaRetell)), `${tool} refused over /api/retell: ${String(viaRetell)}`);
+    }
     const f1 = await post(fhir.url, '/api/retell', { name: 'get_allergies', args: { patientId: 'p-1' }, call: { call_id: 'call_http3' } });
     assert.ok(/^TOOL_ERROR \(NOT_VERIFIED/.test(String(f1)), String(f1));
     const f2 = await post(fhir.url, '/mcp/tools/call', { jsonrpc: '2.0', id: 3, method: 'tools/call', params: { name: 'get_patient_medications', arguments: { patientId: 'p-1' } } });
@@ -443,7 +461,7 @@ async function main(): Promise<void> {
     assert.ok(all.some((x) => x.server === 'fhir' && x.kind === 'security' && x.tool === 'agent_no_call_id' && x.object === 'get_patient_medications'), 'FHIR no-call-ID event');
     const text = JSON.stringify(all);
     for (const bad of NAMES) assert.ok(!text.includes(bad), `audit log leaks "${bad}"`);
-    ok('HTTP: Unity /api/retell and MCP tools/call, FHIR /api/retell and /mcp/tools/call refuse an unverified patient (NOT_VERIFIED) and a missing call ID (CALL_ID_MISSING) before any Veradigm call; security events in each server\'s audit chain; no names in the audit log');
+    ok('HTTP: Unity /api/retell and MCP tools/call, FHIR /api/retell and /mcp/tools/call refuse an unverified patient (NOT_VERIFIED) and a missing call ID (CALL_ID_MISSING) before any Veradigm call; SavePatient tools neither listed nor callable; security events in each server\'s audit chain; no names in the audit log');
   } finally {
     for (const p of procs) if (p.exitCode === null) p.kill();
     await new Promise((r) => setTimeout(r, 300));

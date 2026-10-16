@@ -36,7 +36,7 @@ Retell (test line 208-904-3641) ──HTTPS──> drawbridge.moatit.dev (Cloudf
 
 1. Errors are never empty results. Throw; the platform returns `{success:false,error_code,retryable}`.
 2. Veradigm action names come from `UnityActions` (`src/unity/config/unity-endpoints.ts`); add new ones there with `action('KEY','Name')`.
-3. Writes to Veradigm only: `SaveAppointment`, `SetAppointmentStatus`, `SavePatient`, `SaveTask`. Nothing clinical.
+3. Writes to Veradigm only: `SaveAppointment`, `SetAppointmentStatus`, `SaveTask` (`SavePatient` is not in this release). Nothing clinical.
 4. No PHI in logs: log tool names, IDs and outcomes only.
 5. Staff UI uses `page()`/`esc()` from `src/platform/shell.ts`; every value rendered goes through `esc()`.
 6. Outbound calls go only through the outreach module, only to `OUTBOUND_ALLOWLIST` numbers in dev, and never without a staff click or an explicit schedule.

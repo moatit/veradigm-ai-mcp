@@ -150,7 +150,7 @@ Ground truth comes mainly from watching staff: they keep indexing faxes from Ver
 | `GetProviders` | EHR | Ordering provider → Veradigm® EHR user name for the review task (`INTAKE_TASK_TARGET=ordering_provider`) | **Verified read-only Oct 13**: rows under `getprovidersinfo` with `FirstName`, `LastName`, `UserName` (the task target), `EntryCode`, `ProviderInactive`, `UserInactive` ([IKI_RULES_SANDBOX_TEST.md](IKI_RULES_SANDBOX_TEST.md)) |
 | `GetScheduleByPatientID` | PM | Same-day appointment check (`INTAKE_SAME_DAY_NO_NOTIFY`) | Verified Oct 9 (read); same-day decisions checked read-only on the sandbox Oct 13 (statuses S, C, A, X) |
 | `GetTask`, `GetTaskList` | EHR | Test read-back of review tasks (not used by the app) | Verified read-only Oct 13: only tasks addressed to our own user are visible |
-| `SavePatient` | PM | Create the synthetic test patients (test setup only; the EHR chart appears at once) | Verified Oct 11 |
+| `SavePatient` | PM | Create the synthetic test patients (test setup only, done by hand on Oct 11; not available in this release) | Verified Oct 11 |
 
 **Certification:** `SaveScanDocument` and `SaveTask` must be in the Unity action list submitted for certification (adding it later forces recertification). See `VERADIGM_APPROVAL_GUIDE.md`.
 

@@ -535,7 +535,7 @@ async function main(): Promise<void> {
   reset();
   const a18 = new UnityAuthService({ latchDir: '' });
   const u18 = new UnityService(a18);
-  for (const bad of ['Echo', 'GetTokenValidation', 'GetChangedPatients', '']) {
+  for (const bad of ['Echo', 'GetTokenValidation', 'GetChangedPatients', 'SavePatient', '']) {
     await assert.rejects(u18.executeAction(bad, {}, '', 'EHR'), (e: any) => e.code === 'ACTION_NOT_ALLOWED', bad);
   }
   assert.strictEqual(calls.length, 0, 'refused before any login or request');
@@ -543,7 +543,7 @@ async function main(): Promise<void> {
   const configured = flat(UnityActions);
   const undeclared = configured.filter((x) => !CERTIFIED_ACTIONS.has(x));
   assert.deepStrictEqual(undeclared, [], `configured but not declared: ${undeclared.join(', ')}`);
-  assert.ok(!configured.includes('GetTokenValidation') && !configured.includes('Echo'));
+  assert.ok(!configured.includes('GetTokenValidation') && !configured.includes('Echo') && !configured.includes('SavePatient'));
   process.env.UNITY_HEALTH_ACTION = 'GetPatient';
   assert.strictEqual(health.healthAction(), 'GetServerInfo', 'the probe reads GetServerInfo whatever UNITY_HEALTH_ACTION says');
   delete process.env.UNITY_HEALTH_ACTION;

@@ -166,8 +166,6 @@ const WRITE_TOOLS = new Set<string>([
   "unity_save_appointment",
   "unity_cancel_appointment",
   "unity_confirm_appointment",
-  "unity_save_patient",
-  "unity_update_demographics",
   "unity_create_staff_task",
 ]);
 
@@ -229,11 +227,8 @@ async function runTool(name: string, args: any): Promise<any> {
   }
 
   // Patient tools
-  else if (name === "unity_save_patient") {
-    return await patientTools.savePatient(args);
-  } else if (name === "unity_update_demographics") {
-    return await patientTools.updateDemographics(args);
-  } else if (name === "unity_get_patient") {
+  // unity_save_patient / unity_update_demographics: removed in this release (SavePatient not used).
+  else if (name === "unity_get_patient") {
     return await patientTools.getPatient(args);
   } else if (name === "unity_search_patients") {
     return await patientTools.searchPatients(args);
@@ -515,12 +510,10 @@ const httpServer = app.listen(PORT, () => {
   console.log(`🔧 Environment: ${unityConfig.nodeEnv}`);
   console.log("");
   console.log(`📋 Available Tools (${getToolDefinitions().length}):`);
-  console.log("   Patient Operations (5):");
+  console.log("   Patient Operations (3):");
   console.log("     • unity_search_patients - Search patients by name/DOB");
   console.log("     • unity_get_patient - Get patient details");
   console.log("     • unity_get_patient_by_mrn - Get patient by MRN");
-  console.log("     • unity_save_patient - Create new patient");
-  console.log("     • unity_update_demographics - Update patient info");
   console.log("   Appointment Operations (4):");
   console.log("     • unity_get_open_slots - Find available slots");
   console.log("     • unity_save_appointment - Book appointment");

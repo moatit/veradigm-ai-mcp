@@ -28,7 +28,6 @@ Notes on the table:
 |---|---|---|---|
 | `SearchPatients` | R | Phone agent `unity_search_patients` (caller identification); document intake patient match (through the same tool); intake shadow mode | Search by "Last, First" or MRN (plain text). Results are filtered by date of birth in Drawbridge. Also sent to Veradigm® EHR (see below). |
 | `GetPatient` | R | Outreach list builders (reminder, no-show and recall calls) | Gets the patient's first name and phone number for an approved outbound call. Also used on EHR. |
-| `SavePatient` | W | Phone agent `unity_save_patient` (register a new patient), `unity_update_demographics` (contact details) | Adds a patient or updates contact fields. Write tools carry an idempotency key. |
 | `GetScheduleByPatientID` | R | Phone agent `unity_get_patient_appointments`; read-back after `SaveAppointment`; ownership and current-status check before every `SetAppointmentStatus`; intake clinic rules (same-day appointment check) | Gets one patient's appointments. Drawbridge keeps the future ones. `SetAppointmentStatus` ignores PatientID, so Drawbridge only changes a visit that is on the verified patient's own schedule. |
 | `GetAppointmentById` | R | Phone agent `unity_get_appointment_details` when no patient ID is given | Gets one appointment's details. |
 | `SaveAppointment` | W | Phone agent `unity_save_appointment` | Books an appointment in an open slot. PatientID = PM patient ID; Parameter1 = the `<appt>` XML from Veradigm's PM reference (`appointmentDateTime` MM/DD/YYYY HH:mm, `appointmentDuration`, `appointmentType`, `schedulingLocation`, `schedulingDepartment`, `resource`, `comments`, `schedulingLocationID`, `schedulingDepartmentID`; `referDr`, `coverageType`, `visitType`, `referralRequired`, `ailmentID` only when configured, because the sandbox does not require them). The slot is checked with `GetAvailableSchedule` first. A reply without `saveappointmentinfo.Appointment_ID` is a failure. Never retried; idempotent per call. Verified on the sandbox Oct 15, 2026 (`SCHEDULING_WRITE_TEST_2026-10-15.md`). |
@@ -65,6 +64,8 @@ Notes on the table:
 | `GetDocumentImage` | R | Intake shadow mode, staff filing observer (breaking ties) | Gets one document's image. |
 
 ## Removed from the configuration (never called)
+
+`SavePatient` is **not used in this release**. The sandbox evidence run (Oct 16, 2026) showed the request lacked the required AccountID ("AccountID must be an integer"), and no certified workflow needs patient registration or demographic updates. So the tools `unity_save_patient` and `unity_update_demographics` were removed from every tool list and dispatch, the phone agent's gate denies them, and `SavePatient` is not in `CERTIFIED_ACTIONS`: any attempt is refused with `ACTION_NOT_ALLOWED` before a request is sent. Adding it back means fixing the request and recertifying.
 
 `Echo` is not a declared action and is never sent. It was removed on Oct 16, 2026 with the unused `testConnection()` helper, its `npm run verify:sandbox` check (`GetServerInfo` is the connection check) and the Postman request.
 

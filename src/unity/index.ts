@@ -127,11 +127,8 @@ class VeradigmUnityMCPServer {
         }
 
         // Patient tools
-        else if (name === "unity_save_patient") {
-          result = await this.patientTools.savePatient(args as any);
-        } else if (name === "unity_update_demographics") {
-          result = await this.patientTools.updateDemographics(args as any);
-        } else if (name === "unity_get_patient") {
+        // unity_save_patient / unity_update_demographics: removed in this release (SavePatient not used).
+        else if (name === "unity_get_patient") {
           result = await this.patientTools.getPatient(args as any);
         } else if (name === "unity_search_patients") {
           result = await this.patientTools.searchPatients(args as any);
@@ -232,8 +229,6 @@ class VeradigmUnityMCPServer {
     console.error("    - unity_get_open_slots");
     console.error("    - unity_get_patient_appointments");
     console.error("  Patients:");
-    console.error("    - unity_save_patient");
-    console.error("    - unity_update_demographics");
     console.error("    - unity_get_patient");
     console.error("    - unity_search_patients");
     console.error("    - unity_get_patient_by_mrn");
