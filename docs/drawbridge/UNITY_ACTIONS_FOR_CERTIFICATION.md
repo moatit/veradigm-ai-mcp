@@ -64,13 +64,9 @@ Notes on the table:
 | `GetDocuments` | R | Intake shadow mode, staff filing observer | Lists a patient's chart documents. |
 | `GetDocumentImage` | R | Intake shadow mode, staff filing observer (breaking ties) | Gets one document's image. |
 
-## Verification only (not called by the app)
-
-| Action | System | Used by |
-|---|---|---|
-| `Echo` | PM, EHR | `npm run verify:sandbox` connection check. |
-
 ## Removed from the configuration (never called)
+
+`Echo` is not a declared action and is never sent. It was removed on Oct 16, 2026 with the unused `testConnection()` helper, its `npm run verify:sandbox` check (`GetServerInfo` is the connection check) and the Postman request.
 
 These names were in `unity-endpoints.ts` but no code called them. They were removed after a repo-wide search: `GetPatientFull` (and its unused helper), `GetChangedPatients`, `BookAppointment`, `GetRecallTypes`, `GetFirstAvailableAppointments`, `GetEncounter`, `GetEncounterList`, `SaveSimpleEncounter`, `GetEncounterSummary`, `SaveDocumentImage`, `GetPatientDemographics`, `GetProvider`, the duplicate `GET_AVAILABLE_SCHEDULE` key (`GET_OPEN_SLOTS` holds `GetAvailableSchedule`). Their `UNITY_ACTION_*` overrides now have no effect. `GetSchedulingLocations`, `GetSchedulingDepartments` and `GetAppointmentConfirmationResults` were removed in the same pass and added back on Oct 15, 2026, when `SaveAppointment` and `SetAppointmentStatus` moved to Veradigm's documented parameters (see the PM table). `npm run verify:sandbox` uses the configured names for every read in this document.
 

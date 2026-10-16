@@ -49,8 +49,8 @@ export const unityEndpoints = getUnityEndpoints();
  * UNITY_ACTION_<KEY> (e.g. UNITY_ACTION_GET_APPOINTMENTS=GetScheduleByPatientID) so a
  * product difference between Veradigm environments is a config change, not a code change.
  *
- * Only actions the app calls are listed here (plus Echo for verify:sandbox and the documented
- * GetTokenValidation); docs/drawbridge/UNITY_ACTIONS_FOR_CERTIFICATION.md is the certified list.
+ * Only actions the app calls are listed here (plus the documented GetTokenValidation);
+ * docs/drawbridge/UNITY_ACTIONS_FOR_CERTIFICATION.md is the certified list.
  * Adding an action means updating that list (Veradigm recertification).
  */
 function action(key: string, fallback: string): string {
@@ -63,9 +63,8 @@ function action(key: string, fallback: string): string {
  */
 export const UnityActions = {
   // Admin Actions. GetServerInfo and LastLogs are Veradigm-required (unity-diagnostics.ts).
-  // Echo is used only by `npm run verify:sandbox`.
+  // Echo is not a declared action and is never sent (GetServerInfo is the connection check).
   Admin: {
-    ECHO: action('ECHO', 'Echo'),
     GET_SERVER_INFO: action('GET_SERVER_INFO', 'GetServerInfo'),
     LAST_LOG: action('LAST_LOG', 'LastLogs')
   },

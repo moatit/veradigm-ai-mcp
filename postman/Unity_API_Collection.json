@@ -181,29 +181,6 @@
           "response": []
         },
         {
-          "name": "0.4 Echo (Connection Test)",
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"Action\": \"Echo\",\n  \"Appname\": \"{{unity_app_name}}\",\n  \"AppUserID\": \"{{unity_ehr_username}}\",\n  \"PatientID\": \"\",\n  \"Token\": \"{{security_token}}\",\n  \"Parameter1\": \"ConnectionTest\",\n  \"Parameter2\": \"{{$timestamp}}\",\n  \"Parameter3\": \"\",\n  \"Parameter4\": \"\",\n  \"Parameter5\": \"\",\n  \"Parameter6\": \"\",\n  \"Data\": \"\"\n}"
-            },
-            "url": {
-              "raw": "{{unity_base_url}}/json/MagicJson",
-              "host": ["{{unity_base_url}}"],
-              "path": ["json", "MagicJson"]
-            },
-            "description": "Echo action - test connection without authentication"
-          },
-          "response": []
-        },
-        {
           "name": "0.5 GetServerInfo",
           "request": {
             "method": "POST",

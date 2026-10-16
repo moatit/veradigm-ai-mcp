@@ -368,22 +368,6 @@ export class UnityService {
   // ============================================
 
   /**
-   * Test connection using Echo action
-   */
-  async testConnection(target?: UnityTargetSystem): Promise<boolean> {
-    try {
-      const response = await this.executeAction(UnityActions.Admin.ECHO, {
-        Parameter1: 'ConnectionTest',
-        Parameter2: new Date().toISOString()
-      }, '', target);
-      
-      return response.success;
-    } catch {
-      return false;
-    }
-  }
-
-  /**
    * Get server information
    */
   async getServerInfo(target?: UnityTargetSystem): Promise<UnityMagicResponse> {

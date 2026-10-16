@@ -172,8 +172,8 @@ async function main(): Promise<void> {
 
 async function unityChecks(A: typeof UnityActionsT): Promise<void> {
   // ---- Unity: connection, product info, troubleshooting log (GetServerInfo and LastLogs are Veradigm-required) ----
+  // GetServerInfo is the connection check (Echo is not a declared action and is never sent).
   for (const t of ['PM', 'EHR'] as UnityTargetSystem[]) {
-    await unityCheck('Unity connection', `${A.Admin.ECHO} (${t})`, A.Admin.ECHO, { Parameter1: 'drawbridge' }, '', t, 'P0');
     await unityCheck('Unity connection', `${A.Admin.GET_SERVER_INFO} (${t}) · shows product/version`, A.Admin.GET_SERVER_INFO, {}, '', t, 'P0');
     await unityCheck('Unity connection', `${A.Admin.LAST_LOG} (${t}) · troubleshooting log`, A.Admin.LAST_LOG, {}, '', t, 'P1');
   }
