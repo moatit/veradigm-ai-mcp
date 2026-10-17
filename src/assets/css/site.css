@@ -582,3 +582,28 @@ tbody th { font-weight: 600; }
 #it-needs .it-needs { margin-top: 0; }
 
 .on-night .vision-note { color: var(--on-ink-2); }
+
+/* ---------- live test call (popover) ---------- */
+.live-call { width: min(560px, calc(100vw - 32px)); max-height: calc(100vh - 32px); overflow: auto; margin: auto; padding: 1.5rem 1.5rem 1.25rem; border: 0; border-top: 4px solid var(--blue); border-radius: var(--radius); background: var(--white); color: var(--ink); box-shadow: 0 24px 60px -20px rgba(34, 34, 54, 0.45); }
+.live-call::backdrop { background: rgba(34, 34, 54, 0.6); }
+.live-call .lc-head { display: flex; justify-content: space-between; align-items: start; gap: 1rem; }
+.live-call h2 { font-size: clamp(1.35rem, 3vw, 1.6rem); margin: 0; }
+.live-call h3 { font: 600 1rem/1.3 var(--font-display); margin: 1.25rem 0 0.4rem; }
+.lc-close { background: none; border: 1.5px solid var(--ink); border-radius: var(--radius); color: var(--ink); font: 500 0.9rem/1 var(--font-display); padding: 0.55rem 0.8rem; cursor: pointer; flex: 0 0 auto; }
+.lc-close:hover { background: var(--ink); color: var(--white); }
+.lc-intro { color: var(--slate); margin: 0.6rem 0 1rem; }
+.lc-number { display: flex; align-items: baseline; justify-content: center; gap: 0.75rem; padding: 0.9rem 1rem; background: var(--ink); color: var(--white); text-decoration: none; border-radius: var(--radius); font: 500 clamp(1.6rem, 6vw, 2.1rem)/1.1 var(--font-display); letter-spacing: -0.01em; font-variant-numeric: tabular-nums; }
+.lc-number span { font-size: 0.9rem; letter-spacing: 0.06em; text-transform: uppercase; color: #D9DAEA; }
+.lc-number:hover { background: var(--navy); color: var(--white); }
+.lc-patient { margin-top: 1rem; border: 1px solid var(--line); }
+.lc-patient .ledger-sample { font-size: 0.9rem; }
+.lc-patient dl { margin: 0; display: grid; grid-template-columns: 1fr 1fr; }
+.lc-patient dl div { padding: 0.8rem 1rem; }
+.lc-patient dl div + div { border-left: 1px solid var(--line); }
+.lc-patient dt { font: 600 0.78rem/1.2 var(--font-body); letter-spacing: 0.05em; text-transform: uppercase; color: var(--slate); }
+.lc-patient dd { margin: 0.2rem 0 0; font: 500 1.2rem/1.3 var(--font-display); }
+.lc-alt { margin: 0; padding: 0.6rem 1rem 0.8rem; border-top: 1px solid var(--line); font-size: 0.92rem; color: var(--slate); }
+.lc-try { margin: 0; padding-left: 1.3rem; }
+.lc-try li { margin: 0.2rem 0; }
+.lc-note { margin: 1rem 0 0; font-size: 0.85rem; color: var(--slate); }
+@media (max-width: 480px) { .lc-patient dl { grid-template-columns: 1fr; } .lc-patient dl div + div { border-left: 0; border-top: 1px solid var(--line); } }

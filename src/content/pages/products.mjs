@@ -1,6 +1,6 @@
 import { CTA, COMPAT_LINE } from "../site.mjs";
 import { pageHero } from "../layout.mjs";
-import { icon, btnPrimary, btnSecondary, gateCard, reviewCard, callCard, proofCards, ctaBand, faqList, faqSchema, FAQS, itNeedsBlock } from "../partials.mjs";
+import { icon, btnPrimary, btnSecondary, liveCallButton, liveCallDialog, gateCard, reviewCard, callCard, proofCards, ctaBand, faqList, faqSchema, FAQS, itNeedsBlock } from "../partials.mjs";
 
 const faxFaqs = FAQS.filter((f) => /right patient|needs a person|always handled|going live|from our practice|train AI|stored/i.test(f.q));
 const phoneFaqs = FAQS.filter((f) => /medical advice|verify callers|needs a person|from our practice|HIPAA/i.test(f.q));
@@ -115,7 +115,7 @@ export const phone = {
     title: 'Every call answered. <span class="accent-i">Every caller verified.</span>',
     lede: "Drawbridge answers your clinic line day and night. It checks who is calling before it shares anything, handles the routine requests your front desk takes all day, and passes everything else to a person, so your staff can focus on the patients in front of them.",
     crumbs: [{ name: "Phone assistant", href: "/phone-assistant/" }],
-    actions: btnPrimary() + btnSecondary("See a sample call", "#sample-call"),
+    actions: btnPrimary() + liveCallButton(),
   })}
 <section class="section" id="sample-call" aria-labelledby="call-title">
   <div class="wrap split">
@@ -131,11 +131,12 @@ export const phone = {
         <li><span>Messages for staff, filed as tasks in your EHR</span></li>
         <li><span>Transfer to staff whenever a caller asks</span></li>
       </ul>
-      <p><button class="btn-link btn-replay" type="button" data-replay="phone-call">Replay the call</button></p>
+      <div class="btn-row">${liveCallButton("btn btn-primary")}<button class="btn-link btn-replay" type="button" data-replay="phone-call">Replay the call</button></div>
     </div>
     ${callCard("phone-call")}
   </div>
 </section>
+${liveCallDialog()}
 <section class="section on-night blueprint" aria-labelledby="safety-title">
   <div class="wrap">
     <div class="section-head">

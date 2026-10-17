@@ -1,5 +1,5 @@
 // Shared components (HTML string builders). All content is static and authored here.
-import { SITE, ORG, CLAIMS, CTA, COMPAT_LINE } from "./site.mjs";
+import { SITE, ORG, CLAIMS, CTA, COMPAT_LINE, TEST_LINE } from "./site.mjs";
 
 export const esc = (s) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 
@@ -42,6 +42,35 @@ export const icon = (name, cls = "") =>
 export const btnPrimary = (label = CTA.primary.label, href = CTA.primary.href) =>
   `<a class="btn btn-primary" href="${href}">${esc(label)}</a>`;
 export const btnSecondary = (label, href) => `<a class="btn btn-secondary" href="${href}">${esc(label)}</a>`;
+
+// ---------------------------------------------------------------- live test call (popover; no JavaScript needed)
+export const liveCallButton = (cls = "btn btn-secondary") =>
+  `<button class="${cls} btn-live" type="button" popovertarget="live-call">${esc(CTA.live.label)}</button>`;
+
+export const liveCallDialog = () => `<div class="live-call" id="live-call" popover role="dialog" aria-labelledby="live-call-title" aria-describedby="live-call-note">
+  <div class="lc-head">
+    <h2 id="live-call-title">Call the Drawbridge test line</h2>
+    <button class="lc-close" type="button" popovertarget="live-call" popovertargetaction="hide" aria-label="Close">Close</button>
+  </div>
+  <p class="lc-intro">Talk to the phone assistant yourself. It answers on a test system, so play the part of a sample patient.</p>
+  <a class="lc-number" href="tel:${TEST_LINE.tel}"><span>Call</span>${TEST_LINE.label}</a>
+  <div class="lc-patient">
+    <p class="ledger-sample"><b>Synthetic sample</b><span>Test records in a Veradigm® sandbox, not real people.</span></p>
+    <dl>
+      <div><dt>Your name</dt><dd>${TEST_LINE.patients[0].name}</dd></div>
+      <div><dt>Date of birth</dt><dd>${TEST_LINE.patients[0].dob}</dd></div>
+    </dl>
+    <p class="lc-alt">Or call as ${TEST_LINE.patients[1].name}, born ${TEST_LINE.patients[1].dob}.</p>
+  </div>
+  <h3>Things to try</h3>
+  <ol class="lc-try">
+    <li>&ldquo;When is my next appointment?&rdquo;</li>
+    <li>&ldquo;Can I move it to later in the week?&rdquo;</li>
+    <li>&ldquo;What times do you have open on Friday?&rdquo;</li>
+    <li>&ldquo;Please leave a message for the front desk.&rdquo;</li>
+  </ol>
+  <p class="lc-note" id="live-call-note">The assistant verifies you by name and date of birth first, then reads back every change before making it. This line is connected to a test system with synthetic records only, so please use the sample patient above and keep real health information off the call. Standard call rates apply.</p>
+</div>`;
 
 export const phoneLinks = (sep = " · ") =>
   ORG.phones.map((p) => `<a href="tel:${p.tel}">${p.label}</a>`).join(sep);

@@ -75,9 +75,20 @@ export const NAV = [
   { href: "/about/", label: "About" },
 ];
 
+// Public test line for the phone assistant: Veradigm sandbox, synthetic records only (veradigm-ai-mcp docs/handover/05_TEST_DATA.md).
+export const TEST_LINE = {
+  label: "(208) 904-3641",
+  tel: "+12089043641",
+  patients: [
+    { name: "Ed Smith", dob: "December 6, 1952" },
+    { name: "Nichole Albanese", dob: "April 24, 1928" },
+  ],
+};
+
 export const CTA = {
   primary: { href: "/contact/", label: "Book a 20-minute walkthrough" },
   call: { href: "/phone-assistant/#sample-call", label: "See a sample call" },
+  live: { label: "Test a live call now" },
   fax: { href: "/fax-lab-intake/#sample-filing", label: "See a fax get filed" },
   roi: { href: "/roi/", label: "Calculate your time savings" },
   security: { href: "/security/", label: "Read our security overview" },

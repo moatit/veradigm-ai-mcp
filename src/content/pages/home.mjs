@@ -1,6 +1,6 @@
 import { CTA, COMPAT_LINE } from "../site.mjs";
 import {
-  icon, btnPrimary, btnSecondary, trustStrip, intakeLedger, reviewCard, callCard, proofCards,
+  icon, btnPrimary, btnSecondary, liveCallButton, liveCallDialog, trustStrip, intakeLedger, reviewCard, callCard, proofCards,
   ctaBand, FAQS, faqList, faqSchema, phoneLinks, emailLink, itNeedsBlock,
 } from "../partials.mjs";
 
@@ -32,14 +32,15 @@ export const homeHero = (v = "a") => {
       <h1 id="hero-title">${h.h1}</h1>
       <div class="hero-side">
         <p class="lede">${h.lede}</p>
-        <div class="btn-row">${btnPrimary()}${btnSecondary(v === "fax" ? CTA.fax.label : CTA.call.label, v === "fax" ? "#sample-filing" : "#sample-call")}</div>
+        <div class="btn-row">${btnPrimary()}${v === "fax" ? btnSecondary(CTA.fax.label, "#sample-filing") : liveCallButton()}</div>
         <p class="hero-note">Prefer to talk? ${phoneLinks(" or ")} · ${emailLink()}</p>
       </div>
     </div>
     ${intakeLedger()}
     ${trustStrip()}
   </div>
-</section>`;
+</section>
+${v === "fax" ? "" : liveCallDialog()}`;
 };
 
 export const demoBand = () => `<section class="section on-white" id="demo" aria-labelledby="demo-title">
