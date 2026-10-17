@@ -1,6 +1,6 @@
 import { CTA, COMPAT_LINE } from "../site.mjs";
 import { pageHero } from "../layout.mjs";
-import { icon, btnPrimary, btnSecondary, picture, gateCard, reviewCard, callCard, proofCards, ctaBand, faqList, faqSchema, FAQS, itNeedsBlock } from "../partials.mjs";
+import { icon, btnPrimary, btnSecondary, gateCard, reviewCard, callCard, proofCards, ctaBand, faqList, faqSchema, FAQS, itNeedsBlock } from "../partials.mjs";
 
 const faxFaqs = FAQS.filter((f) => /right patient|isn't sure|always handled|going live|IT team|train AI|stored/i.test(f.q));
 const phoneFaqs = FAQS.filter((f) => /medical advice|verify callers|isn't sure|IT team|HIPAA/i.test(f.q));

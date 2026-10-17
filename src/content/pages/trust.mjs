@@ -28,7 +28,7 @@ export const security = {
 <section class="section" aria-labelledby="summary-title">
   <div class="wrap">
     <div class="section-head">
-      <p class="eyebrow">01 — Summary</p>
+      <p class="eyebrow">Summary</p>
       <h2 id="summary-title">What Drawbridge touches, and why</h2>
     </div>
     <div class="grid grid-3">
@@ -42,7 +42,7 @@ export const security = {
 <section class="section on-white" aria-labelledby="controls-title">
   <div class="wrap">
     <div class="section-head">
-      <p class="eyebrow">02 — Controls</p>
+      <p class="eyebrow">Controls</p>
       <h2 id="controls-title">Safeguards, one by one</h2>
       <p class="lede"><span class="pill pill-ok">In place</span> built into Drawbridge and checked in our launch audit. <span class="pill pill-req">Every deployment</span> a hosting requirement every production deployment must meet before patient data flows. <span class="pill pill-org">MOATiT policy</span> covered by MOATiT's company program. <span class="pill pill-prog">In progress</span> not finished yet.</p>
     </div>
@@ -112,7 +112,7 @@ export const security = {
 <section class="section on-night blueprint" aria-labelledby="ai-title">
   <div class="wrap split">
     <div>
-      <p class="eyebrow">03 — AI safety</p>
+      <p class="eyebrow">AI safety</p>
       <h2 id="ai-title">Where the AI stops and the rules begin.</h2>
       <p class="lede">AI reads documents and holds the conversation. Deciding which chart a document belongs to, and whether a caller may hear anything, is done by written rules you can inspect.</p>
     </div>

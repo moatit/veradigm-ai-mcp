@@ -1,167 +1,373 @@
-"""Generate the Drawbridge logo set as font-independent SVG (text converted to outlines).
+"""Generate the Drawbridge "Ledger" logo set (chosen Oct 17, 2026) as font-free SVG.
 
-Run with a Python that has fonttools, brotli and uharfbuzz:
+No fonts and no dependencies: every letter is drawn from lines and arcs on a
+Poppins-like geometric skeleton, so the SVGs render the same everywhere.
+Adapted from the concept generator in concepts/_tools/build_logos.py (direction B).
+
     python scripts/brand/make_logo.py
 
-Outputs to src/assets/brand/ (used by the site) and brand/logo/ (brand kit).
-Fonts: Newsreader (wordmark) and Public Sans (endorsement), both SIL OFL 1.1.
+Writes the site set to src/assets/brand/ and the brand-kit set to brand/logo/,
+under the same filenames the site has always used. Then run make_icons.py for the PNGs.
 """
-from __future__ import annotations
-
-import io
+import itertools
+import math
 import os
-from pathlib import Path
 
-import uharfbuzz as hb
-from fontTools.pens.svgPathPen import SVGPathPen
-from fontTools.pens.transformPen import TransformPen
-from fontTools.ttLib import TTFont
-from fontTools.varLib.instancer import instantiateVariableFont
+ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+OUT_SITE = os.path.join(ROOT, "src", "assets", "brand")
+OUT_KIT = os.path.join(ROOT, "brand", "logo")
 
-ROOT = Path(__file__).resolve().parents[2]
-FONTS = ROOT / "src" / "assets" / "fonts"
-OUT_SITE = ROOT / "src" / "assets" / "brand"
-OUT_KIT = ROOT / "brand" / "logo"
-
-# MOATiT-derived palette (see brand/BRAND_KIT.md)
-INDIGO = "#3E3E85"      # MOATiT Indigo (logo wordmark)
-INDIGO_900 = "#1C1C45"  # Drawbridge Night
-SKY = "#29ABE2"         # MOATiT Sky (logo arc / site accent)
-AMBER = "#F5A623"       # MOATiT Amber (site accent)
-PAPER = "#F7F5F0"
+# Ledger palette (see brand/BRAND_KIT.md)
+NAVY = "#3E3E84"   # MOATiT navy: the mark's post
+INK = "#222236"    # MOATiT ink: wordmark
+SLATE = "#5A5C78"  # endorsement
+BLUE = "#29AAE1"   # MOATiT blue: outer ring, rule under the wordmark
+GOLD = "#C68010"   # MOATiT gold: inner ring, the one controlled crossing
+AMBER = "#F5A623"  # gold on dark grounds
+ON_INK = "#C9CAE6" # endorsement on dark grounds
 WHITE = "#FFFFFF"
 
+# ---------------------------------------------------------------- stroke font
+class Font:
+    """A tiny geometric stroke alphabet. y grows downward, baseline at 0."""
 
-def instance(path: Path, wght: int) -> tuple[TTFont, bytes]:
-    font = TTFont(str(path))
-    if "fvar" in font:
-        font = instantiateVariableFont(font, {"wght": wght})
-    font.flavor = None
-    buf = io.BytesIO()
-    font.save(buf)
-    data = buf.getvalue()
-    return TTFont(io.BytesIO(data)), data
+    def __init__(self, s, h=52.0, cap=72.0, asc=74.0):
+        self.s, self.h, self.cap, self.asc = s, h, cap, asc
+        self.R = (h - s) / 2  # x-height bowl radius (centreline)
+
+    # each glyph returns (strokes, fills, width, clip, left_kind, right_kind)
+    # clip = (ytop, ybottom) to cut diagonal strokes flat
+    def glyph(self, ch):
+        s, h, C, A, R = self.s, self.h, self.cap, self.asc, self.R
+        cy = -h / 2
+        f = lambda v: f"{v:.2f}"
+
+        def circle(cx, cyy, r):
+            return (f"M{f(cx - r)},{f(cyy)} A{f(r)},{f(r)} 0 1 0 {f(cx + r)},{f(cyy)} "
+                    f"A{f(r)},{f(r)} 0 1 0 {f(cx - r)},{f(cyy)}")
+
+        def pt(cx, cyy, r, deg):
+            a = math.radians(deg)
+            return cx + r * math.cos(a), cyy + r * math.sin(a)
+
+        W = 2 * R + s
+        if ch == "o":
+            return [circle(W / 2, cy, R)], [], W, None, "r", "r"
+        if ch == "b":
+            return [f"M{f(s/2)},{f(-A)} V0", circle(s / 2 + R, cy, R)], [], W, None, "s", "r"
+        if ch == "d":
+            x = s / 2 + 2 * R
+            return [circle(s / 2 + R, cy, R), f"M{f(x)},{f(-A)} V0"], [], W, None, "r", "s"
+        if ch == "a":
+            x = s / 2 + 2 * R
+            return [circle(s / 2 + R, cy, R), f"M{f(x)},{f(-h)} V0"], [], W, None, "r", "s"
+        if ch == "g":
+            x = s / 2 + 2 * R
+            rg = R * 0.95
+            gy = 2.0
+            ex, ey = pt(x - rg, gy, rg, 158)
+            return ([circle(s / 2 + R, cy, R),
+                     f"M{f(x)},{f(-h)} V{f(gy)} A{f(rg)},{f(rg)} 0 0 1 {f(ex)},{f(ey)}"],
+                    [], W, None, "r", "s")
+        if ch == "e":
+            cx = W / 2
+            ex, ey = pt(cx, cy, R, 38)
+            return ([f"M{f(cx - R)},{f(cy)} H{f(cx + R)} "
+                     f"A{f(R)},{f(R)} 0 1 0 {f(ex)},{f(ey)}"], [], W, None, "r", "r")
+        if ch == "c":
+            cx = W / 2
+            sx, sy = pt(cx, cy, R, -42)
+            ex, ey = pt(cx, cy, R, 42)
+            return [f"M{f(sx)},{f(sy)} A{f(R)},{f(R)} 0 1 0 {f(ex)},{f(ey)}"], [], W * 0.97, None, "r", "r"
+        if ch == "r":
+            ra = R * 0.92
+            x0 = s / 2
+            return ([f"M{f(x0)},{f(-h)} V0",
+                     f"M{f(x0)},{f(-h + s / 2 + ra)} A{f(ra)},{f(ra)} 0 0 1 {f(x0 + ra)},{f(-h + s / 2)} h{f(s * 0.35)}"],
+                    [], x0 + ra + s * 0.35, None, "s", "d")
+        if ch == "i":
+            dr = s * 0.62
+            return ([f"M{f(s/2)},{f(-h)} V0"],
+                    [circle(s / 2, -h - s * 0.85 - dr, dr)], s, None, "s", "s")
+        if ch == "w":
+            q = R * 0.70
+            ww = 4 * q + s
+            pts = [(s / 2, -h), (s / 2 + q, 0), (s / 2 + 2 * q, -h), (s / 2 + 3 * q, 0), (s / 2 + 4 * q, -h)]
+            return [self._poly(pts, 1.0)], [], ww, (-h, 0), "d", "d"
+        if ch == "v":
+            q = R * 0.95
+            pts = [(s / 2, -h), (s / 2 + q, 0), (s / 2 + 2 * q, -h)]
+            return [self._poly(pts, 1.0)], [], 2 * q + s, (-h, 0), "d", "d"
+        # ---- capitals
+        if ch == "A":
+            wa = C * 0.92
+            pts = [(s * 0.3, 0), (wa / 2, -C), (wa - s * 0.3, 0)]
+            yb = -C * 0.30
+            t = (C + yb) / C
+            xl = s * 0.3 + (wa / 2 - s * 0.3) * (1 - t) + 0
+            xl = s * 0.3 + (wa / 2 - s * 0.3) * (-yb / C)
+            xr = wa - xl
+            return [self._poly(pts, 1.0), f"M{f(xl)},{f(yb)} H{f(xr)}"], [], wa, (-C, 0), "d", "d"
+        if ch == "M":
+            wm = C * 0.98
+            pts = [(s / 2, 0), (s / 2, -C), (wm / 2, -C * 0.22), (wm - s / 2, -C), (wm - s / 2, 0)]
+            return [self._poly(pts, 1.0, extend_ends=False)], [], wm, (-C, 0), "s", "s"
+        if ch == "O":
+            ro = (C - s) / 2
+            return [circle(s / 2 + ro, -C / 2, ro)], [], 2 * ro + s, None, "r", "r"
+        if ch == "T":
+            wt = C * 0.70
+            return [f"M0,{f(-C + s/2)} H{f(wt)}", f"M{f(wt/2)},{f(-C)} V0"], [], wt, None, "d", "d"
+        if ch == "I":
+            return [f"M{f(s/2)},{f(-C)} V0"], [], s, None, "s", "s"
+        if ch == "S":
+            rs = (C - s) / 4
+            cx = s / 2 + rs * 1.02
+            cu = -C + s / 2 + rs
+            cl = -s / 2 - rs
+            sx, sy = pt(cx, cu, rs, -28)
+            ex, ey = pt(cx, cl, rs, 152)
+            return ([f"M{f(sx)},{f(sy)} A{f(rs)},{f(rs)} 0 1 0 {f(cx)},{f(cu + rs)} "
+                     f"A{f(rs)},{f(rs)} 0 1 1 {f(ex)},{f(ey)}"], [], 2 * rs + s + rs * 0.04, None, "r", "r")
+        if ch == "D":
+            rd = (C - s) / 2
+            xm = s / 2 + C * 0.10
+            return ([f"M{f(s/2)},{f(-C)} V0",
+                     f"M{f(s/2)},{f(-C + s/2)} H{f(xm)} A{f(rd)},{f(rd)} 0 0 1 {f(xm)},{f(-s/2)} H{f(s/2)}"],
+                    [], xm + rd + s / 2, None, "s", "r")
+        if ch == "B":
+            rb = (C - s) / 4
+            xu = s / 2 + C * 0.20
+            xl = s / 2 + C * 0.24
+            rl = rb
+            return ([f"M{f(s/2)},{f(-C)} V0",
+                     f"M{f(s/2)},{f(-C + s/2)} H{f(xu)} A{f(rb)},{f(rb)} 0 0 1 {f(xu)},{f(-C/2)} H{f(s/2)}",
+                     f"M{f(s/2)},{f(-C/2)} H{f(xl)} A{f(rl)},{f(rl)} 0 0 1 {f(xl)},{f(-s/2)} H{f(s/2)}"],
+                    [], xl + rl + s / 2, None, "s", "r")
+        if ch == "R":
+            rb = (C * 0.52 - s) / 2
+            xu = s / 2 + C * 0.20
+            yb = -C + s / 2 + 2 * rb
+            wr = xu + rb + s / 2
+            return ([f"M{f(s/2)},{f(-C)} V0",
+                     f"M{f(s/2)},{f(-C + s/2)} H{f(xu)} A{f(rb)},{f(rb)} 0 0 1 {f(xu)},{f(yb)} H{f(s/2)}",
+                     f"M{f(xu - s*0.2)},{f(yb)} L{f(wr + s*0.15)},{f(s)}"],
+                    [], wr, (-C - s, 0), "s", "d")
+        if ch == "G":
+            rg = (C - s) / 2
+            cx, cyy = s / 2 + rg, -C / 2
+            sx, sy = pt(cx, cyy, rg, -40)
+            return ([f"M{f(sx)},{f(sy)} A{f(rg)},{f(rg)} 0 1 0 {f(cx + rg)},{f(cyy + s*0.1)} V{f(cyy)} H{f(cx + rg*0.05)}"],
+                    [], 2 * rg + s, None, "r", "r")
+        if ch == "E":
+            we = C * 0.56
+            return ([f"M{f(s/2)},{f(-C)} V0",
+                     f"M{f(s/2)},{f(-C + s/2)} H{f(we)}",
+                     f"M{f(s/2)},{f(-C/2)} H{f(we * 0.9)}",
+                     f"M{f(s/2)},{f(-s/2)} H{f(we)}"], [], we, None, "s", "d")
+        if ch == "W":
+            q = C * 0.30
+            pts = [(s / 2, -C), (s / 2 + q, 0), (s / 2 + 2 * q, -C), (s / 2 + 3 * q, 0), (s / 2 + 4 * q, -C)]
+            return [self._poly(pts, 1.0)], [], 4 * q + s, (-C, 0), "d", "d"
+        if ch == " ":
+            return [], [], self.h * 0.42, None, "x", "x"
+        raise KeyError(ch)
+
+    def _poly(self, pts, ext=1.0, extend_ends=True):
+        """Polyline; first and last segments are extended so a flat clip cuts them square."""
+        p = list(pts)
+        if extend_ends:
+            for i, j in ((0, 1), (-1, -2)):
+                (x0, y0), (x1, y1) = p[i], p[j]
+                dx, dy = x0 - x1, y0 - y1
+                L = math.hypot(dx, dy)
+                k = self.s * 1.2 * ext / L
+                p[i] = (x0 + dx * k, y0 + dy * k)
+        else:
+            # vertical stems: extend past the clip lines too
+            (x0, y0) = p[0]
+            p[0] = (x0, y0 + self.s)
+            (x1, y1) = p[-1]
+            p[-1] = (x1, y1 + self.s)
+        return "M" + " L".join(f"{x:.2f},{y:.2f}" for x, y in p)
 
 
-def text_path(font: TTFont, data: bytes, text: str, size: float, x: float, baseline: float,
-              tracking: float = 0.0) -> tuple[str, float]:
-    """Return (svg path d, advance width) for text shaped with HarfBuzz (kerning applied)."""
-    upem = font["head"].unitsPerEm
-    face = hb.Face(data)
-    hbfont = hb.Font(face)
-    buf = hb.Buffer()
-    buf.add_str(text)
-    buf.guess_segment_properties()
-    hb.shape(hbfont, buf, {"kern": True, "liga": True})
-    glyph_order = font.getGlyphOrder()
-    gs = font.getGlyphSet()
-    scale = size / upem
-    pen = SVGPathPen(gs, ntos=lambda v: f"{v:.2f}".rstrip("0").rstrip("."))
-    cx = 0.0
-    for info, pos in zip(buf.glyph_infos, buf.glyph_positions):
-        name = glyph_order[info.codepoint]
-        tx = x + (cx + pos.x_offset) * scale
-        ty = baseline - pos.y_offset * scale
-        tpen = TransformPen(pen, (scale, 0, 0, -scale, tx, ty))
-        gs[name].draw(tpen)
-        cx += pos.x_advance + tracking * upem
-    width = (cx - tracking * upem) * scale
-    return pen.getCommands(), width
+_CLIP_IDS = itertools.count()  # deterministic clip-path ids, so reruns give identical files
+
+SB = {"s": 1.0, "r": 0.55, "d": 0.12, "x": 0.0}
 
 
-# ---------------------------------------------------------------- the mark
-# A gate tower (with the doorway) and its bridge, mid-lowering: the deck is
-# hinged at the tower, the hoist chain runs from the tower to the deck's tip,
-# and the dotted arc is the path the deck travels to meet the far bank. The
-# wave below is the moat (a nod to MOATiT). The amber pin is the hinge: one
-# controlled crossing, opened only for the right patient.
+def set_text(font, text, tracking=0.0, unit=None):
+    """Lay out a string. Returns (svg_group_inner, width, top, bottom)."""
+    unit = unit if unit is not None else font.s * 0.95
+    x = 0.0
+    parts = []
+    clips = []
+    prev_right = None
+    for ch in text:
+        strokes, fills, w, clip, lk, rk = font.glyph(ch)
+        if prev_right is not None and ch != " " and lk != "x":
+            x += (SB[prev_right] + SB[lk]) * unit + tracking
+        elif prev_right is not None:
+            x += tracking
+        g = []
+        for d in strokes:
+            g.append(f'<path d="{d}"/>')
+        fill_parts = "".join(f'<path d="{d}" stroke="none" fill="currentColor"/>' for d in fills)
+        if clip:
+            cid = f"c{next(_CLIP_IDS)}"
+            clips.append(f'<clipPath id="{cid}"><rect x="{-font.s*2:.2f}" y="{clip[0]:.2f}" '
+                         f'width="{w + font.s*4:.2f}" height="{clip[1]-clip[0]:.2f}"/></clipPath>')
+            parts.append(f'<g transform="translate({x:.2f} 0)"><g clip-path="url(#{cid})">{"".join(g)}</g>{fill_parts}</g>')
+        else:
+            parts.append(f'<g transform="translate({x:.2f} 0)">{"".join(g)}{fill_parts}</g>')
+        x += w
+        prev_right = rk if ch != " " else None
+    defs = f"<defs>{''.join(clips)}</defs>" if clips else ""
+    inner = (f'{defs}<g fill="none" stroke="currentColor" stroke-width="{font.s:.2f}" '
+             f'stroke-linecap="butt" stroke-linejoin="miter" stroke-miterlimit="10">{"".join(parts)}</g>')
+    return inner, x
 
-def mark(x: float, y: float, s: float, ink: str, accent: str, hinge: str, water: str) -> str:
-    """Mark in a 64x64 box, placed at (x, y) and scaled by s/64."""
-    k = s / 64
-    return f"""<g transform="translate({x:.2f} {y:.2f}) scale({k:.4f})">
-  <path d="M58.4 44.6 A34 34 0 0 1 58.8 51" fill="none" stroke="{accent}" stroke-width="2.6" stroke-linecap="round" stroke-dasharray="0.1 4.6"/>
-  <path fill-rule="evenodd" fill="{ink}" d="M6 52 V9 H11 V14 H14 V9 H19 V14 H22 V9 H27 V52 Z M12.5 52 V43.5 a4 4 0 0 1 8 0 V52 Z"/>
-  <rect x="24" y="44" width="34" height="7" rx="1.6" fill="{ink}" transform="rotate(-15 24 51)"/>
-  <path d="M26 15.5 L54.4 36" stroke="{accent}" stroke-width="2.2" stroke-linecap="round"/>
-  <circle cx="27.2" cy="47.6" r="2.7" fill="{hinge}"/>
-  <path d="M6 58 q3.5 -2.6 7 0 t7 0 t7 0 t7 0 t7 0 t7 0 t7 0" fill="none" stroke="{water}" stroke-width="2.4" stroke-linecap="round"/>
-</g>"""
+
+def word(font, text, color, tracking=0.0, unit=None):
+    inner, w = set_text(font, text, tracking, unit)
+    return f'<g style="color:{color}" color="{color}">{inner}</g>', w
 
 
-def svg(w: float, h: float, body: str, title: str, bg: str | None = None) -> str:
-    rect = f'<rect width="100%" height="100%" fill="{bg}"/>' if bg else ""
-    return (f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {w:.0f} {h:.0f}" width="{w:.0f}" height="{h:.0f}" '
-            f'role="img" aria-labelledby="t"><title id="t">{title}</title>{rect}{body}</svg>\n')
+
+def mark_rings(navy, blue, gold):
+    """A 'D' drawn with MOATiT's rings: navy post, blue outer ring, gold inner ring (the one crossing)."""
+    return (f'<rect x="7" y="5" width="9" height="54" fill="{navy}"/>'
+            f'<path d="M16 9.5 H29 A22.5 22.5 0 0 1 29 54.5 H16" fill="none" stroke="{blue}" stroke-width="9"/>'
+            f'<path d="M16 24.5 H29 A7.5 7.5 0 0 1 29 39.5 H16" fill="none" stroke="{gold}" stroke-width="7"/>')
 
 
-def main() -> None:
-    OUT_SITE.mkdir(parents=True, exist_ok=True)
-    OUT_KIT.mkdir(parents=True, exist_ok=True)
-    serif, serif_data = instance(FONTS / "newsreader-latin-wght-normal.woff2", 620)
-    sans, sans_data = instance(FONTS / "public-sans-latin-wght-normal.woff2", 600)
-    sans_b, sans_b_data = instance(FONTS / "public-sans-latin-wght-normal.woff2", 800)
+def fav_rings(bg, fg, blue, gold):
+    return (f'<rect width="32" height="32" rx="6" fill="{bg}"/>'
+            f'<rect x="5" y="4" width="5" height="24" fill="{fg}"/>'
+            f'<path d="M10 6 H15 A10 10 0 0 1 15 26 H10" fill="none" stroke="{blue}" stroke-width="4"/>'
+            f'<path d="M10 13 H15 A3 3 0 0 1 15 19 H10" fill="none" stroke="{gold}" stroke-width="4"/>')
 
+
+# ---------------------------------------------------------------- writers
+def svg(viewbox, body, title, w=None, h=None):
+    vb = " ".join(f"{v:.2f}" if isinstance(v, float) else str(v) for v in viewbox)
+    size = f' width="{w:.0f}" height="{h:.0f}"' if w else ""
+    return (f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="{vb}"{size} role="img" aria-label="{title}">'
+            f"<title>{title}</title>{body}</svg>\n")
+
+
+def write(path, content):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8", newline="\n") as fh:
+        fh.write(content)
+
+
+def endorsement(font, colors, tracking):
+    """'A MOATiT Service' with MOATiT emphasised, like MOATiT's own bold wordmark."""
+    c_lead, c_moat = colors
+    a, wa = word(font, "A", c_lead, tracking)
+    m, wm = word(font, "MOATiT", c_moat, tracking)
+    sv, ws = word(font, "Service", c_lead, tracking)
+    gap = font.h * 0.62
+    body = (f'{a}<g transform="translate({wa + gap:.2f} 0)">{m}</g>'
+            f'<g transform="translate({wa + gap + wm + gap:.2f} 0)">{sv}</g>')
+    return body, wa + gap + wm + gap + ws
+
+
+def lockup_horizontal(mark_body, mark_scale, wm_font, wm_text, wm_color, en_font, en_colors,
+                      rule_color=None, wm_tracking=0.0, en_tracking=0.0, wm_unit=None):
+    """Mark at left; wordmark over endorsement at right."""
+    wm, wmw = word(wm_font, wm_text, wm_color, wm_tracking, wm_unit)
+    en, enw = endorsement(en_font, en_colors, en_tracking)
+    pad = 4.0
+    top = max(wm_font.asc, wm_font.cap) if "g" in wm_text or "b" in wm_text else wm_font.cap
+    wm_base = pad + top
+    desc = wm_font.h * 0.50 if "g" in wm_text else wm_font.cap * 0.10
+    rule = ""
+    if rule_color:
+        ry = wm_base + desc + en_font.cap * 0.30
+        rh = max(1.5, wm_font.s * 0.22)
+        rule_w = wmw
+        rule = f'<rect x="{{tx}}" y="{ry:.2f}" width="{rule_w:.2f}" height="{rh:.2f}" fill="{rule_color}"/>'
+        en_base = ry + rh + en_font.cap * 0.45 + en_font.cap
+    else:
+        en_base = wm_base + desc + en_font.cap * 0.45 + en_font.cap
+    text_h = en_base + pad
+    # mark artwork spans roughly y 4..61 of its 64 grid; size it to the text block
+    mark_scale = mark_scale * (en_base - pad) / 57.0
+    mx = pad
+    my = pad - 4 * mark_scale
+    tx = mx + 58 * mark_scale + (en_base - pad) * 0.22
+    width = tx + max(wmw, enw) + pad
+    rule = rule.replace("{tx}", f"{tx:.2f}")
+    body = (f'<g transform="translate({mx:.2f} {my:.2f}) scale({mark_scale:.4f})">{mark_body}</g>'
+            f'<g transform="translate({tx:.2f} {wm_base:.2f})">{wm}</g>{rule}'
+            f'<g transform="translate({tx:.2f} {en_base:.2f})">{en}</g>')
+    return body, width, text_h
+
+
+
+
+def lockup_stacked(mark_body, wm_font, wm_text, wm_color, en_font, en_colors, rule_color, wm_tracking=0.0):
+    """Mark centred above the wordmark; blue rule and endorsement below, all centred."""
+    wm, wmw = word(wm_font, wm_text, wm_color, wm_tracking)
+    en, enw = endorsement(en_font, en_colors, 0.0)
+    pad = 4.0
+    width = max(wmw, enw) + 2 * pad
+    mark_size = 96.0
+    mark_scale = mark_size / 64.0
+    mx = (width - mark_size) / 2
+    wm_base = pad + mark_size + 22 + max(wm_font.asc, wm_font.cap)
+    desc = wm_font.h * 0.50
+    ry = wm_base + desc + en_font.cap * 0.30
+    rh = max(1.5, wm_font.s * 0.22)
+    en_base = ry + rh + en_font.cap * 0.45 + en_font.cap
+    height = en_base + pad
+    body = (f'<g transform="translate({mx:.2f} {pad:.2f}) scale({mark_scale:.4f})">{mark_body}</g>'
+            f'<g transform="translate({(width - wmw) / 2:.2f} {wm_base:.2f})">{wm}</g>'
+            f'<rect x="{(width - wmw) / 2:.2f}" y="{ry:.2f}" width="{wmw:.2f}" height="{rh:.2f}" fill="{rule_color}"/>'
+            f'<g transform="translate({(width - enw) / 2:.2f} {en_base:.2f})">{en}</g>')
+    return body, width, height
+
+
+def build():
+    mid = Font(s=7.0, h=52, cap=72, asc=76)
+    small = Font(s=4.2, h=24, cap=32, asc=33)
     title = "Drawbridge, A MOATiT Service"
+    files = {}
 
-    def lockup(ink: str, accent: str, hinge: str, water: str, endorse: str, endorse_brand: str,
-               rule: str, bg: str | None) -> str:
-        # Horizontal lockup: mark | Drawbridge / rule / A MOATiT Service
-        m = mark(0, 2, 76, ink, accent, hinge, water)
-        word_d, word_w = text_path(serif, serif_data, "Drawbridge", 56, 92, 48, tracking=-0.012)
-        a_d, a_w = text_path(sans, sans_data, "A ", 15, 94, 74, tracking=0.06)
-        mo_d, mo_w = text_path(sans_b, sans_b_data, "MOATiT", 15, 94 + a_w, 74, tracking=0.06)
-        sv_d, sv_w = text_path(sans, sans_data, " Service", 15, 94 + a_w + mo_w, 74, tracking=0.06)
-        endorse_w = a_w + mo_w + sv_w
-        width = 92 + max(word_w, endorse_w) + 6
-        body = (m
-                + f'<path d="{word_d}" fill="{ink}"/>'
-                + f'<rect x="94" y="57" width="{endorse_w:.1f}" height="1.2" fill="{rule}"/>'
-                + f'<path d="{a_d}" fill="{endorse}"/><path d="{mo_d}" fill="{endorse_brand}"/><path d="{sv_d}" fill="{endorse}"/>')
-        return svg(width, 82, body, title, bg)
+    # horizontal lockups: (filename, post, outer ring, inner ring, wordmark, endorsement colours, rule)
+    for name, navy, blue, gold, wmc, enc, rule in (
+        ("drawbridge-lockup", NAVY, BLUE, GOLD, INK, (SLATE, NAVY), BLUE),
+        ("drawbridge-lockup-reverse", WHITE, BLUE, AMBER, WHITE, (ON_INK, WHITE), BLUE),
+        ("drawbridge-lockup-mono-indigo", INK, INK, INK, INK, (INK, INK), INK),
+        ("drawbridge-lockup-mono-white", WHITE, WHITE, WHITE, WHITE, (WHITE, WHITE), WHITE),
+    ):
+        body, w, h = lockup_horizontal(mark_rings(navy, blue, gold), 1.0, mid, "Drawbridge", wmc, small, enc,
+                                       rule_color=rule, wm_tracking=0.4)
+        files[name] = svg((0, 0, round(w, 2), round(h, 2)), body, title, w, h)
 
-    def stacked(ink: str, accent: str, hinge: str, water: str, endorse: str, endorse_brand: str, bg: str | None) -> str:
-        word_d, word_w = text_path(serif, serif_data, "Drawbridge", 56, 0, 0, tracking=-0.012)
-        a_d, a_w = text_path(sans, sans_data, "A ", 15, 0, 0, tracking=0.06)
-        mo_d, mo_w = text_path(sans_b, sans_b_data, "MOATiT", 15, 0, 0, tracking=0.06)
-        sv_d, sv_w = text_path(sans, sans_data, " Service", 15, 0, 0, tracking=0.06)
-        width = word_w + 24
-        cx = width / 2
-        ew = a_w + mo_w + sv_w
-        ex = cx - ew / 2
-        word_d, _ = text_path(serif, serif_data, "Drawbridge", 56, cx - word_w / 2, 150, tracking=-0.012)
-        a_d, _ = text_path(sans, sans_data, "A ", 15, ex, 178, tracking=0.06)
-        mo_d, _ = text_path(sans_b, sans_b_data, "MOATiT", 15, ex + a_w, 178, tracking=0.06)
-        sv_d, _ = text_path(sans, sans_data, " Service", 15, ex + a_w + mo_w, 178, tracking=0.06)
-        body = (mark(cx - 48, 0, 96, ink, accent, hinge, water)
-                + f'<path d="{word_d}" fill="{ink}"/>'
-                + f'<path d="{a_d}" fill="{endorse}"/><path d="{mo_d}" fill="{endorse_brand}"/><path d="{sv_d}" fill="{endorse}"/>')
-        return svg(width, 188, body, title, bg)
+    for name, navy, blue, gold, wmc, enc in (
+        ("drawbridge-lockup-stacked", NAVY, BLUE, GOLD, INK, (SLATE, NAVY)),
+        ("drawbridge-lockup-stacked-reverse", WHITE, BLUE, AMBER, WHITE, (ON_INK, WHITE)),
+    ):
+        body, w, h = lockup_stacked(mark_rings(navy, blue, gold), mid, "Drawbridge", wmc, small, enc, BLUE, wm_tracking=0.4)
+        files[name] = svg((0, 0, round(w, 2), round(h, 2)), body, title, w, h)
 
-    files = {
-        # primary, on light backgrounds
-        "drawbridge-lockup.svg": lockup(INDIGO, SKY, AMBER, SKY, "#4A4A6A", INDIGO, SKY, None),
-        # reverse, on Drawbridge Night / dark imagery
-        "drawbridge-lockup-reverse.svg": lockup(WHITE, SKY, AMBER, SKY, "#C9CBE8", WHITE, SKY, None),
-        # single colour
-        "drawbridge-lockup-mono-indigo.svg": lockup(INDIGO, INDIGO, INDIGO, INDIGO, INDIGO, INDIGO, INDIGO, None),
-        "drawbridge-lockup-mono-white.svg": lockup(WHITE, WHITE, WHITE, WHITE, WHITE, WHITE, WHITE, None),
-        "drawbridge-lockup-stacked.svg": stacked(INDIGO, SKY, AMBER, SKY, "#4A4A6A", INDIGO, None),
-        "drawbridge-lockup-stacked-reverse.svg": stacked(WHITE, SKY, AMBER, SKY, "#C9CBE8", WHITE, None),
-        "drawbridge-mark.svg": svg(64, 64, mark(0, 0, 64, INDIGO, SKY, AMBER, SKY), "Drawbridge mark"),
-        "drawbridge-mark-reverse.svg": svg(64, 64, mark(0, 0, 64, WHITE, SKY, AMBER, SKY), "Drawbridge mark"),
-        "drawbridge-mark-mono.svg": svg(64, 64, mark(0, 0, 64, INDIGO, INDIGO, INDIGO, INDIGO), "Drawbridge mark"),
-        # app icon / favicon: mark reversed on a Night tile
-        "favicon.svg": ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">'
-                        f'<rect width="64" height="64" rx="14" fill="{INDIGO_900}"/>'
-                        + mark(7, 5, 50, WHITE, SKY, AMBER, SKY) + "</svg>\n"),
-    }
+    for name, args in (("drawbridge-mark", (NAVY, BLUE, GOLD)), ("drawbridge-mark-reverse", (WHITE, BLUE, AMBER)),
+                       ("drawbridge-mark-mono", (INK, INK, INK))):
+        files[name] = svg((0, 0, 64, 64), mark_rings(*args), "Drawbridge mark", 64, 64)
+    files["favicon"] = svg((0, 0, 32, 32), fav_rings(WHITE, NAVY, BLUE, GOLD), "Drawbridge", 32, 32)
+
+    for out in (OUT_SITE, OUT_KIT):
+        for name, content in files.items():
+            write(os.path.join(out, name + ".svg"), content)
     for name, content in files.items():
-        for out in (OUT_SITE, OUT_KIT):
-            (out / name).write_text(content, encoding="utf-8")
-    # Wordmark-only paths for inline use in the site header (no mark, no endorsement)
-    print("wrote", len(files), "files to", OUT_SITE, "and", OUT_KIT)
+        if name.endswith(("lockup", "reverse", "stacked", "mark", "favicon")):
+            print(f"{name}.svg  {content.split('viewBox=\"')[1].split('\"')[0]}")
+    print("logos written to src/assets/brand/ and brand/logo/")
 
 
 if __name__ == "__main__":
-    main()
+    build()

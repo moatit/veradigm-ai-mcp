@@ -1,7 +1,7 @@
 import { SITE, ORG, CTA } from "../site.mjs";
 import { pageHero } from "../layout.mjs";
 import {
-  icon, btnPrimary, btnSecondary, ctaBand, FAQS, faqList, faqSchema, roiCalculator, phoneLinks, emailLink, addressLine, picture,
+  icon, btnPrimary, btnSecondary, ctaBand, FAQS, faqList, faqSchema, roiCalculator, phoneLinks, emailLink, addressLine,
 } from "../partials.mjs";
 
 export const about = {
@@ -17,15 +17,16 @@ export const about = {
     crumbs: [{ name: "About MOATiT", href: "/about/" }],
   })}
 <section class="section" aria-labelledby="who-title">
-  <div class="wrap split">
+  <div class="wrap split lead-left">
     <div>
       <p class="eyebrow">Who we are</p>
       <h2 id="who-title">A local technology team, not a call center.</h2>
+    </div>
+    <div>
       <p>Founded in Pocatello, Idaho, in 2013, MOATiT provides managed IT, cybersecurity, business phone systems, online fax, backup and disaster recovery, and EHR hosting. Many of the practices we support have run on our networks, phones and fax lines for years.</p>
       <p>That is where the name comes from. A moat protects a practice's systems; Drawbridge is the one controlled way in, for documents and calls, and it only comes down for the right patient. You don't need MOATiT as your IT provider to use it: we set it up with your own IT team or IT provider, and if MOATiT already supports your IT, we handle everything.</p>
       <div class="badge-row"><span class="badge">${icon("pin", "")}Pocatello, Idaho</span><span class="badge">Since 2013</span><span class="badge">Idaho · Utah · Wyoming</span></div>
     </div>
-    <figure class="figure">${picture({ name: "documents", widths: [640, 960, 1280], sizes: "(min-width: 960px) 50vw, 100vw", alt: "Blank paper documents sorted neatly into blue folders on a deep indigo desk.", w: 1280, h: 960 })}<figcaption>AI-generated illustration</figcaption></figure>
   </div>
 </section>
 <section class="section on-white" aria-labelledby="principles-title">

@@ -1,8 +1,1 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="14" fill="#1C1C45"/><g transform="translate(7.00 5.00) scale(0.7812)">
-  <path d="M58.4 44.6 A34 34 0 0 1 58.8 51" fill="none" stroke="#29ABE2" stroke-width="2.6" stroke-linecap="round" stroke-dasharray="0.1 4.6"/>
-  <path fill-rule="evenodd" fill="#FFFFFF" d="M6 52 V9 H11 V14 H14 V9 H19 V14 H22 V9 H27 V52 Z M12.5 52 V43.5 a4 4 0 0 1 8 0 V52 Z"/>
-  <rect x="24" y="44" width="34" height="7" rx="1.6" fill="#FFFFFF" transform="rotate(-15 24 51)"/>
-  <path d="M26 15.5 L54.4 36" stroke="#29ABE2" stroke-width="2.2" stroke-linecap="round"/>
-  <circle cx="27.2" cy="47.6" r="2.7" fill="#F5A623"/>
-  <path d="M6 58 q3.5 -2.6 7 0 t7 0 t7 0 t7 0 t7 0 t7 0 t7 0" fill="none" stroke="#29ABE2" stroke-width="2.4" stroke-linecap="round"/>
-</g></svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32" role="img" aria-label="Drawbridge"><title>Drawbridge</title><rect width="32" height="32" rx="6" fill="#FFFFFF"/><rect x="5" y="4" width="5" height="24" fill="#3E3E84"/><path d="M10 6 H15 A10 10 0 0 1 15 26 H10" fill="none" stroke="#29AAE1" stroke-width="4"/><path d="M10 13 H15 A3 3 0 0 1 15 19 H10" fill="none" stroke="#C68010" stroke-width="4"/></svg>

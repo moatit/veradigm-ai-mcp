@@ -34,7 +34,7 @@ export const appSchema = () => ({
   "@type": "SoftwareApplication",
   "@id": `${SITE.url}/#drawbridge`,
   name: "Drawbridge",
-  alternateName: "Drawbridge — A MOATiT Service",
+  alternateName: "Drawbridge, A MOATiT Service",
   description:
     "MOATiT's AI technology for healthcare practices: fax and lab-result intake that files documents to the right patient chart, and a 24/7 AI phone assistant that verifies callers and manages appointments. Integrates with Veradigm® EHR and Veradigm® Practice Management.",
   applicationCategory: "BusinessApplication",
@@ -62,7 +62,7 @@ const websiteSchema = () => ({
   "@type": "WebSite",
   "@id": `${SITE.url}/#website`,
   url: SITE.url + "/",
-  name: "Drawbridge — A MOATiT Service",
+  name: "Drawbridge, A MOATiT Service",
   publisher: { "@id": `${SITE.url}/#moatit` },
   inLanguage: "en-US",
 });
@@ -75,14 +75,14 @@ const breadcrumbSchema = (crumbs) => ({
 const header = (path) => `<a class="skip-link" href="#main">Skip to content</a>
 <div class="utility">
   <div class="wrap">
-    <p class="u-tag mb-0">Drawbridge — ${esc(SITE.tagline)}</p>
+    <p class="u-tag mb-0">Drawbridge, ${esc(SITE.tagline)}</p>
     <p class="u-contact mb-0"><span><span class="u-label">Talk to us: </span>${phoneLinks(" · ")}</span><span>${emailLink()}</span></p>
   </div>
 </div>
 <header class="site-header">
   <div class="wrap">
-    <a class="brand" href="/" aria-label="Drawbridge, A MOATiT Service — home">
-      <img src="/assets/brand/drawbridge-lockup.svg" width="243" height="82" alt="Drawbridge — A MOATiT Service">
+    <a class="brand" href="/" aria-label="Drawbridge, A MOATiT Service, home">
+      <img src="/assets/brand/drawbridge-lockup.svg" width="240" height="56" alt="Drawbridge, A MOATiT Service">
     </a>
     <button class="nav-toggle" type="button" aria-expanded="false" aria-controls="site-nav"><span class="nav-toggle-bars" aria-hidden="true"><span></span></span>Menu</button>
     <nav class="site-nav" id="site-nav" aria-label="Main">
@@ -98,7 +98,7 @@ const footer = () => `<footer class="site-footer">
   <div class="wrap">
     <div class="footer-grid">
       <div class="footer-brand">
-        <img src="/assets/brand/drawbridge-lockup-reverse.svg" width="243" height="82" alt="Drawbridge — A MOATiT Service" loading="lazy">
+        <img src="/assets/brand/drawbridge-lockup-reverse.svg" width="240" height="56" alt="Drawbridge, A MOATiT Service" loading="lazy">
         <p>Drawbridge is MOATiT's AI technology for healthcare practices. ${COMPAT_LINE}.</p>
         <address>
           ${ORG.legalName}<br>
@@ -150,7 +150,7 @@ const footer = () => `<footer class="site-footer">
 export function render(page) {
   const path = page.path;
   const canonical = abs(page.canonicalPath || path);
-  const title = page.title.includes("Drawbridge") ? page.title : `${page.title} | Drawbridge — A MOATiT Service`;
+  const title = page.title.includes("Drawbridge") ? page.title : `${page.title} | Drawbridge, A MOATiT Service`;
   const graph = [orgSchema(), websiteSchema()];
   if (page.app) graph.push(appSchema());
   if (page.crumbs) graph.push(breadcrumbSchema([{ name: "Home", href: "/" }, ...page.crumbs]));
@@ -169,17 +169,17 @@ export function render(page) {
 <meta name="description" content="${esc(page.description)}">
 <link rel="canonical" href="${canonical}">
 ${page.noindex ? '<meta name="robots" content="noindex, follow">' : '<meta name="robots" content="index, follow, max-image-preview:large">'}
-<meta name="theme-color" content="#1c1c45">
+<meta name="theme-color" content="#222236">
 <meta name="referrer" content="strict-origin-when-cross-origin">
 <meta property="og:type" content="website">
-<meta property="og:site_name" content="Drawbridge — A MOATiT Service">
+<meta property="og:site_name" content="Drawbridge, A MOATiT Service">
 <meta property="og:title" content="${esc(page.ogTitle || page.title)}">
 <meta property="og:description" content="${esc(page.description)}">
 <meta property="og:url" content="${abs(path)}">
 <meta property="og:image" content="${abs(og)}">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
-<meta property="og:image:alt" content="Drawbridge — A MOATiT Service. AI for healthcare practices.">
+<meta property="og:image:alt" content="Drawbridge, A MOATiT Service. AI for healthcare practices.">
 <meta property="og:locale" content="${SITE.locale}">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="${esc(page.ogTitle || page.title)}">
@@ -189,8 +189,8 @@ ${page.noindex ? '<meta name="robots" content="noindex, follow">' : '<meta name=
 <link rel="icon" href="/assets/brand/favicon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <link rel="manifest" href="/site.webmanifest">
-<link rel="preload" href="/assets/fonts/newsreader-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin>
-<link rel="preload" href="/assets/fonts/public-sans-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="/assets/fonts/poppins-latin-500-normal.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="/assets/fonts/barlow-latin-500-normal.woff2" as="font" type="font/woff2" crossorigin>
 ${preload}
 ${page.inlineCss ? `<style>${page.inlineCss}</style>` : `<link rel="stylesheet" href="/assets/css/site.css?v=${page.assetVersion}">`}
 <script type="application/ld+json">${ld}</script>
@@ -207,7 +207,7 @@ ${footer()}
 `;
 }
 
-export const pageHero = ({ eyebrow, title, lede, crumbs = [], actions = "" }) => `<section class="page-hero blueprint">
+export const pageHero = ({ eyebrow, title, lede, crumbs = [], actions = "" }) => `<section class="page-hero">
   <div class="wrap">
     ${crumbs.length ? `<nav class="breadcrumb" aria-label="Breadcrumb"><ol><li><a href="/">Home</a></li>${crumbs.map((c, i) => (i === crumbs.length - 1 ? `<li aria-current="page">${esc(c.name)}</li>` : `<li><a href="${c.href}">${esc(c.name)}</a></li>`)).join("")}</ol></nav>` : ""}
     <p class="eyebrow">${eyebrow}</p>

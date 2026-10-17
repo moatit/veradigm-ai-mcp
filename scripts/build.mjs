@@ -96,8 +96,8 @@ writeFileSync(
       short_name: "Drawbridge",
       start_url: "/",
       display: "browser",
-      background_color: "#f7f5f0",
-      theme_color: "#1c1c45",
+      background_color: "#ffffff",
+      theme_color: "#222236",
       icons: [
         { src: "/assets/brand/icon-192.png", sizes: "192x192", type: "image/png" },
         { src: "/assets/brand/icon-512.png", sizes: "512x512", type: "image/png" },

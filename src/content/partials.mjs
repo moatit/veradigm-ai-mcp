@@ -49,23 +49,36 @@ export const emailLink = () => `<a href="mailto:${ORG.email}">${ORG.email}</a>`;
 export const addressLine = () =>
   `${ORG.legalName}, ${ORG.address.street}, ${ORG.address.city}, ${ORG.address.region} ${ORG.address.postal}`;
 
-// ---------------------------------------------------------------- responsive image
-export const picture = ({ name, widths, alt, sizes, eager = false, w, h, cls = "" }) => {
-  const set = (ext) => widths.map((x) => `/assets/img/${name}-${x}.${ext} ${x}w`).join(", ");
-  const largest = widths[widths.length - 1];
-  return `<picture>
-  <source type="image/avif" srcset="${set("avif")}" sizes="${sizes}">
-  <source type="image/webp" srcset="${set("webp")}" sizes="${sizes}">
-  <img class="${cls}" src="/assets/img/${name}-${largest}.webp" width="${w}" height="${h}" alt="${esc(alt)}" ${eager ? 'fetchpriority="high" decoding="async"' : 'loading="lazy" decoding="async"'}>
-</picture>`;
-};
-
 // ---------------------------------------------------------------- trust strip (hero)
 export const trustStrip = () => `<div class="trust-strip" role="list">
   <div role="listitem">${icon("shield")}<span><strong>BAA with every practice</strong>HIPAA business associate agreement before any patient data flows.</span></div>
   <div role="listitem">${icon("eye")}<span><strong>A shadow week first</strong>Drawbridge watches and compares for a week before it files anything.</span></div>
   <div role="listitem">${icon("user")}<span><strong>Unsure? It goes to a person</strong>No guessing between patients. Ever.</span></div>
   <div role="listitem">${icon("link")}<span><strong>${COMPAT_LINE}</strong>Turnkey: enabled on your existing setup with your permission. No new fax lines, no rip-and-replace.</span></div>
+</div>`;
+
+// ---------------------------------------------------------------- intake ledger (home hero; synthetic)
+// The rows fill in once on load (CSS only; off under prefers-reduced-motion).
+const LEDGER = [
+  ["7:42", "Lab result, 3 pages", "Rowan Ellery", "04/12/1961", "1", "ok", "Filed", "Lab Results. Review task to the ordering provider."],
+  ["7:58", "Imaging report, 2 pages", "Jordan Pike", "09/30/1974", "1", "person", "To a person", "The address on the page differs from the chart."],
+  ["8:05", "Referral letter, 4 pages", "Amara Quinn", "02/17/1988", "1", "person", "To a person", "Referrals always go to staff. Your practice set that rule."],
+  ["8:11", "Lab batch, 6 pages", "Two names on page 4", "Two dates", "2", "person", "To a person", "Two patients on one page. Nothing guessed."],
+  ["8:20", "Lab result, 1 page", "Dana Whitlock", "11/03/1956", "1", "ok", "Filed", "Critical flag: high-priority task, call required."],
+];
+export const intakeLedger = () => `<div class="ledger" role="region" aria-labelledby="ledger-title">
+  <div class="ledger-head">
+    <h2 id="ledger-title">This morning's faxes</h2>
+    <p>Synthetic sample, invented patients. Filed: 2. <b>Sent to a person: 3.</b></p>
+  </div>
+  <div class="ledger-rows" role="table" aria-labelledby="ledger-title">
+    <div class="lr-head" role="row"><span role="columnheader">Time</span><span role="columnheader">Document</span><span role="columnheader">Full name</span><span role="columnheader">Date of birth</span><span role="columnheader">Matches</span><span role="columnheader">Outcome</span></div>
+${LEDGER.map(([t, doc, name, dob, n, kind, out, why]) => {
+  const id = n === "1" ? "ok" : "no";
+  return `    <div class="lr" role="row"><span role="cell" class="lr-time">${t}</span><span role="cell" class="lr-doc">${doc}</span><span role="cell" class="lr-${id}">${name}</span><span role="cell" class="lr-${id}">${dob}</span><span role="cell" class="lr-n">${n}</span><span role="cell" class="lr-out${kind === "person" ? " person" : ""}"><b>${out}</b><em>${why}</em></span></div>`;
+}).join("\n")}
+  </div>
+  <p class="ledger-foot">Every decision is logged with who, what and when. Staff confirm or correct a suggestion with one click.</p>
 </div>`;
 
 // ---------------------------------------------------------------- sample filing (animated)

@@ -1,5 +1,22 @@
 # QA report (local build, Oct 16, 2026; re-run after revision 2: turnkey + capacity copy)
 
+## Ledger look-and-feel rollout (Oct 17, 2026)
+
+The site was restyled to the "Ledger" identity (see `brand/BRAND_KIT.md`). Presentation only: no copy claims, routes, form behavior, calculator logic, script behavior, sitemap/robots/security.txt logic or CSP rules changed (the CSP style hash is recomputed by the build as before). Checked on the local build (`npm run build`, `npm run serve`) with Playwright and local Chrome:
+
+- **Build:** all 19 pages build (13 indexable pages, 4 legal pages, `/lp/fax/`, `/lp/phone/`, `/brand/`, `/404.html`).
+- **Parity:** an inventory of headings, links, buttons, form fields, images and ids on every page, before and after, at 1440 and 393 px. No link, button or form field was lost. Changes: the brand name in titles, alt text and the home link label is now "Drawbridge, A MOATiT Service" (no dash); the three AI photos are gone; the home and `/lp/` hero's sample-filing card is replaced by the synthetic intake ledger (new heading "This morning's faxes"; the sample filing card still appears on `/fax-lab-intake/`); `/brand/` gained "Logo rules" and "Layout rules".
+- **Layout:** no horizontal scroll at 393 px on any page; no console errors or CSP violations; no requests to any other host.
+- **Layout shift (Chrome, local):** CLS ≤ 0.023 on every page at 393, 768 and 1440 px (width-matched Arial fallbacks for Poppins and Barlow, per weight).
+- **Motion:** the home ledger fills in once (0.5 to 0.6 s per step, last step ends at about 2.1 s) and ends fully visible; the sample filing and sample call still play in view and replay on demand. With `prefers-reduced-motion: reduce` no animation runs and everything shows in its final state; without JavaScript all content is visible.
+- **Contrast:** every text pair is ≥ 4.5:1 (lowest: `#8E90B6` on ink 5.05:1, Blue 700 on Callout Blue 5.1:1); input borders 3.2:1; the focus ring is Blue 700 on light surfaces (MOATiT Blue would be 2.6:1) and MOATiT Blue on ink (5.9:1).
+- **Banned patterns in the built HTML:** no italic, no 999px radius, no monospace, no gradients, no shadows or backdrop blur, no Google Fonts URLs, no Newsreader / Public Sans / IBM Plex Mono.
+- **Functional:** demo form (5 inline errors, focus to "Full name", valid POST with utm fields and confirmation), ROI calculator (82 h default, 109 h at 100 docs/day), mobile menu (opens, Escape closes and returns focus) and every replay button behave as before.
+- **Not re-run:** Lighthouse (not installed on this machine; nothing was installed for it). The scores below are from the launch look.
+
+## Launch look (Oct 16, 2026)
+
+
 Served by `scripts/serve.mjs` on `http://127.0.0.1:4417` with production-equivalent headers and Brotli compression. Lighthouse 12.8.2, default mobile (Moto G Power, slow 4G, 4× CPU) and `--preset=desktop`.
 
 ## Lighthouse
@@ -28,7 +45,7 @@ What got the scores there: the stylesheet is minified and inlined (allowed by CS
 
 - Lighthouse/axe: 100 on every page.
 - Skip link, landmarks (header, nav with labels, main, footer), one `h1` per page, ordered headings.
-- Keyboard: visible focus ring on every control (sky on light, amber on dark); mobile menu toggles with `aria-expanded` and closes on Escape, returning focus.
+- Keyboard: visible focus ring on every control (launch look: sky on light, amber on dark; Ledger: Blue 700 on light, MOATiT Blue on ink); mobile menu toggles with `aria-expanded` and closes on Escape, returning focus.
 - Forms: labels for every field, required markers, inline errors linked with `aria-describedby`, `aria-invalid`, focus moves to the first error, status messages in a live region.
 - Contrast: all text pairs ≥ 4.5:1 (see `brand/BRAND_KIT.md`); target sizes ≥ 44 px for buttons.
 - Motion: sample animations play once in view and respect `prefers-reduced-motion` (shown complete, no animation).

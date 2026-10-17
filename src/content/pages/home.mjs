@@ -1,28 +1,23 @@
 import { CTA, COMPAT_LINE } from "../site.mjs";
 import {
-  icon, btnPrimary, btnSecondary, picture, trustStrip, gateCard, reviewCard, callCard, proofCards,
+  icon, btnPrimary, btnSecondary, trustStrip, intakeLedger, reviewCard, callCard, proofCards,
   ctaBand, FAQS, faqList, faqSchema, phoneLinks, emailLink, itNeedsBlock,
 } from "../partials.mjs";
-
-export const heroImage = {
-  srcset: "/assets/img/hero-bridge-768.avif 768w, /assets/img/hero-bridge-1152.avif 1152w, /assets/img/hero-bridge-1536.avif 1536w",
-  sizes: "100vw",
-};
 
 // Hero variants for A/B landing pages (see docs/campaign/AB_TESTS.md)
 export const HEROES = {
   a: {
-    kicker: "Drawbridge — MOATiT's AI technology for healthcare practices",
+    kicker: "Drawbridge, MOATiT's AI technology for healthcare practices",
     h1: 'Lab results filed. Calls answered. <span class="accent-i">Nothing guessed.</span>',
     lede: `For practices on <strong>Veradigm® EHR and Veradigm® Practice Management</strong>. Drawbridge reads incoming faxes and lab results and files them to the right patient's chart, and its phone assistant answers your line 24/7, verifying every caller before it shares a thing. When it isn't sure, it hands the work to a person. <strong>More capacity for the team you already have.</strong>`,
   },
   fax: {
-    kicker: "Drawbridge fax & lab intake — A MOATiT Service",
+    kicker: "Drawbridge fax &amp; lab intake, A MOATiT Service",
     h1: 'Stop indexing faxes <span class="accent-i">by hand.</span>',
     lede: `Drawbridge reads every incoming fax and lab result, matches it to exactly one patient on full name and date of birth, and files it to the right category in <strong>Veradigm® EHR</strong>, with a review task for the ordering provider. Anything uncertain lands in your staff queue, already read, so your team spends its time on patients instead of paperwork.`,
   },
   phone: {
-    kicker: "Drawbridge phone assistant — A MOATiT Service",
+    kicker: "Drawbridge phone assistant, A MOATiT Service",
     h1: 'Every call answered, <span class="accent-i">even at 2 a.m.</span>',
     lede: `Drawbridge answers your clinic line around the clock. It verifies callers, books, moves and confirms visits in <strong>Veradigm® Practice Management</strong> with a read-back, and takes clear messages for your staff. Emergencies are told to call 911. It never gives medical advice.`,
   },
@@ -31,18 +26,17 @@ export const HEROES = {
 export const homeHero = (v = "a") => {
   const h = HEROES[v];
   return `<section class="hero" aria-labelledby="hero-title">
-  <div class="hero-media">${picture({ name: "hero-bridge", widths: [768, 1152, 1536], sizes: "100vw", alt: "", eager: true, w: 1536, h: 1024 })}</div>
   <div class="wrap">
+    <p class="eyebrow">${h.kicker}</p>
     <div class="hero-grid">
-      <div>
-        <p class="kicker"><b>●</b> ${h.kicker}</p>
-        <h1 id="hero-title">${h.h1}</h1>
+      <h1 id="hero-title">${h.h1}</h1>
+      <div class="hero-side">
         <p class="lede">${h.lede}</p>
         <div class="btn-row">${btnPrimary()}${btnSecondary(v === "fax" ? CTA.fax.label : CTA.call.label, v === "fax" ? "#sample-filing" : "#sample-call")}</div>
         <p class="hero-note">Prefer to talk? ${phoneLinks(" or ")} · ${emailLink()}</p>
       </div>
-      <div>${gateCard("hero-gate")}</div>
     </div>
+    ${intakeLedger()}
     ${trustStrip()}
   </div>
 </section>`;
@@ -51,7 +45,7 @@ export const homeHero = (v = "a") => {
 export const demoBand = () => `<section class="section on-white" id="demo" aria-labelledby="demo-title">
   <div class="wrap">
     <div class="section-head">
-      <p class="eyebrow">01 — See it work</p>
+      <p class="eyebrow">See it work</p>
       <h2 id="demo-title">Two jobs your front desk does all day. <span class="accent-i">Done carefully.</span></h2>
       <p class="lede">Every sample on this site uses invented patients. In a walkthrough we run them live on a test system.</p>
     </div>
@@ -74,19 +68,19 @@ export const demoBand = () => `<section class="section on-white" id="demo" aria-
 export const rulesSection = () => `<section class="section on-night blueprint" id="rules" aria-labelledby="rules-title">
   <div class="wrap">
     <div class="section-head">
-      <p class="eyebrow">03 — The drawbridge rules</p>
+      <p class="eyebrow">The drawbridge rules</p>
       <h2 id="rules-title">AI reads the page. <span class="accent-i">Rules you can audit</span> decide where it goes.</h2>
       <p class="lede">A drawbridge only comes down for the right traveler. Drawbridge works the same way: nothing reaches a chart or a caller unless it passes these checks, and every decision is logged.</p>
     </div>
     <div class="rules">
-      <div class="rule"><span class="n">RULE 01</span><h3>Two identifiers, one patient.</h3><p>Full name and date of birth must match exactly one patient. A last-4 SSN or address on the document must agree too. Look-alikes, twins and conflicts go to a person.</p></div>
-      <div class="rule"><span class="n">RULE 02</span><h3>Never guess between patients.</h3><p>More than one patient on a page, an unreadable page in a batch, or a misread digit: the document waits for staff, with the reason written on it.</p></div>
-      <div class="rule"><span class="n">RULE 03</span><h3>Some documents always go to a person.</h3><p>Records requests, prior authorizations, refill requests and referrals are never auto-filed by default. Your practice sets the list.</p></div>
-      <div class="rule"><span class="n">RULE 04</span><h3>Critical results get attention, not silence.</h3><p>Lab critical flags create a High-priority review task marked CRITICAL, with a phone call required. Same-day rules never suppress them.</p></div>
-      <div class="rule"><span class="n">RULE 05</span><h3>Verify the caller before anything else.</h3><p>Enforced by the server, not just the script: until a caller is verified on that call, no patient record can be read or changed.</p></div>
-      <div class="rule"><span class="n">RULE 06</span><h3>Read it back. Wait for a yes.</h3><p>Every booking, move, cancellation and confirmation is read back to the caller and made only after they agree.</p></div>
-      <div class="rule"><span class="n">RULE 07</span><h3>No medical advice. 911 for emergencies.</h3><p>The assistant never interprets results or medications. Emergencies hear one clear line: hang up and call 911 now.</p></div>
-      <div class="rule"><span class="n">RULE 08</span><h3>A person, whenever you ask.</h3><p>Callers can ask for staff at any time. After hours, urgent calls go to your on-call provider with a short brief.</p></div>
+      <div class="rule"><span class="n">Rule 1</span><h3>Two identifiers, one patient.</h3><p>Full name and date of birth must match exactly one patient. A last-4 SSN or address on the document must agree too. Look-alikes, twins and conflicts go to a person.</p></div>
+      <div class="rule"><span class="n">Rule 2</span><h3>Never guess between patients.</h3><p>More than one patient on a page, an unreadable page in a batch, or a misread digit: the document waits for staff, with the reason written on it.</p></div>
+      <div class="rule"><span class="n">Rule 3</span><h3>Some documents always go to a person.</h3><p>Records requests, prior authorizations, refill requests and referrals are never auto-filed by default. Your practice sets the list.</p></div>
+      <div class="rule"><span class="n">Rule 4</span><h3>Critical results get attention, not silence.</h3><p>Lab critical flags create a High-priority review task marked CRITICAL, with a phone call required. Same-day rules never suppress them.</p></div>
+      <div class="rule"><span class="n">Rule 5</span><h3>Verify the caller before anything else.</h3><p>Enforced by the server, not just the script: until a caller is verified on that call, no patient record can be read or changed.</p></div>
+      <div class="rule"><span class="n">Rule 6</span><h3>Read it back. Wait for a yes.</h3><p>Every booking, move, cancellation and confirmation is read back to the caller and made only after they agree.</p></div>
+      <div class="rule"><span class="n">Rule 7</span><h3>No medical advice. 911 for emergencies.</h3><p>The assistant never interprets results or medications. Emergencies hear one clear line: hang up and call 911 now.</p></div>
+      <div class="rule"><span class="n">Rule 8</span><h3>A person, whenever you ask.</h3><p>Callers can ask for staff at any time. After hours, urgent calls go to your on-call provider with a short brief.</p></div>
     </div>
   </div>
 </section>`;
@@ -94,7 +88,7 @@ export const rulesSection = () => `<section class="section on-night blueprint" i
 export const rolloutSection = () => `<section class="section" id="rollout" aria-labelledby="rollout-title">
   <div class="wrap">
     <div class="section-head">
-      <p class="eyebrow">05 — Going live</p>
+      <p class="eyebrow">Going live</p>
       <h2 id="rollout-title">Nothing changes for your staff until you've seen <span class="accent-i">a week of proof.</span></h2>
       <p class="lede">Turnkey. With your permission, we enable Drawbridge on your existing Veradigm® setup. Nothing about how you work has to change: no new fax lines, no change to how your lab sends results, nothing for staff to install. If MOATiT already supports your IT, we take care of all of it.</p>
     </div>
@@ -110,30 +104,30 @@ export const rolloutSection = () => `<section class="section" id="rollout" aria-
 
 export default {
   path: "/",
-  title: "Drawbridge — AI fax intake & phone assistant for medical practices | A MOATiT Service",
+  title: "Drawbridge: AI fax intake & phone assistant for medical practices | A MOATiT Service",
   ogTitle: "Drawbridge: lab results filed, calls answered, nothing guessed",
   description:
     "Drawbridge is MOATiT's AI technology for healthcare practices. It files faxes and lab results to the right patient chart and answers your phone line 24/7, verifying every caller. Integrates with Veradigm® EHR and PM.",
   app: true,
-  preloadImage: heroImage,
   schema: [faqSchema(FAQS.filter((f) => f.home))],
   body: `${homeHero("a")}
 ${demoBand()}
 <section class="section" id="problem" aria-labelledby="problem-title">
-  <div class="wrap split">
+  <div class="wrap split lead-left">
     <div>
-      <p class="eyebrow">02 — The front desk, today</p>
+      <p class="eyebrow">The front desk, today</p>
       <h2 id="problem-title">Your front desk is the drawbridge. <span class="accent-i">It's up all day.</span></h2>
       <p class="lede">Every fax, lab drop and phone call crosses one desk. The work is careful, repetitive and never finished.</p>
+    </div>
+    <div>
       <ul class="checks pains">
         <li><span><strong>The fax pile.</strong> Each result is opened, read, matched to a patient, put in the right category and routed to a provider, one page at a time.</span></li>
         <li><span><strong>The daily lab batch.</strong> One file, many patients' results, split by hand before any of it can be filed.</span></li>
         <li><span><strong>The phone line.</strong> "Can I move my appointment?" "What's my balance?" Calls queue while staff check patients in.</span></li>
         <li><span><strong>After hours.</strong> Voicemail until morning, or an answering service that can't see the schedule.</span></li>
       </ul>
-      <p>Drawbridge takes the routine crossings and hands your staff only the ones that need judgment, already read and explained, so your people spend their day on the work they're great at: patients and care.</p>
+      <p class="pains-close">Drawbridge takes the routine crossings and hands your staff only the ones that need judgment, already read and explained, so your people spend their day on the work they're great at: patients and care.</p>
     </div>
-    <figure class="figure">${picture({ name: "front-desk", widths: [640, 960, 1280], sizes: "(min-width: 960px) 50vw, 100vw", alt: "A quiet medical front desk in early morning light, with a desk phone and a tray of papers.", w: 1280, h: 960 })}<figcaption>AI-generated illustration</figcaption></figure>
   </div>
 </section>
 <section class="section on-night blueprint" id="vision" aria-labelledby="vision-title">
@@ -194,7 +188,7 @@ ${rulesSection()}
 <section class="section" id="proof" aria-labelledby="proof-title">
   <div class="wrap">
     <div class="section-head">
-      <p class="eyebrow">04 — Results so far</p>
+      <p class="eyebrow">Results so far</p>
       <h2 id="proof-title">Honest numbers, <span class="accent-i">clearly labeled.</span></h2>
       <p class="lede">Drawbridge is newly launched, so we don't show customer logos or testimonials yet. Here is what our testing shows, with how each number was measured. Your shadow week measures your own.</p>
     </div>
@@ -206,7 +200,7 @@ ${rolloutSection()}
 <section class="section on-white" id="roi" aria-labelledby="roi-title">
   <div class="wrap split">
     <div>
-      <p class="eyebrow">06 — Time back</p>
+      <p class="eyebrow">Time back</p>
       <h2 id="roi-title">How many hours would your staff get back?</h2>
       <p class="lede">Enter your fax and call volumes. Every assumption is shown and editable, and nothing you type leaves your browser.</p>
       <div class="btn-row mt-1">${btnPrimary(CTA.roi.label, CTA.roi.href)}</div>
@@ -222,7 +216,7 @@ ${rolloutSection()}
 <section class="section on-night" id="security" aria-labelledby="sec-title">
   <div class="wrap split">
     <div>
-      <p class="eyebrow">07 — Security &amp; HIPAA</p>
+      <p class="eyebrow">Security &amp; HIPAA</p>
       <h2 id="sec-title">Built by a security-first IT company.</h2>
       <p class="lede">MOATiT has run IT, phones and security for businesses since 2013. Drawbridge was built to the HIPAA Security Rule from the first line of code, and audited independently before launch.</p>
       <div class="btn-row mt-1">${btnSecondary(CTA.security.label, CTA.security.href)}</div>
@@ -240,7 +234,7 @@ ${rolloutSection()}
 <section class="section" id="pricing" aria-labelledby="pricing-title">
   <div class="wrap split">
     <div>
-      <p class="eyebrow">08 — Pricing</p>
+      <p class="eyebrow">Pricing</p>
       <h2 id="pricing-title">Priced for your practice. <span class="accent-i">Ask us.</span></h2>
       <p class="lede">Pricing depends on your fax and call volume and which parts of Drawbridge you use. Every plan includes setup, the shadow week, a BAA and support from a local team.</p>
       <div class="btn-row mt-1">${btnPrimary("Contact us for pricing", "/contact/")}<a class="btn-link" href="/pricing/">How pricing works</a></div>
@@ -258,7 +252,7 @@ ${rolloutSection()}
 <section class="section on-white" id="faq" aria-labelledby="faq-title">
   <div class="wrap narrow">
     <div class="section-head">
-      <p class="eyebrow">09 — Questions</p>
+      <p class="eyebrow">Questions</p>
       <h2 id="faq-title">Frequently asked</h2>
     </div>
     ${faqList(FAQS.filter((f) => f.home))}
@@ -268,7 +262,7 @@ ${rolloutSection()}
 <section class="section" id="note" aria-labelledby="note-title">
   <div class="wrap note">
     <div>
-      <p class="eyebrow">10 — Why we built it</p>
+      <p class="eyebrow">Why we built it</p>
       <h2 id="note-title">A note from MOATiT</h2>
       <img src="/assets/brand/drawbridge-mark.svg" width="96" height="96" alt="" loading="lazy">
     </div>
