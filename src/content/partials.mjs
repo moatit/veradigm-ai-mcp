@@ -248,7 +248,7 @@ export const FAQS = [
   },
   {
     q: "Where is our data stored, and for how long?",
-    a: "In the United States, on MOATiT's infrastructure on AWS and in MOATiT's data center, single-tenant per practice. The chart copy in your EHR is the record: Drawbridge deletes the original fax 30 days after filing and patient details on its intake records after 90 days, keeps call records 30 days, and keeps the audit log for six years.",
+    a: "In the United States, on MOATiT's cloud infrastructure and in MOATiT's data center, single-tenant per practice. The chart copy in your EHR is the record: Drawbridge deletes the original fax 30 days after filing and patient details on its intake records after 90 days, keeps call records 30 days, and keeps the audit log for six years.",
   },
   {
     q: "How much does Drawbridge cost?",

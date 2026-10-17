@@ -66,8 +66,8 @@ export const security = {
         <thead><tr><th scope="col">Control</th><th scope="col">How it works</th><th scope="col">Status</th></tr></thead>
         <tbody>
           ${row("Encryption in transit", "TLS 1.2 or later on every connection; staff pages use strict transport security and secure cookies. Production refuses unencrypted connections to the EHR and fax systems.", "req")}
-          ${row("Encryption at rest", "Data volumes and backups on encrypted disks (AWS EBS with KMS, or full-disk encryption in MOATiT's data center).", "req")}
-          ${row("US hosting", "Hosted in the United States on AWS and in MOATiT's data center; single-tenant per practice.", "req")}
+          ${row("Encryption at rest", "Data volumes and backups on encrypted disks, in our US cloud hosting and in MOATiT's data center.", "req")}
+          ${row("US hosting", "Hosted in the United States, in a US cloud region and in MOATiT's data center; single-tenant per practice.", "req")}
           ${row("Minimum necessary", "The phone assistant receives only what a verified caller's request needs. Full SSNs are never stored; only the last four digits are used, to check a match.", "ok")}
           ${row("No patient data in logs", "Server logs carry tool names, IDs and outcomes only, never names, birth dates or chart contents.", "ok")}
           ${row("Call recordings", "Personal information is redacted from recordings and transcripts after each call; kept 30 days.", "ok")}
@@ -87,7 +87,7 @@ export const security = {
           ${row("Access and disclosure reports", "Administrators can list every access to one patient, or every action by one user, for any date range.", "ok")}
           ${row("Security events", "Sign-in failures, lockouts, rejected keys, emergency access and unusual export volumes are recorded as security events for review.", "ok")}
           ${row("System status and alerts", "Connection health checked every two minutes; your help desk is alerted when it goes down and when it recovers.", "ok")}
-          ${row("Endpoint protection", "SentinelOne endpoint detection and response; critical patches applied within seven days after testing.", "org")}
+          ${row("Endpoint protection", "Managed endpoint detection and response; critical patches applied within seven days after testing.", "org")}
         </tbody>
       </table>
     </div>
@@ -96,11 +96,11 @@ export const security = {
         <caption>Program, people and assurance</caption>
         <thead><tr><th scope="col">Item</th><th scope="col">Detail</th><th scope="col">Status</th></tr></thead>
         <tbody>
-          ${row("Business associate agreements", "With every practice, and with the providers that handle patient information for us (including AWS).", "org")}
+          ${row("Business associate agreements", "With every practice, and with every provider that handles patient information for us.", "org")}
           ${row("HIPAA training", "Annual HIPAA security and privacy training for the MOATiT workforce.", "org")}
           ${row("Incident response", "Documented incident response plan, with breach notification to practices as set out in the BAA.", "org")}
           ${row("Disaster recovery &amp; continuity", "Documented disaster recovery and business continuity plans.", "org")}
-          ${row("Independent testing", "Annual vulnerability scans and penetration tests by an outside firm (Garrison).", "org")}
+          ${row("Independent testing", "Annual vulnerability scans and penetration tests by an independent outside firm.", "org")}
           ${row("Independent launch audit", "Security and HIPAA technical-safeguards audit of the Drawbridge code by a reviewer who did not write it, October 2026: passed, with every high-severity finding fixed.", "ok")}
           ${row("SOC 2", "In process; the audit is to be completed before the end of 2027.", "prog")}
           ${row("Veradigm Connect certification", "MOATiT's certification for Drawbridge is in progress.", "prog")}
