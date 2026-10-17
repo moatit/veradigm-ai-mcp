@@ -1,5 +1,6 @@
 import { isToolFailure } from '../../../unity/utils/tool-result';
 import { APP_BASE, esc } from '../../shell';
+import { displayCode } from '../../display';
 import { addDays, formatSpokenTime, parseMdy, spokenDay, timeToMinutes, toMdy } from './dates';
 import type { ProviderOpenings } from './openings';
 import type { Provider, ScheduleEntry } from './scheduling.tools';
@@ -28,7 +29,7 @@ export function failureBanner(result: any, what: string): string {
   return `<div class="card" role="alert" style="background:var(--urgent-bg);color:var(--urgent);border-color:var(--urgent)">
 <strong>Couldn't reach Veradigm® PM.</strong> ${esc(what)} could not be loaded, so this is <strong>not</strong> an empty result.
 ${result?.retryable ? 'Try again in a moment.' : 'Check Veradigm® PM directly or ask your Drawbridge administrator.'}
-<span style="font-size:13px;opacity:.8">(${esc(code)})</span></div>`;
+<span style="font-size:13px;opacity:.8">(${esc(displayCode(code))})</span></div>`;
 }
 
 function noticeCard(text: string): string {

@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { auditPatient } from '../../platform/app';
 import { PlatformModule } from '../../platform/registry';
 import { APP_BASE, esc, fmtTime, page } from '../../platform/shell';
+import { displayText, displayTranscriptRef } from '../../platform/display';
 import { callRecords, CallRecord } from './call-records';
 import { retentionDaysFrom, startDailyRetention } from '../../platform/retention';
 import { currentMode, getOverride, scheduledMode, setOverride } from './call-mode';
@@ -41,8 +42,8 @@ ${statedBlock(r)}
 <h2>Chart context</h2><dl><dt>Medications</dt><dd>${listOrDash(r.chart_snapshot.medications)}</dd><dt>Allergies</dt><dd>${listOrDash(r.chart_snapshot.allergies)}</dd>
 <dt>Problems</dt><dd>${listOrDash(r.chart_snapshot.problems)}</dd><dt>Latest results</dt><dd>${listOrDash(r.chart_snapshot.latest_observations)}</dd>
 <dt>Next appointment</dt><dd>${esc(r.chart_snapshot.next_appointment) || '<span class="muted">Not captured</span>'}</dd></dl>
-<h2>Actions taken</h2>${r.actions_taken.length ? `<ul>${r.actions_taken.map((a) => `<li>${esc(fmtTime(a.at))} · ${esc(a.tool)} · ${a.result === 'success' ? 'ok' : '<strong>failed</strong>'}${a.detail ? ` · ${esc(a.detail)}` : ''}</li>`).join('')}</ul>` : '<span class="muted">None</span>'}
-<p class="muted" style="font-size:13px;margin-top:16px">Call ${esc(r.call_id)}${r.transcript_ref ? ` · transcript ${esc(r.transcript_ref)}` : ''}</p></div>`;
+<h2>Actions taken</h2>${r.actions_taken.length ? `<ul>${r.actions_taken.map((a) => `<li>${esc(fmtTime(a.at))} · ${esc(displayText(a.tool).replace(/_/g, ' '))} · ${a.result === 'success' ? 'ok' : '<strong>failed</strong>'}${a.detail ? ` · ${esc(displayText(a.detail))}` : ''}</li>`).join('')}</ul>` : '<span class="muted">None</span>'}
+<p class="muted" style="font-size:13px;margin-top:16px">Call ${esc(r.call_id)}${r.transcript_ref ? ` · transcript ${esc(displayTranscriptRef(r.transcript_ref))}` : ''}</p></div>`;
 }
 
 const tools = new OnCallTools();

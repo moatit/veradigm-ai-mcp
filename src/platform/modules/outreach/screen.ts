@@ -2,6 +2,7 @@ import { randomUUID } from 'crypto';
 import { Request, Router } from 'express';
 import type { PlatformDeps } from '../../registry';
 import { APP_BASE, esc, fmtTime, page } from '../../shell';
+import { displayText } from '../../display';
 import { callApproved, outboundConfig, withinCallingHours } from './dialer';
 import { generateNoShows, generateRecalls, generateReminders, GenerateResult } from './generators';
 import { outreachJobs } from './store';
@@ -56,7 +57,7 @@ function lastResult(j: OutreachJob): string {
   if (!r) return '';
   const label =
     r.result === 'would_call' ? 'Dry run: would call' : r.result === 'placed' ? 'Call placed' : r.result === 'refused' ? 'Refused' : 'Call error';
-  return `<div class="muted" style="font-size:12px">${esc(label)}${r.reason && r.result !== 'would_call' ? `: ${esc(r.reason)}` : ''} · ${esc(fmtTime(r.at))}</div>`;
+  return `<div class="muted" style="font-size:12px">${esc(label)}${r.reason && r.result !== 'would_call' ? `: ${esc(displayText(r.reason))}` : ''} · ${esc(fmtTime(r.at))}</div>`;
 }
 
 function modeBanner(): string {
@@ -125,7 +126,7 @@ export function outreachRouter(deps: PlatformDeps): Router {
     const approved = all.filter((j) => j.status === 'approved').length;
     const cfg = outboundConfig();
     const flashHtml = f
-      ? `<div class="card" style="border-color:var(--${f.kind === 'ok' ? 'ok' : f.kind})">${f.lines.map((l) => `<div>${esc(l)}</div>`).join('')}</div>`
+      ? `<div class="card" style="border-color:var(--${f.kind === 'ok' ? 'ok' : f.kind})">${f.lines.map((l) => `<div>${esc(displayText(l))}</div>`).join('')}</div>`
       : '';
     const callBar = `<form method="post" action="${BASE}/call" class="card row" data-confirm="${esc(
       cfg.dryRun ? 'Dry run: record who would be called?' : `Place ${approved} real phone call(s) now?`

@@ -4,6 +4,7 @@ import { auditPatient } from '../../app';
 import { PlatformModule } from '../../registry';
 import { recordExport, securityEvent, clientIp } from '../../security-events';
 import { APP_BASE, esc, fmtTime, page } from '../../shell';
+import { displayCode, displayText } from '../../display';
 import { CsvDocTypes, DocTypeCache, FallbackDocTypes, type DocType, type DocTypeSource } from './doctypes';
 import type { Confidence, DocumentKind, Extracted } from './extract';
 import { fileToChart, filingStatus, IntakeFilingError, sendToIndexing, setFilingDeps, type FilingResult } from './file';
@@ -244,7 +245,7 @@ export function itemPage(
   const flash = message ? `<div class="card" style="border-color:var(--accent)">${esc(MESSAGES[message] || '')}</div>` : '';
 
   const doc = `<div class="card"><dl>
-<dt>Status</dt><dd>${pill(STATUS_PILL[i.status], STATUS_LABEL[i.status])}${i.error_code ? ` <span class="muted" style="font-size:12px">${esc(i.error_code)}</span>` : ''}</dd>
+<dt>Status</dt><dd>${pill(STATUS_PILL[i.status], STATUS_LABEL[i.status])}${i.error_code ? ` <span class="muted" style="font-size:12px">${esc(displayCode(i.error_code))}</span>` : ''}</dd>
 <dt>Received</dt><dd>${esc(fmtTime(i.received_at))} · ${esc(SOURCE_LABEL[i.source])}${i.sender_fax ? ` · from fax ${esc(i.sender_fax)}` : ''}</dd>
 <dt>File</dt><dd>${i.file ? `<a href="${APP_BASE}/intake/item/${encodeURIComponent(i.id)}/original" target="_blank" rel="noopener">${esc(i.file.name)}</a> <span class="muted" style="font-size:12px">${esc(kb(i.file.size))}</span>` : '<span class="muted">not downloaded yet</span>'}</dd>
 ${i.ocr ? `<dt>Text</dt><dd>${i.ocr.used_text_layer ? 'From the PDF text layer' : `Read by Drawbridge OCR · ${esc(i.ocr.pages)} page(s) · confidence ${esc(Math.round(i.ocr.mean_confidence))}`}</dd>` : ''}
@@ -277,7 +278,7 @@ ${alwaysPersonType(x) ? `<dt>Always to staff</dt><dd>${pill('warn', ALWAYS_PERSO
 
   const match = m
     ? `<div class="card"><dl>
-<dt>Result</dt><dd>${pill(DECISION_PILL[m.decision], DECISION_LABEL[m.decision])} ${esc(m.reason)}</dd>
+<dt>Result</dt><dd>${pill(DECISION_PILL[m.decision], DECISION_LABEL[m.decision])} ${esc(displayText(m.reason))}</dd>
 ${m.patient ? `<dt>Patient</dt><dd>${esc(m.patient.name)} · DOB ${esc(m.patient.dateOfBirth)}${m.patient.mrn ? ` · MRN ${esc(m.patient.mrn)}` : ''}</dd>
 <dt>Veradigm® EHR chart</dt><dd>${m.patient.chartPatientId ? esc(m.patient.chartPatientId) : '<span class="muted">none</span>'}</dd>` : ''}
 ${m.second_identifier ? `<dt>Second identifier</dt><dd>${esc(ID_LABEL[m.second_identifier] || m.second_identifier)}</dd>` : ''}
@@ -311,7 +312,7 @@ ${criticalUntold(i) ? actionButton(i.id, 'notified', 'Provider was told', true, 
 
   const history = `<div class="card scroll"><table><thead><tr><th>When</th><th>What</th><th>Who</th></tr></thead><tbody>${[...i.history]
     .reverse()
-    .map((h) => `<tr><td>${esc(fmtTime(h.ts))}</td><td>${esc(h.action)}</td><td>${esc(h.by)}</td></tr>`)
+    .map((h) => `<tr><td>${esc(fmtTime(h.ts))}</td><td>${esc(displayText(h.action))}</td><td>${esc(h.by)}</td></tr>`)
     .join('')}</tbody></table></div>`;
 
   return `<p><a href="${APP_BASE}/intake">← Document intake</a></p>${flash}
@@ -338,7 +339,7 @@ function notifyCard(i: IntakeItem): string {
       : n?.skipped === 'same_day_appointment'
         ? `Not sent: ${esc(n.same_day?.note || 'same-day appointment')}`
         : n?.task_error
-          ? `${pill(n.critical ? 'urgent' : 'warn', 'not sent')} ${esc(TASK_ERROR_LABEL[n.task_error] || n.task_error)}${to ? ` (to ${to})` : ''}`
+          ? `${pill(n.critical ? 'urgent' : 'warn', 'not sent')} ${esc(TASK_ERROR_LABEL[n.task_error] || displayCode(n.task_error))}${to ? ` (to ${to})` : ''}`
           : i.filed.task_id
             ? `Task ${esc(i.filed.task_id)}`
             : '<span class="muted">none</span>';

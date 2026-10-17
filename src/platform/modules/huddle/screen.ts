@@ -1,4 +1,5 @@
 import { APP_BASE, esc, fmtTime, page } from '../../shell';
+import { displayCode } from '../../display';
 import { COULDNT_CHECK, Check, HuddleBrief, HuddleService, HuddleVisit } from './brief';
 import { dateLabel, money } from './dates';
 
@@ -24,7 +25,7 @@ const STYLE = `<style>
 </style>`;
 
 const cell = (c: Check<any>, ok: (v: any) => string): string =>
-  c.ok ? ok(c.value) : `<span class="hd-cant" title="${esc(c.code)}">${esc(COULDNT_CHECK)}</span>`;
+  c.ok ? ok(c.value) : `<span class="hd-cant" title="${esc(displayCode(c.code))}">${esc(COULDNT_CHECK)}</span>`;
 
 function visitRow(v: HuddleVisit): string {
   const flags = v.flags.length
@@ -74,7 +75,7 @@ export function renderHuddle(view: HuddleView): string {
     body += `<div class="card banner" role="alert"><strong>Couldn't reach Veradigm® PM.</strong>
 The schedule for ${esc(dateLabel(dateKey))} couldn't be loaded, so no brief is shown. This does not mean the day is empty.
 ${error.retryable ? 'Try again in a few minutes.' : 'If this keeps happening, contact MOATiT support.'}
-<div class="muted" style="font-size:12px;margin-top:4px">Error: ${esc(error.code)}</div></div>`;
+<div class="muted" style="font-size:12px;margin-top:4px">Error: ${esc(displayCode(error.code))}</div></div>`;
     return page('Huddle brief · Drawbridge', body, { user: view.user, active: '/huddle' });
   }
   if (!brief) return page('Huddle brief · Drawbridge', body, { user: view.user, active: '/huddle' });
