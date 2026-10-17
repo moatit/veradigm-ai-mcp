@@ -269,7 +269,7 @@ ${rolloutSection()}
     <blockquote>
       <p>For more than a decade we've run the networks, phones, fax lines and EHR hosting behind medical practices in Idaho and the Intermountain West. We've watched front-desk teams spend their mornings indexing faxes and their afternoons on hold.</p>
       <p>We built Drawbridge to give that time back to patients and care, without ever trading safety for speed. It works alongside your systems and your people and multiplies what they can do. It files the clear matches, explains the rest, and leaves the judgment calls to your team.</p>
-      <footer class="small note-sign">The MOATiT team, Pocatello, Idaho</footer>
+      <footer class="small note-sign">Ali Khan, CEO, MOATiT</footer>
     </blockquote>
   </div>
 </section>
