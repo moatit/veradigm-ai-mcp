@@ -1,0 +1,331 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Drawbridge Gatehouse</title>
+<meta name="description" content="Concept A for Drawbridge, A MOATiT Service: white-led, navy and gold, Poppins. Concept only.">
+<meta name="robots" content="noindex">
+<link rel="icon" href="logo/favicon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600&family=Poppins:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root {
+  /* MOATiT house colours */
+  --navy: #3E3E84;       /* MOATiT navy: wordmark, headings, primary button */
+  --ink: #222236;        /* moatit.com heading ink: body text */
+  --blue: #29AAE1;       /* MOATiT blue: section tab, focus, links on navy */
+  --blue-700: #0F6E9C;   /* text-safe blue on white */
+  --gold: #C68010;       /* MOATiT document gold: the deck, rules, graphics */
+  --amber: #F5A623;      /* MOATiT amber: gold on navy */
+  --gold-text: #8A5A0B;  /* gold for small text on white */
+  --slate: #5A5C78;      /* secondary text */
+  --pale: #EEEEF8;       /* MOATiT pale navy panel */
+  --callout: #EAF6FC;    /* MOATiT callout blue */
+  --line: #D9DAEA;
+  --white: #FFFFFF;
+  --display: "Poppins", "Segoe UI", system-ui, sans-serif;
+  --text: "Barlow", "Segoe UI", system-ui, sans-serif;
+  --ease: cubic-bezier(.22,.7,.16,1);
+}
+*, *::before, *::after { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body { margin: 0; background: var(--white); color: var(--ink); font: 500 18px/1.6 var(--text); }
+img, svg { display: block; max-width: 100%; }
+a { color: inherit; }
+h1, h2, h3 { font-family: var(--display); color: var(--ink); margin: 0; font-weight: 600; letter-spacing: -0.02em; }
+p { margin: 0; }
+.wrap { width: min(1200px, 100% - 32px); margin-inline: auto; }
+.btn { display: inline-flex; align-items: center; gap: 10px; min-height: 52px; padding: 0 26px; border-radius: 4px;
+  background: var(--navy); color: #fff; text-decoration: none; font: 500 16px/1 var(--display); letter-spacing: 0; transition: background .2s; }
+.btn:hover { background: #2F2F6C; }
+.btn:focus-visible, a:focus-visible { outline: 3px solid var(--blue); outline-offset: 3px; }
+.btn svg { width: 18px; height: 18px; transition: transform .3s var(--ease); }
+.btn:hover svg { transform: translateX(3px); }
+
+/* header */
+.top { border-bottom: 1px solid var(--line); }
+.top .wrap { display: flex; align-items: center; justify-content: space-between; height: 84px; gap: 24px; }
+.top .logo img { height: 50px; width: auto; }
+.top nav { display: flex; gap: 30px; font: 500 15px/1 var(--display); }
+.top nav a { text-decoration: none; color: var(--ink); }
+.top nav a:hover { color: var(--navy); }
+.menu { display: none; align-items: center; min-height: 44px; padding: 0 16px; border: 1.5px solid var(--navy); border-radius: 4px; color: var(--navy); font: 500 15px/1 var(--display); text-decoration: none; }
+.top .btn { min-height: 44px; padding: 0 20px; font-size: 14px; }
+
+/* hero */
+.hero { padding: 88px 0 96px; }
+.hero .wrap { display: grid; grid-template-columns: minmax(0, 7fr) minmax(0, 5fr); gap: 64px; align-items: center; }
+.kicker { font: 600 16px/1.4 var(--text); color: var(--navy); display: flex; align-items: center; gap: 12px; margin-bottom: 26px; }
+.kicker::before { content: ""; width: 28px; height: 4px; background: var(--gold); }
+.hero h1 { font-size: clamp(40px, 4.7vw, 66px); line-height: 1.05; letter-spacing: -0.03em; max-width: 15ch; text-wrap: balance; }
+.hero .lede { margin-top: 28px; font-size: 20px; color: var(--slate); max-width: 34em; }
+.actions { margin-top: 40px; display: flex; flex-wrap: wrap; align-items: center; gap: 18px 28px; }
+.actions .call { font: 500 16px/1.4 var(--display); color: var(--ink); text-decoration: none; }
+.actions .call span { color: var(--navy); border-bottom: 2px solid var(--gold); }
+
+.gate { background: var(--pale); padding: 44px 40px 40px; position: relative; }
+.gate-top { display: flex; align-items: center; gap: 28px; margin-bottom: 32px; }
+.gate .mark { flex: 0 0 auto; width: 132px; height: 132px; margin-left: -4px; overflow: visible; }
+.gate-top p { font: 500 18px/1.4 var(--display); color: var(--navy); letter-spacing: -0.01em; }
+.gate .deck { transform-box: view-box; transform-origin: 19px 41px; }
+.slip { background: #fff; border-top: 4px solid var(--navy); padding: 22px 24px 20px; box-shadow: 0 1px 0 var(--line); }
+.slip-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; font: 600 13px/1.3 var(--text); color: var(--slate); letter-spacing: .02em; }
+.slip-head b { color: var(--gold-text); font-weight: 600; }
+.slip h3 { font-size: 19px; margin-top: 10px; letter-spacing: -0.01em; }
+.slip dl { margin: 16px 0 0; display: grid; grid-template-columns: 1fr auto auto; gap: 0; font-size: 16px; }
+.slip dd { white-space: nowrap; }
+.slip dt, .slip dd { margin: 0; padding: 9px 0; border-top: 1px solid var(--line); }
+.slip dt { color: var(--slate); padding-right: 16px; }
+.slip dd { color: var(--ink); font-weight: 600; }
+.slip dd.ok { display: flex; align-items: center; justify-content: flex-end; padding-left: 12px; }
+.slip dd.ok svg { width: 18px; height: 18px; color: var(--navy); }
+.slip .filed { margin-top: 14px; padding: 12px 14px; background: var(--navy); color: #fff; font: 500 15px/1.35 var(--display); display: flex; gap: 10px; align-items: center; }
+.slip .filed i { flex: 0 0 auto; width: 22px; height: 4px; background: var(--amber); }
+
+/* rules table, set like a MOATiT document */
+.rules { padding: 112px 0; border-top: 1px solid var(--line); }
+.rules .wrap { display: grid; grid-template-columns: minmax(0, 4fr) minmax(0, 8fr); gap: 64px; }
+.rules h2 { font-size: clamp(30px, 3.2vw, 42px); line-height: 1.12; }
+.rules .intro p { margin-top: 20px; color: var(--slate); }
+.rules .intro { position: sticky; top: 40px; align-self: start; }
+.doc-bar { background: var(--navy); color: #fff; display: flex; align-items: stretch; font: 600 14px/1 var(--display); letter-spacing: .08em; text-transform: uppercase; }
+.doc-bar::before { content: ""; width: 10px; background: var(--blue); }
+.doc-bar span { padding: 16px 18px; }
+.doc-bar span + span { margin-left: auto; color: #C9CAE6; letter-spacing: .04em; text-transform: none; font-weight: 500; }
+table { width: 100%; border-collapse: collapse; }
+th, td { text-align: left; vertical-align: top; padding: 20px 18px; border-bottom: 1px solid var(--line); }
+thead th { font: 600 13px/1.2 var(--text); color: var(--slate); letter-spacing: .04em; text-transform: uppercase; padding-top: 14px; padding-bottom: 14px; background: var(--pale); }
+tbody th { font: 600 18px/1.35 var(--display); color: var(--navy); width: 40%; letter-spacing: -0.01em; }
+tbody td { color: var(--ink); }
+
+/* numbers band */
+.proof { background: var(--navy); color: #fff; padding: 104px 0 96px; }
+.proof .head { display: flex; justify-content: space-between; align-items: end; gap: 40px; flex-wrap: wrap; }
+.proof h2 { color: #fff; font-size: clamp(30px, 3.2vw, 42px); line-height: 1.12; max-width: 16ch; }
+.proof .head p { color: #C9CAE6; max-width: 30em; }
+.stats { margin-top: 64px; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border-top: 1px solid rgba(255,255,255,.18); }
+.stat { padding: 32px 28px 0 0; }
+.stat + .stat { padding-left: 28px; border-left: 1px solid rgba(255,255,255,.18); }
+.stat .tag { font: 600 14px/1 var(--text); color: var(--amber); }
+.stat .num { font: 600 clamp(44px, 4.4vw, 62px)/1 var(--display); letter-spacing: -0.03em; margin-top: 18px; }
+.stat .what { margin-top: 14px; font: 500 17px/1.4 var(--display); }
+.stat .how { margin-top: 14px; font-size: 15px; line-height: 1.5; color: #B9BBDD; }
+.proof .note { margin-top: 48px; font-size: 15px; color: #B9BBDD; }
+
+/* going live */
+.live { padding: 112px 0 104px; }
+.live h2 { font-size: clamp(30px, 3.2vw, 42px); line-height: 1.12; max-width: 20ch; }
+.track { margin-top: 64px; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0 40px; position: relative; }
+.track::before { content: ""; position: absolute; left: 0; right: 0; top: 7px; height: 2px; background: var(--line); }
+.step { position: relative; padding-top: 40px; }
+.step::before { content: ""; position: absolute; top: 4px; left: 0; width: 56px; height: 8px; background: var(--gold); }
+.step h3 { font-size: 22px; letter-spacing: -0.01em; }
+.step .when { font: 600 15px/1 var(--text); color: var(--gold-text); margin-bottom: 12px; }
+.step p { margin-top: 12px; color: var(--slate); }
+
+/* close */
+.close { background: var(--callout); padding: 72px 0; }
+.close .wrap { display: flex; justify-content: space-between; align-items: center; gap: 32px; flex-wrap: wrap; }
+.close h2 { font-size: clamp(26px, 2.6vw, 34px); max-width: 22ch; line-height: 1.2; }
+.close .reach { display: flex; flex-direction: column; gap: 8px; font: 500 16px/1.4 var(--display); }
+.close .reach a { text-decoration: none; }
+.close .reach a:hover { color: var(--navy); }
+.close .row { display: flex; align-items: center; gap: 36px; flex-wrap: wrap; }
+
+footer { padding: 48px 0 56px; border-top: 1px solid var(--line); }
+footer .wrap { display: grid; grid-template-columns: auto 1fr; gap: 24px 48px; align-items: start; }
+footer img { height: 40px; width: auto; }
+footer p { font-size: 14px; color: var(--slate); line-height: 1.6; }
+
+.concept-tag { position: fixed; right: 16px; bottom: 16px; z-index: 5; background: var(--ink); color: #fff; font: 500 12px/1 var(--display); padding: 10px 12px; border-radius: 3px; text-decoration: none; }
+
+/* motion: one signature moment (the deck lowers), quiet reveals elsewhere */
+@media (prefers-reduced-motion: no-preference) {
+  .js .gate .deck { animation: lower 1.5s .35s var(--ease) both; }
+  .js .slip { animation: rise .8s 1.2s var(--ease) both; }
+  .js [data-reveal] { opacity: 0; transform: translateY(14px); transition: opacity .7s var(--ease), transform .7s var(--ease); }
+  .js [data-reveal].in { opacity: 1; transform: none; }
+}
+@keyframes lower { from { transform: rotate(-90deg); } to { transform: rotate(0); } }
+@keyframes rise { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }
+
+@media (max-width: 980px) {
+  .top nav { display: none; }
+  .hero { padding: 56px 0 72px; }
+  .hero .wrap, .rules .wrap { grid-template-columns: 1fr; gap: 48px; }
+  .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .stat:nth-child(3) { padding-left: 0; border-left: 0; }
+  .stat { padding-bottom: 32px; }
+}
+@media (max-width: 640px) {
+  body { font-size: 17px; }
+  .top .wrap { height: 68px; }
+  .top .logo img { height: 36px; }
+  .top .btn { display: none; }
+  .menu { display: inline-flex !important; }
+  .concept-tag { position: static; display: block; margin: 0 16px 24px; text-align: center; }
+  .gate-top p { font-size: 16px; }
+  .rules .intro { position: static; }
+  .hero h1 { font-size: 40px; }
+  .hero .lede { font-size: 18px; }
+  .gate { padding: 28px 20px 20px; }
+  .gate .mark { width: 112px; height: 112px; margin-bottom: 22px; }
+  .slip { padding: 18px 16px 16px; }
+  .rules, .live { padding: 72px 0; }
+  .proof { padding: 72px 0; }
+  thead { display: none; }
+  table, tbody, tr, th, td { display: block; width: 100%; }
+  tbody tr { border-bottom: 1px solid var(--line); padding: 18px 0; }
+  tbody th, tbody td { padding: 0; border: 0; width: 100%; }
+  tbody td { margin-top: 8px; }
+  .doc-bar span + span { display: none; }
+  .stats { grid-template-columns: 1fr; }
+  .stat, .stat + .stat { padding: 28px 0; border-left: 0; border-bottom: 1px solid rgba(255,255,255,.18); }
+  .track { grid-template-columns: 1fr; gap: 40px; }
+  .track::before { display: none; }
+  .btn { width: 100%; justify-content: center; }
+  footer .wrap { grid-template-columns: 1fr; }
+}
+</style>
+</head>
+<body>
+<script>document.documentElement.classList.add('js')</script>
+
+<header class="top">
+  <div class="wrap">
+    <a class="logo" href="#" aria-label="Drawbridge, A MOATiT Service"><img src="logo/lockup.svg" alt="Drawbridge, A MOATiT Service" width="283" height="50"></a>
+    <nav aria-label="Main">
+      <a href="#">Fax and labs</a><a href="#">Phone assistant</a><a href="#">Security</a><a href="#">Pricing</a><a href="#">About</a>
+    </nav>
+    <a class="btn" href="#">Book a walkthrough</a>
+    <a class="menu" href="#">Menu</a>
+  </div>
+</header>
+
+<main>
+  <section class="hero">
+    <div class="wrap">
+      <div>
+        <p class="kicker">For practices on Veradigm EHR and Veradigm PM</p>
+        <h1>Every fax in the right chart. Every caller verified first.</h1>
+        <p class="lede">Drawbridge reads incoming faxes and lab results, matches each one to exactly one patient and files it. Its phone assistant answers your line and checks who is calling before it shares anything. When it isn't sure, a person decides.</p>
+        <div class="actions">
+          <a class="btn" href="#">Book a 20-minute walkthrough
+            <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M3 10h13M11 5l5 5-5 5"/></svg></a>
+          <a class="call" href="tel:+12089006628">or call <span>(208) 900-6628</span></a>
+        </div>
+      </div>
+
+      <div class="gate" aria-label="A synthetic filing example">
+        <div class="gate-top">
+        <svg class="mark" viewBox="0 0 64 64" aria-hidden="true">
+          <mask id="hero-cut" maskUnits="userSpaceOnUse" x="0" y="0" width="64" height="64"><rect width="64" height="64" fill="#fff"/><rect x="19" y="33" width="45" height="10" fill="#000"/></mask>
+          <path mask="url(#hero-cut)" fill="#3E3E84" fill-rule="evenodd" d="M8 6 H30 A23 23 0 0 1 30 52 H8 Z M19 17 H29 A12 12 0 0 1 29 41 H19 Z"/>
+          <rect class="deck" x="19" y="35" width="41" height="6" fill="#C68010"/>
+        </svg>
+        <p>One controlled crossing. The deck comes down only for the right patient.</p>
+        </div>
+        <div class="slip">
+          <div class="slip-head"><span>Incoming fax, 7:42 AM</span><b>Synthetic sample</b></div>
+          <h3>Outside lab result, 3 pages</h3>
+          <dl>
+            <dt>Full name</dt><dd>Rowan Ellery</dd><dd class="ok" aria-label="matched"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M4 10.5l4 4 8-9"/></svg></dd>
+            <dt>Date of birth</dt><dd>04/12/1961</dd><dd class="ok" aria-label="matched"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M4 10.5l4 4 8-9"/></svg></dd>
+            <dt>Patients matching both</dt><dd>Exactly one</dd><dd class="ok" aria-label="matched"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M4 10.5l4 4 8-9"/></svg></dd>
+          </dl>
+          <p class="filed"><i aria-hidden="true"></i>Filed to Lab Results. Review task sent to the ordering provider.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="rules">
+    <div class="wrap">
+      <div class="intro" data-reveal>
+        <h2>The rules are written down and the same every time.</h2>
+        <p>Drawbridge reads the page. Rules your team can audit decide where it goes. Every decision is logged with who, what and when.</p>
+      </div>
+      <div data-reveal>
+        <div class="doc-bar"><span>The Drawbridge rules</span><span>Applies to every fax, lab result and call</span></div>
+        <table>
+          <thead><tr><th scope="col">Rule</th><th scope="col">What happens</th></tr></thead>
+          <tbody>
+            <tr><th scope="row">Two identifiers, one patient.</th><td>Full name and date of birth must match exactly one patient. If they don't, the document goes to your staff queue with the reason.</td></tr>
+            <tr><th scope="row">Never guess between patients.</th><td>Look-alikes, twins, a misread digit or a second patient on the page: a person decides.</td></tr>
+            <tr><th scope="row">Some documents always go to a person.</th><td>Records requests, prior authorizations, refills and referrals are never filed automatically. Your practice sets the list.</td></tr>
+            <tr><th scope="row">Critical results get attention.</th><td>A critical lab flag creates a high-priority review task with a phone call required.</td></tr>
+            <tr><th scope="row">Verify the caller first.</th><td>Until a caller is verified on that call, no patient record can be read or changed.</td></tr>
+            <tr><th scope="row">Read it back. Wait for a yes.</th><td>Every booking, move and cancellation is read back and made only after the caller agrees.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <section class="proof">
+    <div class="wrap">
+      <div class="head" data-reveal>
+        <h2>What our testing shows so far.</h2>
+        <p>Drawbridge is new, so there are no customer logos here yet. Each number says how it was measured. Your shadow week measures your own.</p>
+      </div>
+      <div class="stats" data-reveal>
+        <div class="stat"><p class="tag">Synthetic test</p><p class="num">0</p><p class="what">wrong-patient filings</p><p class="how">Held-out sets of 3,000 synthetic documents, Oct 11 to 13, 2026.</p></div>
+        <div class="stat"><p class="tag">Sandbox test</p><p class="num">20 of 20</p><p class="what">auto-filed documents in the right chart</p><p class="how">Live run on an EHR test system with synthetic patients, Oct 11, 2026.</p></div>
+        <div class="stat"><p class="tag">Synthetic test</p><p class="num">~50%</p><p class="what">filed with no staff touch</p><p class="how">The rest arrive already read, for one-click review. Real faxes vary.</p></div>
+        <div class="stat"><p class="tag">Pre-release test</p><p class="num">1.4 s</p><p class="what">median first response on a lookup</p><p class="how">13 lookups on test calls, Oct 15, 2026. Small sample.</p></div>
+      </div>
+      <p class="note">All tests used invented patients and documents. No real patient data. Methods are available on request.</p>
+    </div>
+  </section>
+
+  <section class="live">
+    <div class="wrap">
+      <h2 data-reveal>Nothing changes for your staff until you have seen a week of results.</h2>
+      <div class="track" data-reveal>
+        <div class="step"><p class="when">Before day one</p><h3>Agreement first</h3><p>We sign a business associate agreement before any patient information flows. No new fax lines, nothing for staff to install.</p></div>
+        <div class="step"><p class="when">Week one</p><h3>Shadow week</h3><p>Drawbridge reads and suggests while your team files as usual. We compare every decision with yours.</p></div>
+        <div class="step"><p class="when">After you approve</p><h3>It starts filing</h3><p>Clear matches are filed. Anything uncertain still goes to a person, with the reason written down.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="close">
+    <div class="wrap">
+      <h2>See it file a fax and answer a call in 20 minutes.</h2>
+      <div class="row">
+        <div class="reach">
+          <a href="tel:+12089006628">(208) 900-6628</a>
+          <a href="tel:+18555506628">(855) 550-6628</a>
+          <a href="mailto:questions@moatit.com">questions@moatit.com</a>
+        </div>
+        <a class="btn" href="#">Book a walkthrough</a>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <img src="logo/lockup.svg" alt="Drawbridge, A MOATiT Service" width="226" height="40">
+    <p>Drawbridge is a service of MOATiT, LLC, 2306 Pocatello Creek Rd, Pocatello, ID 83201. Samples on this page use invented patients.<br>Veradigm® is a registered trademark of Veradigm Inc. or its affiliates. References describe compatibility only and do not imply endorsement.</p>
+  </div>
+</footer>
+
+<a class="concept-tag" href="../index.html">Concept A of 3. Back to overview</a>
+
+<script>
+(function () {
+  var els = document.querySelectorAll('[data-reveal]');
+  if (!('IntersectionObserver' in window) || matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    els.forEach(function (e) { e.classList.add('in'); }); return;
+  }
+  var io = new IntersectionObserver(function (entries) {
+    entries.forEach(function (en) { if (en.isIntersecting) { en.target.classList.add('in'); io.unobserve(en.target); } });
+  }, { rootMargin: '0px 0px -8% 0px' });
+  els.forEach(function (e) { io.observe(e); });
+})();
+</script>
+</body>
+</html>

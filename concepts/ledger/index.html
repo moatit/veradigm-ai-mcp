@@ -1,0 +1,313 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Drawbridge Ledger</title>
+<meta name="description" content="Concept B for Drawbridge, A MOATiT Service: structured, product-led, MOATiT blue leads. Concept only.">
+<meta name="robots" content="noindex">
+<link rel="icon" href="logo/favicon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600&family=Poppins:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root {
+  --navy: #3E3E84;      /* MOATiT navy: mark post, strong labels */
+  --ink: #222236;       /* text and headlines */
+  --blue: #29AAE1;      /* MOATiT blue: the lead accent, rules, "filed" */
+  --blue-700: #0F6E9C;  /* blue for text on white */
+  --blue-50: #EAF6FC;   /* MOATiT callout blue: panels */
+  --gold: #C68010;      /* MOATiT gold: "a person decides" */
+  --gold-text: #8A5A0B;
+  --gold-50: #FBF1DF;
+  --slate: #5A5C78;
+  --line: #DCE3EA;
+  --white: #FFFFFF;
+  --display: "Poppins", "Segoe UI", system-ui, sans-serif;
+  --text: "Barlow", "Segoe UI", system-ui, sans-serif;
+  --ease: cubic-bezier(.22,.7,.16,1);
+}
+*, *::before, *::after { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body { margin: 0; background: var(--white); color: var(--ink); font: 500 18px/1.6 var(--text); }
+img, svg { display: block; max-width: 100%; }
+a { color: inherit; }
+a:focus-visible, .btn:focus-visible { outline: 3px solid var(--blue); outline-offset: 3px; }
+h1, h2, h3 { font-family: var(--display); margin: 0; font-weight: 500; letter-spacing: -0.025em; color: var(--ink); }
+p { margin: 0; }
+.wrap { width: min(1240px, 100% - 32px); margin-inline: auto; }
+.btn { display: inline-flex; align-items: center; gap: 12px; min-height: 52px; padding: 0 24px; border-radius: 2px; background: var(--ink);
+  color: #fff; text-decoration: none; font: 500 16px/1 var(--display); transition: background .2s; }
+.btn:hover { background: var(--navy); }
+.btn svg { width: 18px; height: 18px; }
+
+/* header: a thin blue rule, like the rule under the wordmark */
+.top { border-top: 4px solid var(--blue); }
+.top .wrap { display: flex; align-items: center; gap: 40px; height: 88px; }
+.top .logo img { height: 50px; width: auto; }
+.top nav { display: flex; gap: 28px; margin-left: auto; font: 500 15px/1 var(--display); }
+.top nav a { text-decoration: none; color: var(--slate); }
+.top nav a:hover { color: var(--ink); }
+.top .cta { font: 500 15px/1 var(--display); text-decoration: none; color: var(--ink); border-bottom: 2px solid var(--blue); padding-bottom: 4px; }
+
+/* hero */
+.hero { padding: 72px 0 0; }
+.hero-grid { display: grid; grid-template-columns: minmax(0, 8fr) minmax(0, 4fr); gap: 56px; align-items: end; }
+.hero h1 { font-size: clamp(42px, 6.2vw, 92px); line-height: .98; letter-spacing: -0.04em; }
+.hero h1 span { color: var(--blue-700); }
+.hero .side p { color: var(--slate); font-size: 19px; }
+.hero .side .btn { margin-top: 28px; }
+.hero .side .phone { margin-top: 18px; font: 500 15px/1.5 var(--display); color: var(--slate); }
+.hero .side .phone a { color: var(--ink); text-decoration: none; }
+
+.ledger { margin-top: 72px; border-top: 1px solid var(--ink); }
+.ledger-head { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 16px 0; flex-wrap: wrap; }
+.ledger-head h2 { font-size: 17px; letter-spacing: -0.01em; font-weight: 600; }
+.ledger-head p { font-size: 15px; color: var(--slate); }
+.ledger-head p b { color: var(--gold-text); font-weight: 600; }
+.rows { display: grid; grid-template-columns: 74px minmax(0, 1.5fr) minmax(0, 1.2fr) minmax(0, 1fr) 90px minmax(0, 2fr); }
+.rows > div { display: contents; }
+.rows span { padding: 18px 16px 18px 0; border-top: 1px solid var(--line); font-size: 16px; line-height: 1.4; }
+.rows .th span { font: 600 13px/1.2 var(--text); letter-spacing: .04em; text-transform: uppercase; color: var(--slate); padding-top: 12px; padding-bottom: 12px; background: var(--blue-50); }
+.rows .th span:first-child { padding-left: 12px; }
+.rows .r span:first-child { color: var(--slate); font-variant-numeric: tabular-nums; }
+.rows .doc { font-family: var(--display); font-weight: 500; font-size: 15px; }
+.rows .ok::after { content: ""; display: inline-block; width: 7px; height: 12px; margin-left: 10px; border: solid var(--blue-700); border-width: 0 2.5px 2.5px 0; transform: rotate(40deg) translateY(-3px); }
+.rows .no { color: var(--gold-text); }
+.rows .n { font-variant-numeric: tabular-nums; font-weight: 600; }
+.out { display: flex !important; align-items: flex-start; gap: 10px; }
+.out b { flex: 0 0 auto; display: inline-block; padding: 4px 8px; border-left: 3px solid var(--blue); background: var(--blue-50); color: var(--ink);
+  font: 600 13px/1.2 var(--display); letter-spacing: 0; border-radius: 0 2px 2px 0; }
+.out.person b { border-color: var(--gold); background: var(--gold-50); color: var(--gold-text); }
+.out em { font-style: normal; color: var(--slate); font-size: 15px; }
+.ledger-foot { border-top: 1px solid var(--ink); padding: 14px 0; font-size: 14px; color: var(--slate); }
+
+/* decision flow */
+.flow { padding: 128px 0 120px; }
+.flow .wrap { display: grid; grid-template-columns: minmax(0, 4fr) minmax(0, 8fr); gap: 72px; align-items: start; }
+.flow h2 { font-size: clamp(32px, 3.4vw, 48px); line-height: 1.08; }
+.flow .lead p { margin-top: 22px; color: var(--slate); }
+.steps { position: relative; display: grid; grid-template-columns: 1fr; gap: 0; }
+.node { display: grid; grid-template-columns: 56px minmax(0, 1fr); gap: 20px; padding: 0 0 36px; position: relative; }
+.node::before { content: ""; position: absolute; left: 27px; top: 44px; bottom: 0; width: 2px; background: var(--line); }
+.node:last-child::before { display: none; }
+.node i { width: 56px; height: 56px; display: grid; place-items: center; border: 2px solid var(--ink); font: 500 18px/1 var(--display); font-style: normal; background: #fff; position: relative; z-index: 1; }
+.node h3 { font-size: 22px; letter-spacing: -0.015em; padding-top: 12px; }
+.node p { margin-top: 8px; color: var(--slate); max-width: 34em; }
+.fork { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 18px; }
+.fork div { padding: 18px 20px; border-top: 3px solid var(--blue); background: var(--blue-50); }
+.fork div.person { border-color: var(--gold); background: var(--gold-50); }
+.fork h4 { margin: 0; font: 600 16px/1.3 var(--display); }
+.fork p { margin-top: 6px; font-size: 16px; color: var(--ink); }
+
+/* phone */
+.phone-sec { background: var(--ink); color: #fff; padding: 120px 0; }
+.phone-sec .wrap { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); gap: 80px; }
+.phone-sec h2 { color: #fff; font-size: clamp(32px, 3.4vw, 48px); line-height: 1.08; }
+.phone-sec .lead p { margin-top: 22px; color: #BFC1DA; }
+.phone-sec .lead ul { margin: 32px 0 0; padding: 0; list-style: none; border-top: 1px solid rgba(255,255,255,.16); }
+.phone-sec .lead li { padding: 14px 0; border-bottom: 1px solid rgba(255,255,255,.16); font: 500 16px/1.4 var(--display); display: flex; gap: 14px; }
+.phone-sec .lead li::before { content: ""; flex: 0 0 auto; width: 14px; height: 3px; background: var(--blue); margin-top: 10px; }
+.call { border-left: 2px solid rgba(255,255,255,.16); }
+.line { display: grid; grid-template-columns: 64px 108px minmax(0, 1fr); gap: 0 16px; padding: 14px 0 14px 24px; position: relative; }
+.line time { color: #8E90B6; font-size: 15px; font-variant-numeric: tabular-nums; }
+.line b { font: 600 14px/1.6 var(--display); color: #8E90B6; }
+.line.db b { color: var(--blue); }
+.line p { color: #fff; }
+.line.check { margin: 6px 0; background: rgba(41,170,225,.10); border-left: 3px solid var(--blue); margin-left: -2px; }
+.line.check p { font: 500 15px/1.5 var(--display); color: #DDF2FB; }
+.call .note { padding: 16px 0 0 24px; font-size: 14px; color: #8E90B6; }
+
+/* close */
+.close { padding: 104px 0 56px; }
+.close .wrap { display: grid; grid-template-columns: minmax(0, 7fr) minmax(0, 5fr); gap: 56px; align-items: end; border-bottom: 1px solid var(--line); padding-bottom: 64px; }
+.close h2 { font-size: clamp(30px, 3.2vw, 46px); line-height: 1.08; }
+.close dl { margin: 0; display: grid; grid-template-columns: auto 1fr; gap: 10px 24px; font: 500 16px/1.4 var(--display); }
+.close dt { color: var(--slate); font-family: var(--text); }
+.close dd { margin: 0; }
+.close dd a { text-decoration: none; }
+.close .btn { margin-top: 28px; }
+footer .wrap { display: flex; justify-content: space-between; gap: 32px; padding: 32px 0 56px; align-items: start; flex-wrap: wrap; }
+footer img { height: 40px; width: auto; }
+footer p { font-size: 14px; color: var(--slate); max-width: 62em; }
+
+.concept-tag { position: fixed; right: 16px; bottom: 16px; z-index: 5; background: var(--ink); color: #fff; font: 500 12px/1 var(--display); padding: 10px 12px; border-radius: 2px; text-decoration: none; }
+
+/* motion: the ledger fills in once (signature), quiet reveals elsewhere */
+@media (prefers-reduced-motion: no-preference) {
+  .js .rows .r span { animation: fill .6s var(--ease) both; }
+  .js .rows .r:nth-child(2) span { animation-delay: .25s; }
+  .js .rows .r:nth-child(3) span { animation-delay: .55s; }
+  .js .rows .r:nth-child(4) span { animation-delay: .85s; }
+  .js .rows .r:nth-child(5) span { animation-delay: 1.15s; }
+  .js .rows .r:nth-child(6) span { animation-delay: 1.45s; }
+  .js .rows .r .out b { animation: stamp .5s var(--ease) both; }
+  .js .rows .r:nth-child(2) .out b { animation-delay: .65s; }
+  .js .rows .r:nth-child(3) .out b { animation-delay: .95s; }
+  .js .rows .r:nth-child(4) .out b { animation-delay: 1.25s; }
+  .js .rows .r:nth-child(5) .out b { animation-delay: 1.55s; }
+  .js .rows .r:nth-child(6) .out b { animation-delay: 1.85s; }
+  .js [data-reveal] { opacity: 0; transform: translateY(14px); transition: opacity .7s var(--ease), transform .7s var(--ease); }
+  .js [data-reveal].in { opacity: 1; transform: none; }
+}
+@keyframes fill { from { opacity: 0; } to { opacity: 1; } }
+@keyframes stamp { from { opacity: 0; transform: translateX(-8px); } to { opacity: 1; transform: none; } }
+
+@media (max-width: 1080px) {
+  .top nav { display: none; }
+  .hero-grid, .flow .wrap, .phone-sec .wrap, .close .wrap { grid-template-columns: 1fr; gap: 40px; }
+}
+@media (max-width: 860px) {
+  .rows { display: block; }
+  .rows .th { display: none; }
+  .rows > div.r { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; padding: 18px 0; border-top: 1px solid var(--line); }
+  .rows .r span { border: 0; padding: 0; }
+  .rows .r span:nth-child(1) { grid-column: 1; }
+  .rows .r span:nth-child(2) { grid-column: 2; }
+  .rows .r span:nth-child(3), .rows .r span:nth-child(4) { grid-column: 2; font-size: 15px; }
+  .rows .r span:nth-child(5) { display: none; }
+  .rows .r span:nth-child(6) { grid-column: 2; margin-top: 8px; flex-wrap: wrap; }
+}
+@media (max-width: 640px) {
+  body { font-size: 17px; }
+  .top .wrap { height: 72px; }
+  .top .logo img { height: 38px; }
+  .top .cta { font-size: 14px; margin-left: auto; }
+  .hero { padding-top: 48px; }
+  .hero h1 { font-size: 44px; }
+  .ledger { margin-top: 48px; }
+  .flow, .phone-sec { padding: 80px 0; }
+  .fork { grid-template-columns: 1fr; }
+  .node { grid-template-columns: 44px minmax(0, 1fr); gap: 16px; }
+  .node i { width: 44px; height: 44px; font-size: 16px; }
+  .node::before { left: 21px; top: 44px; }
+  .line { grid-template-columns: 1fr; padding-left: 18px; }
+  .line time { display: none; }
+  .btn { width: 100%; justify-content: center; }
+  .concept-tag { position: static; display: block; margin: 0 16px 24px; text-align: center; }
+  .close { padding-top: 72px; }
+}
+</style>
+</head>
+<body>
+<script>document.documentElement.classList.add('js')</script>
+
+<header class="top">
+  <div class="wrap">
+    <a class="logo" href="#"><img src="logo/lockup.svg" alt="Drawbridge, A MOATiT Service" width="240" height="50"></a>
+    <nav aria-label="Main"><a href="#">Fax and labs</a><a href="#">Phone assistant</a><a href="#">Security</a><a href="#">Pricing</a><a href="#">About</a></nav>
+    <a class="cta" href="#">Book a walkthrough</a>
+  </div>
+</header>
+
+<main>
+  <section class="hero">
+    <div class="wrap">
+      <div class="hero-grid">
+        <h1>Two identifiers, or it <span>doesn't file.</span></h1>
+        <div class="side">
+          <p>Drawbridge reads every incoming fax and lab result for practices on Veradigm EHR and Veradigm PM. It files a page only when the full name and date of birth match exactly one patient. Everything else goes to a person, with the reason.</p>
+          <a class="btn" href="#">Book a 20-minute walkthrough <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M3 10h13M11 5l5 5-5 5"/></svg></a>
+          <p class="phone">Or call <a href="tel:+12089006628">(208) 900-6628</a></p>
+        </div>
+      </div>
+
+      <div class="ledger" aria-label="Synthetic intake ledger">
+        <div class="ledger-head">
+          <h2>This morning's faxes</h2>
+          <p>Synthetic sample, invented patients. Filed: 2. <b>Sent to a person: 3.</b></p>
+        </div>
+        <div class="rows" role="table">
+          <div class="th" role="row"><span role="columnheader">Time</span><span role="columnheader">Document</span><span role="columnheader">Full name</span><span role="columnheader">Date of birth</span><span role="columnheader">Matches</span><span role="columnheader">Outcome</span></div>
+          <div class="r" role="row"><span role="cell">7:42</span><span role="cell" class="doc">Lab result, 3 pages</span><span role="cell" class="ok">Rowan Ellery</span><span role="cell" class="ok">04/12/1961</span><span role="cell" class="n">1</span><span role="cell" class="out"><b>Filed</b><em>Lab Results. Review task to the ordering provider.</em></span></div>
+          <div class="r" role="row"><span role="cell">7:58</span><span role="cell" class="doc">Imaging report, 2 pages</span><span role="cell" class="ok">Jordan Pike</span><span role="cell" class="ok">09/30/1974</span><span role="cell" class="n">1</span><span role="cell" class="out person"><b>To a person</b><em>The address on the page differs from the chart.</em></span></div>
+          <div class="r" role="row"><span role="cell">8:05</span><span role="cell" class="doc">Referral letter, 4 pages</span><span role="cell" class="ok">Amara Quinn</span><span role="cell" class="ok">02/17/1988</span><span role="cell" class="n">1</span><span role="cell" class="out person"><b>To a person</b><em>Referrals always go to staff. Your practice set that rule.</em></span></div>
+          <div class="r" role="row"><span role="cell">8:11</span><span role="cell" class="doc">Lab batch, 6 pages</span><span role="cell" class="no">Two names on page 4</span><span role="cell" class="no">Two dates</span><span role="cell" class="n">2</span><span role="cell" class="out person"><b>To a person</b><em>Two patients on one page. Nothing guessed.</em></span></div>
+          <div class="r" role="row"><span role="cell">8:20</span><span role="cell" class="doc">Lab result, 1 page</span><span role="cell" class="ok">Dana Whitlock</span><span role="cell" class="ok">11/03/1956</span><span role="cell" class="n">1</span><span role="cell" class="out"><b>Filed</b><em>Critical flag: high-priority task, call required.</em></span></div>
+        </div>
+        <p class="ledger-foot">Every decision is logged with who, what and when. Staff confirm or correct a suggestion with one click.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="flow">
+    <div class="wrap">
+      <div class="lead" data-reveal>
+        <h2>When it isn't sure, a person decides.</h2>
+        <p>The software reads the page. Written rules decide where it goes. Your team can read those rules, and change the ones that are theirs to set.</p>
+      </div>
+      <div class="steps" data-reveal>
+        <div class="node"><i>1</i><div><h3>Read the page</h3><p>On MOATiT's servers, page by page. The fax never leaves MOATiT.</p></div></div>
+        <div class="node"><i>2</i><div><h3>Find two identifiers</h3><p>Full name and date of birth. A last-4 SSN or address on the page must agree too.</p></div></div>
+        <div class="node"><i>3</i><div><h3>Count the patients that match</h3>
+          <div class="fork">
+            <div><h4>Exactly one</h4><p>Filed to your category, with a review task to the ordering provider.</p></div>
+            <div class="person"><h4>None, or more than one</h4><p>Your staff queue, already read, with the reason written down.</p></div>
+          </div></div></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="phone-sec">
+    <div class="wrap">
+      <div class="lead" data-reveal>
+        <h2>It answers your line. It checks who is calling first.</h2>
+        <p>The phone assistant books, moves and cancels visits in Veradigm PM, day and night. Until a caller is verified on that call, it can't read or change a thing.</p>
+        <ul>
+          <li>Reads every change back and waits for a yes</li>
+          <li>No medical advice. Emergencies hear one line: hang up and call 911</li>
+          <li>A person whenever the caller asks</li>
+        </ul>
+      </div>
+      <div class="call" data-reveal aria-label="Synthetic sample call">
+        <div class="line db"><time>0:00</time><b>Drawbridge</b><p>Thanks for calling the clinic. This is the clinic's automated assistant. How can I help?</p></div>
+        <div class="line"><time>0:05</time><b>Caller</b><p>I need to move my appointment next week.</p></div>
+        <div class="line db"><time>0:08</time><b>Drawbridge</b><p>I can help with that. First, your first and last name and your date of birth?</p></div>
+        <div class="line"><time>0:14</time><b>Caller</b><p>Rowan Ellery, April 12, 1961.</p></div>
+        <div class="line check"><time>0:16</time><b>Verified</b><p>Name and date of birth match exactly one patient.</p></div>
+        <div class="line db"><time>0:18</time><b>Drawbridge</b><p>Thank you. I see Tuesday at 9:30 with Dr. Hale. I have Thursday at 2:15 or Friday at 10:00.</p></div>
+        <div class="line"><time>0:27</time><b>Caller</b><p>Thursday works.</p></div>
+        <div class="line db"><time>0:29</time><b>Drawbridge</b><p>To confirm: I'll move your visit from Tuesday at 9:30 to Thursday at 2:15 with Dr. Hale. Shall I make that change?</p></div>
+        <p class="note">Synthetic sample call with an invented patient.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="close">
+    <div class="wrap">
+      <div>
+        <h2>Watch it file a week of your faxes before it files one for real.</h2>
+        <a class="btn" href="#">Book a 20-minute walkthrough <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M3 10h13M11 5l5 5-5 5"/></svg></a>
+      </div>
+      <dl>
+        <dt>Idaho</dt><dd><a href="tel:+12089006628">(208) 900-6628</a></dd>
+        <dt>Toll-free</dt><dd><a href="tel:+18555506628">(855) 550-6628</a></dd>
+        <dt>Email</dt><dd><a href="mailto:questions@moatit.com">questions@moatit.com</a></dd>
+      </dl>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <img src="logo/lockup.svg" alt="Drawbridge, A MOATiT Service" width="192" height="40">
+    <p>Drawbridge is a service of MOATiT, LLC, Pocatello, Idaho. Samples use invented patients. Veradigm® is a registered trademark of Veradigm Inc. or its affiliates. References describe compatibility only and do not imply endorsement.</p>
+  </div>
+</footer>
+
+<a class="concept-tag" href="../index.html">Concept B of 3. Back to overview</a>
+
+<script>
+(function () {
+  var els = document.querySelectorAll('[data-reveal]');
+  if (!('IntersectionObserver' in window) || matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    els.forEach(function (e) { e.classList.add('in'); }); return;
+  }
+  var io = new IntersectionObserver(function (entries) {
+    entries.forEach(function (en) { if (en.isIntersecting) { en.target.classList.add('in'); io.unobserve(en.target); } });
+  }, { rootMargin: '0px 0px -8% 0px' });
+  els.forEach(function (e) { io.observe(e); });
+})();
+</script>
+</body>
+</html>

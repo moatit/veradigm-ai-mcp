@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ledger identity sheet</title>
+<meta name="robots" content="noindex">
+<link rel="icon" href="logo/favicon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600&family=Poppins:wght@300;400;500;600&display=swap" rel="stylesheet">
+<style>
+:root { --ink: #222236; --slate: #5A5C78; --line: #DCDDEB; --dark: #222236; }
+* { box-sizing: border-box; }
+body { margin: 0; background: #fff; color: var(--ink); font: 500 17px/1.6 "Barlow", system-ui, sans-serif; }
+img { display: block; max-width: 100%; }
+.wrap { width: min(1200px, 100% - 32px); margin-inline: auto; }
+h1, h2, h3 { font-family: "Poppins", system-ui, sans-serif; font-weight: 500; letter-spacing: -0.02em; margin: 0; }
+p { margin: 0; }
+header { padding: 40px 0 32px; border-bottom: 1px solid var(--line); }
+header .wrap { display: flex; justify-content: space-between; align-items: end; gap: 24px; flex-wrap: wrap; }
+header h1 { font-size: clamp(30px, 4vw, 48px); line-height: 1.05; }
+header p { color: var(--slate); max-width: 40em; margin-top: 12px; }
+header nav { display: flex; gap: 20px; font: 500 15px/1 "Poppins", sans-serif; }
+header nav a { color: var(--ink); }
+section { padding: 56px 0; border-bottom: 1px solid var(--line); }
+section > .wrap > h2 { font-size: 24px; margin-bottom: 8px; }
+section > .wrap > p.note { color: var(--slate); max-width: 46em; margin-bottom: 32px; }
+.lockups { display: grid; grid-template-columns: 1.3fr 1fr; gap: 16px; }
+.tile { border: 1px solid var(--line); padding: 40px 32px; display: grid; place-items: center; min-height: 220px; position: relative; }
+.tile.dark { background: var(--dark); border-color: var(--dark); }
+.tile .cap { position: absolute; left: 14px; bottom: 10px; font-size: 13px; color: var(--slate); }
+.tile.dark .cap { color: #AEB0D4; }
+.tile img.lock { width: min(440px, 100%); height: auto; }
+.sizes { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 16px; margin-top: 16px; }
+.sizes .tile { min-height: 170px; padding: 24px; }
+.sizes img { image-rendering: auto; }
+.tab { display: flex; align-items: center; gap: 8px; background: #E8E9F1; border-radius: 8px 8px 0 0; padding: 9px 14px; width: 100%; max-width: 230px; font: 400 13px/1 system-ui, sans-serif; color: #333; }
+.tab img { width: 16px; height: 16px; }
+.bar { height: 10px; background: #fff; border: 1px solid #E8E9F1; border-top: 0; width: 100%; max-width: 230px; }
+.pal { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 0; border: 1px solid var(--line); }
+.sw { border-right: 1px solid var(--line); }
+.sw:last-child { border-right: 0; }
+.chip { height: 120px; border-bottom: 1px solid var(--line); }
+.sw div.t { padding: 14px 14px 18px; }
+.sw b { display: block; font: 600 15px/1.3 "Poppins", sans-serif; }
+.sw code { font: 500 14px/1.6 "Barlow", sans-serif; color: var(--slate); }
+.sw p { font-size: 14px; color: var(--slate); line-height: 1.45; margin-top: 6px; }
+.share { display: flex; height: 18px; margin-top: 20px; border: 1px solid var(--line); }
+.type { display: grid; grid-template-columns: 1fr 1fr; gap: 40px; }
+.spec .big { font: 600 56px/1.05 "Poppins", sans-serif; letter-spacing: -0.03em; }
+.spec .body { font: 500 19px/1.6 "Barlow", sans-serif; }
+.spec h3 { font-size: 16px; margin-top: 18px; }
+.spec p.r { color: var(--slate); font-size: 15px; }
+.prose { display: grid; grid-template-columns: 1fr 1fr; gap: 40px; }
+.prose h3 { font-size: 18px; margin-bottom: 8px; }
+.prose p { color: var(--ink); }
+footer { padding: 32px 0 56px; color: var(--slate); font-size: 14px; }
+@media (max-width: 760px) {
+  .lockups, .type, .prose { grid-template-columns: 1fr; }
+  .pal { grid-template-columns: 1fr 1fr; }
+  .sw { border-bottom: 1px solid var(--line); }
+  .spec .big { font-size: 40px; }
+}
+</style>
+</head>
+<body>
+<header>
+  <div class="wrap">
+    <div>
+      <h1>Concept B: Ledger</h1>
+      <p>The product's own record, made into the brand. A clinical, structured page where the intake ledger is the hero and MOATiT blue leads.</p>
+    </div>
+    <nav><a href="index.html">Concept page</a><a href="RATIONALE.md">Rationale</a><a href="../index.html">All concepts</a></nav>
+  </div>
+</header>
+
+<section>
+  <div class="wrap">
+    <h2>Logo</h2>
+    <p class="note">A D drawn with MOATiT's rings: a navy post, an outer blue ring and an inner gold ring for the one controlled crossing. It borrows the concentric arcs from the MOATiT logo directly.</p>
+    <div class="lockups">
+      <div class="tile"><img class="lock" src="logo/lockup.svg" alt="Drawbridge, A MOATiT Service, primary lockup"><span class="cap">Primary lockup</span></div>
+      <div class="tile dark"><img class="lock" src="logo/lockup-reverse.svg" alt="Reverse lockup"><span class="cap">Reverse</span></div>
+    </div>
+    <div class="sizes">
+      <div class="tile"><img src="logo/mark.svg" width="160" height="160" alt="Mark, large"><span class="cap">Mark, 160 px</span></div>
+      <div class="tile"><img src="logo/mark-mono.svg" width="96" height="96" alt="Mark, one colour"><span class="cap">One colour</span></div>
+      <div class="tile dark"><img src="logo/mark-reverse.svg" width="96" height="96" alt="Mark, reverse"><span class="cap">Reverse</span></div>
+      <div class="tile"><div style="display:flex;gap:18px;align-items:end"><img src="logo/favicon.svg" width="64" height="64" alt="Favicon 64"><img src="logo/favicon.svg" width="32" height="32" alt="Favicon 32"><img src="logo/favicon.svg" width="16" height="16" alt="Favicon 16"></div><span class="cap">Favicon 64 / 32 / 16</span></div>
+      <div class="tile"><div style="display:flex;gap:18px;align-items:end"><img src="logo/mark.svg" width="32" height="32" alt="Mark 32"><img src="logo/mark.svg" width="16" height="16" alt="Mark 16"></div><span class="cap">Mark 32 / 16</span></div>
+      <div class="tile"><div><div class="tab"><img src="logo/favicon.svg" alt="">Drawbridge</div><div class="bar"></div></div><span class="cap">Browser tab, 16 px</span></div>
+    </div>
+    <div class="sizes">
+      <div class="tile" style="min-height:120px"><img src="logo/lockup-mono.svg" alt="One-colour lockup" style="width:260px;height:auto"><span class="cap">One-colour lockup</span></div>
+      <div class="tile" style="min-height:120px"><img src="logo/lockup.svg" alt="Lockup at minimum size" style="width:150px;height:auto"><span class="cap">Minimum, 150 px wide</span></div>
+    </div>
+    <p class="note" style="margin-top:24px">The same hand-drawn skeleton at a lighter weight in MOATiT ink, sitting on a thin blue rule, with the endorsement beneath. No fonts in the files: every letter is a drawn path (generator: <code>concepts/_tools/build_logos.py</code>).</p>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <h2>Palette and roles</h2>
+    <p class="note">MOATiT's own colours: navy #3E3E84, blue #29AAE1 and gold #C68010 from the MOATiT document style, plus ink #222236 and amber #F5A623 from moatit.com. The share bar shows roughly how much of a page each colour takes.</p>
+    <div class="pal"><div class="sw"><div class="chip" style="background:#FFFFFF;box-shadow: inset 0 0 0 1px #DCDDEB;"></div><div class="t"><b>White</b><code>#FFFFFF</code><p>Page background.</p></div></div><div class="sw"><div class="chip" style="background:#222236;"></div><div class="t"><b>MOATiT Ink</b><code>#222236</code><p>Headlines, body, primary buttons and the dark phone section.</p></div></div><div class="sw"><div class="chip" style="background:#EAF6FC;"></div><div class="t"><b>Callout Blue</b><code>#EAF6FC</code><p>Table heads and 'filed' states. MOATiT's own callout colour.</p></div></div><div class="sw"><div class="chip" style="background:#29AAE1;"></div><div class="t"><b>MOATiT Blue</b><code>#29AAE1</code><p>The lead accent: header rule, ticks, 'filed' markers, Drawbridge's voice in the call.</p></div></div><div class="sw"><div class="chip" style="background:#0F6E9C;"></div><div class="t"><b>Blue 700</b><code>#0F6E9C</code><p>Blue for text on white (5.6:1).</p></div></div><div class="sw"><div class="chip" style="background:#3E3E84;"></div><div class="t"><b>MOATiT Navy</b><code>#3E3E84</code><p>The mark's post; secondary emphasis.</p></div></div><div class="sw"><div class="chip" style="background:#C68010;"></div><div class="t"><b>MOATiT Gold</b><code>#C68010</code><p>Only for 'a person decides'. Text uses Gold 700 #8A5A0B (5.9:1).</p></div></div></div>
+    <div class="share" aria-hidden="true"><span style="flex:62;background:#FFFFFF"></span><span style="flex:18;background:#222236"></span><span style="flex:8;background:#EAF6FC"></span><span style="flex:5;background:#29AAE1"></span><span style="flex:3;background:#0F6E9C"></span><span style="flex:2;background:#3E3E84"></span><span style="flex:2;background:#C68010"></span></div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <h2>Type</h2>
+    <p class="note">Both faces are MOATiT's own: Poppins from the MOATiT documents and Barlow from moatit.com. Both are on Google Fonts.</p>
+    <div class="type"><div class="spec"><p class="big">Every fax in the right chart.</p><h3>Poppins 500</h3><p class="r">Headlines, -0.04em, up to 92 px. Lighter weight and tighter tracking than A.</p></div><div class="spec"><p class="body">Drawbridge reads incoming faxes and lab results, matches each one to exactly one patient and files it. When it isn't sure, a person decides.</p><h3>Barlow 500</h3><p class="r">Body and data, with tabular figures in the ledger.</p></div></div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap prose">
+    <div><h3>Motion</h3><p>The signature moment is the ledger filling in. Rows appear one by one (0.3 s apart), and each outcome stamps in after its checks. Elsewhere there are quiet fade-ups. All of it is off with prefers-reduced-motion.</p></div>
+    <div><h3>Bans this direction keeps</h3><p>No cream background, italic accent words, numbered mono labels, pill buttons, gradient text, emoji icons, glass cards, purple-to-blue gradients, or rows of identical cards. No AI photography.</p></div>
+  </div>
+</section>
+
+<footer><div class="wrap">Concept only, Oct 17, 2026. Nothing here is live.</div></footer>
+</body>
+</html>

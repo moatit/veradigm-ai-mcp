@@ -1,0 +1,283 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Drawbridge Night Watch</title>
+<meta name="description" content="Concept C for Drawbridge, A MOATiT Service: dark-led, MOATiT shield, amber and blue. Concept only.">
+<meta name="robots" content="noindex">
+<link rel="icon" href="logo/favicon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600&family=Poppins:wght@300;400;500;600&display=swap" rel="stylesheet">
+<style>
+:root {
+  --night: #1A1A33;     /* deepened MOATiT ink: hero, footer */
+  --ink: #222236;       /* MOATiT heading ink: dark sections */
+  --navy: #3E3E84;      /* MOATiT navy: shield, panels */
+  --navy-2: #2C2C5C;
+  --mist: #AEB0D4;      /* secondary text on dark */
+  --fog: #F2F2FA;       /* primary text on dark */
+  --amber: #F5A623;     /* MOATiT amber: the crossing, primary button */
+  --gold: #C68010;
+  --gold-text: #8A5A0B;
+  --blue: #29AAE1;      /* MOATiT blue: water, verified */
+  --blue-700: #0F6E9C;
+  --slate: #5A5C78;
+  --line-d: rgba(174,176,212,.18);
+  --line: #DCDDEB;
+  --display: "Poppins", "Segoe UI", system-ui, sans-serif;
+  --text: "Barlow", "Segoe UI", system-ui, sans-serif;
+  --ease: cubic-bezier(.22,.7,.16,1);
+}
+*, *::before, *::after { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body { margin: 0; background: var(--night); color: var(--fog); font: 500 18px/1.6 var(--text); }
+img, svg { display: block; max-width: 100%; }
+a { color: inherit; }
+a:focus-visible { outline: 3px solid var(--amber); outline-offset: 3px; }
+h1, h2, h3 { font-family: var(--display); margin: 0; font-weight: 500; letter-spacing: -0.025em; }
+p { margin: 0; }
+.wrap { width: min(1240px, 100% - 32px); margin-inline: auto; }
+.btn { display: inline-flex; align-items: center; gap: 12px; min-height: 54px; padding: 0 26px; border-radius: 3px; background: var(--amber);
+  color: var(--night); text-decoration: none; font: 600 16px/1 var(--display); transition: background .2s; }
+.btn:hover { background: #FFB943; }
+.btn svg { width: 18px; height: 18px; }
+
+/* hero */
+.hero { position: relative; min-height: 100vh; min-height: 100svh; display: flex; flex-direction: column; overflow: hidden; }
+.top { position: relative; z-index: 2; }
+.top .wrap { display: flex; align-items: center; height: 92px; gap: 36px; }
+.top .logo img { height: 50px; width: auto; }
+.top nav { margin-left: auto; display: flex; gap: 30px; font: 500 15px/1 var(--display); }
+.top nav a { text-decoration: none; color: var(--mist); }
+.top nav a:hover { color: var(--fog); }
+.top .call { font: 500 15px/1 var(--display); text-decoration: none; color: var(--fog); padding: 12px 16px; border: 1px solid var(--line-d); border-radius: 3px; }
+
+.scene { position: absolute; inset: 0; z-index: 0; }
+.scene svg { position: absolute; right: 0; bottom: 0; width: min(700px, 48vw); height: auto; }
+.hero-copy { position: relative; z-index: 1; margin-top: auto; padding: 0 0 88px; }
+.hero h1 { font-size: clamp(44px, 6.6vw, 104px); line-height: .98; letter-spacing: -0.04em; max-width: 9.5ch; color: #fff; }
+.hero .lede { margin-top: 30px; max-width: 31em; color: var(--mist); font-size: 19px; }
+.hero .lede b { color: var(--fog); font-weight: 600; }
+.hero .actions { margin-top: 38px; display: flex; flex-wrap: wrap; gap: 18px 28px; align-items: center; }
+.hero .actions a.tel { font: 500 16px/1.4 var(--display); color: var(--mist); text-decoration: none; }
+.hero .actions a.tel span { color: var(--fog); }
+
+/* after hours */
+.night { background: var(--ink); padding: 128px 0; border-top: 1px solid var(--line-d); }
+.night .wrap { display: grid; grid-template-columns: minmax(0, 6fr) minmax(0, 6fr); gap: 72px; align-items: start; }
+.clock { font: 300 clamp(96px, 13vw, 200px)/.9 var(--display); letter-spacing: -0.05em; color: var(--fog); }
+.night .lead { position: sticky; top: 48px; }
+.night .lead p.clock { margin-top: 0; color: var(--fog); }
+.clock small { font-size: .26em; letter-spacing: 0; color: var(--amber); font-weight: 500; margin-left: .2em; vertical-align: .9em; }
+.night h2 { margin-top: 36px; font-size: clamp(28px, 2.8vw, 38px); line-height: 1.15; color: #fff; max-width: 18ch; }
+.night .lead p { margin-top: 18px; color: var(--mist); max-width: 30em; }
+.log { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--line-d); }
+.log li { display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 20px; padding: 24px 0; border-bottom: 1px solid var(--line-d); }
+.log time { font: 500 15px/1.6 var(--display); color: var(--mist); font-variant-numeric: tabular-nums; }
+.log h3 { font-size: 19px; letter-spacing: -0.01em; color: #fff; }
+.log p { margin-top: 6px; color: var(--mist); font-size: 16px; }
+.log li.now { position: relative; }
+.log li.now::before { content: ""; position: absolute; left: -24px; top: 24px; bottom: 24px; width: 3px; background: var(--amber); }
+.log .who { display: inline-block; margin-top: 10px; font: 600 13px/1 var(--display); color: var(--blue); }
+.log-note { margin-top: 18px; font-size: 14px; color: #8C8EB4; }
+
+/* security: the one light section */
+.sec { background: #fff; color: var(--ink); padding: 128px 0 120px; }
+.sec .wrap { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); gap: 80px; }
+.sec h2 { font-size: clamp(32px, 3.6vw, 52px); line-height: 1.06; color: var(--ink); }
+.sec .lead p { margin-top: 22px; color: var(--slate); max-width: 26em; }
+.sec .shield { width: 88px; margin-bottom: 36px; }
+.facts { margin: 0; }
+.facts div { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); gap: 28px; padding: 26px 0; border-top: 1px solid var(--line); }
+.facts div:last-child { border-bottom: 1px solid var(--line); }
+.facts dt { font: 500 19px/1.35 var(--display); color: var(--navy); letter-spacing: -0.01em; }
+.facts dd { margin: 0; color: var(--ink); }
+
+/* close */
+.close { background: var(--night); padding: 120px 0 0; }
+.close .wrap { position: relative; }
+.close .bar { height: 2px; background: linear-gradient(90deg, var(--amber) 0 72px, var(--line-d) 72px); }
+.close-grid { display: grid; grid-template-columns: minmax(0, 7fr) minmax(0, 5fr); gap: 56px; padding: 56px 0 96px; align-items: end; }
+.close h2 { font-size: clamp(30px, 3.4vw, 50px); line-height: 1.06; color: #fff; max-width: 16ch; }
+.close .reach { display: grid; gap: 10px; font: 500 17px/1.4 var(--display); }
+.close .reach a { text-decoration: none; color: var(--fog); }
+.close .reach span { color: var(--mist); font: 500 14px/1 var(--text); display: block; margin-bottom: 2px; }
+.close .btn { margin-top: 32px; }
+footer { background: var(--night); border-top: 1px solid var(--line-d); }
+footer .wrap { display: flex; gap: 32px 56px; justify-content: space-between; padding: 36px 0 56px; flex-wrap: wrap; align-items: start; }
+footer img { height: 40px; width: auto; }
+footer p { font-size: 14px; color: #8C8EB4; max-width: 60em; }
+
+.concept-tag { position: fixed; right: 16px; bottom: 16px; z-index: 5; background: var(--fog); color: var(--night); font: 500 12px/1 var(--display); padding: 10px 12px; border-radius: 3px; text-decoration: none; }
+
+/* motion: the crossing draws once (signature); quiet reveals elsewhere */
+.cross { stroke-dasharray: 1; stroke-dashoffset: 0; }
+@media (prefers-reduced-motion: no-preference) {
+  .js .cross { stroke-dashoffset: 1; animation: draw 2.4s .5s var(--ease) forwards; }
+  .js .traveller { opacity: 0; animation: arrive .6s 2.6s var(--ease) forwards; }
+  .js .door-glow { opacity: 0; animation: glow 1.6s 2.8s var(--ease) forwards; }
+  .js .water path { animation: drift 14s linear infinite alternate; }
+  .js .water path:nth-child(2) { animation-duration: 18s; }
+  .js .water path:nth-child(3) { animation-duration: 22s; }
+  .js [data-reveal] { opacity: 0; transform: translateY(14px); transition: opacity .8s var(--ease), transform .8s var(--ease); }
+  .js [data-reveal].in { opacity: 1; transform: none; }
+}
+@keyframes draw { to { stroke-dashoffset: 0; } }
+@keyframes arrive { to { opacity: 1; } }
+@keyframes glow { to { opacity: 1; } }
+@keyframes drift { from { transform: translateX(0); } to { transform: translateX(-24px); } }
+
+@media (max-width: 1080px) {
+  .top nav { display: none; }
+  .top .call { margin-left: auto; }
+  .night .wrap, .sec .wrap, .close-grid { grid-template-columns: 1fr; gap: 48px; }
+  .scene svg { width: 70vw; opacity: .5; }
+  .night .lead { position: static; }
+}
+@media (max-width: 640px) {
+  body { font-size: 17px; }
+  .top .wrap { height: 72px; }
+  .top .logo img { height: 38px; }
+  .top .call { display: none; }
+  .hero { min-height: 0; }
+  .scene { position: relative; height: 330px; order: 2; }
+  .scene svg { position: absolute; right: -4%; width: 108%; opacity: 1; bottom: 0; }
+  .hero-copy { margin-top: 32px; padding-bottom: 0; }
+  .hero h1 { font-size: 48px; }
+  .hero .lede { font-size: 18px; }
+  .night, .sec { padding: 80px 0; }
+  .log li { grid-template-columns: 76px minmax(0, 1fr); gap: 14px; }
+  .log li.now::before { left: -12px; }
+  .facts div { grid-template-columns: 1fr; gap: 8px; }
+  .btn { width: 100%; justify-content: center; }
+  .close { padding-top: 72px; }
+  .concept-tag { position: static; display: block; margin: 0 16px 24px; text-align: center; }
+}
+</style>
+</head>
+<body>
+<script>document.documentElement.classList.add('js')</script>
+
+<section class="hero">
+  <header class="top">
+    <div class="wrap">
+      <a class="logo" href="#"><img src="logo/lockup-reverse.svg" alt="Drawbridge, A MOATiT Service" width="300" height="50"></a>
+      <nav aria-label="Main"><a href="#">Fax and labs</a><a href="#">Phone assistant</a><a href="#">Security</a><a href="#">Pricing</a><a href="#">About</a></nav>
+      <a class="call" href="tel:+18555506628">(855) 550-6628</a>
+    </div>
+  </header>
+
+  <div class="scene" aria-hidden="true">
+    <svg viewBox="330 70 650 570" fill="none">
+      <!-- the gate: MOATiT's shield, drawn front-on -->
+      <g stroke="#AEB0D4" stroke-opacity=".55" stroke-width="1.5">
+        <path d="M640 96 L800 140 V290 C800 392 736 456 640 496 C544 456 480 392 480 290 V140 Z"/>
+        <path d="M640 120 L776 158 V290 C776 380 720 436 640 470 C560 436 504 380 504 290 V158 Z" stroke-opacity=".25"/>
+      </g>
+      <path d="M590 470 V360 A50 50 0 0 1 690 360 V470" stroke="#AEB0D4" stroke-opacity=".55" stroke-width="1.5"/>
+      <path class="door-glow" d="M590 470 V360 A50 50 0 0 1 690 360 V470 Z" fill="#F5A623" fill-opacity=".10"/>
+      <!-- the moat -->
+      <g class="water" stroke="#29AAE1" stroke-width="1.5" stroke-linecap="round">
+        <path d="M0 540 q20 -8 40 0 t40 0 t40 0 t40 0 t40 0 t40 0 t40 0 t40 0 t40 0 t40 0 t40 0 t40 0 t40 0 t40 0 t40 0 t40 0 t40 0 t40 0 t40 0 t40 0 t40 0 t40 0 t40 0 t40 0 t40 0 t40 0" stroke-opacity=".55"/>
+        <path d="M0 568 q20 -8 40 0 t40 0 t40 0 t40 0 t40 0 t40 0 t40 0 t40 0 t40 0 t40 0 t40 0 t40 0 t40 0 t40 0 t40 0 t40 0 t40 0 t40 0 t40 0 t40 0 t40 0 t40 0 t40 0 t40 0 t40 0 t40 0" stroke-opacity=".32"/>
+        <path d="M0 596 q20 -8 40 0 t40 0 t40 0 t40 0 t40 0 t40 0 t40 0 t40 0 t40 0 t40 0 t40 0 t40 0 t40 0 t40 0 t40 0 t40 0 t40 0 t40 0 t40 0 t40 0 t40 0 t40 0 t40 0 t40 0 t40 0 t40 0" stroke-opacity=".18"/>
+      </g>
+      <!-- the deck, lowered -->
+      <path d="M330 470 H690" stroke="#AEB0D4" stroke-opacity=".55" stroke-width="1.5"/>
+      <rect x="560" y="466" width="160" height="8" fill="#F5A623"/>
+      <!-- the crossing: one record's path, drawn once -->
+      <path class="cross" pathLength="1" d="M330 470 H560 Q600 470 610 440 L640 410" stroke="#F5A623" stroke-width="2"/>
+      <g class="traveller"><rect x="626" y="384" width="28" height="36" fill="#F2F2FA"/><path d="M632 394 h16 M632 401 h16 M632 408 h10" stroke="#3E3E84" stroke-width="2"/></g>
+    </svg>
+  </div>
+
+  <div class="hero-copy wrap">
+    <h1>Only the right record crosses.</h1>
+    <p class="lede">Drawbridge files your faxes and lab results and answers your phones, for practices on Veradigm EHR and Veradigm PM. <b>Two identifiers must match exactly one patient.</b> Anything less goes to a person.</p>
+    <div class="actions">
+      <a class="btn" href="#">Book a 20-minute walkthrough <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M3 10h13M11 5l5 5-5 5"/></svg></a>
+      <a class="tel" href="tel:+12089006628">or call <span>(208) 900-6628</span></a>
+    </div>
+  </div>
+</section>
+
+<main>
+  <section class="night">
+    <div class="wrap">
+      <div class="lead" data-reveal>
+        <p class="clock">2:14<small>AM</small></p>
+        <h2>Your front desk is closed. Drawbridge is not.</h2>
+        <p>Calls are answered, verified and handled. Faxes that arrive overnight are read and filed, or waiting for staff with the reason. The morning team starts with a short brief instead of a backlog.</p>
+      </div>
+      <div data-reveal>
+        <ol class="log" aria-label="A synthetic night">
+          <li><time>11:48 PM</time><div><h3>Lab result filed</h3><p>Name and date of birth matched exactly one patient. Review task sent to the ordering provider.</p><span class="who">Fax and labs</span></div></li>
+          <li class="now"><time>2:14 AM</time><div><h3>Visit cancelled, after a read-back</h3><p>The caller was verified first, then heard the change read back and said yes. The open slot is back on the schedule.</p><span class="who">Phone assistant</span></div></li>
+          <li><time>3:30 AM</time><div><h3>Urgent call to the on-call provider</h3><p>Transferred with a short brief, and logged in the on-call notebook.</p><span class="who">Phone assistant</span></div></li>
+          <li><time>6:45 AM</time><div><h3>Morning brief ready</h3><p>Overnight calls, filed results and anything waiting for a person, in one place.</p><span class="who">Staff tools</span></div></li>
+        </ol>
+        <p class="log-note">Synthetic sample night with invented patients.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="sec">
+    <div class="wrap">
+      <div class="lead" data-reveal>
+        <svg class="shield" viewBox="0 0 64 64" aria-hidden="true"><path fill="#3E3E84" fill-rule="evenodd" d="M32 4 L56 11 V30 C56 45 46 55 32 61 C18 55 8 45 8 30 V11 Z M24 52 V34 A8 8 0 0 1 40 34 V52 Z"/><rect x="20" y="47" width="24" height="5" fill="#C68010"/></svg>
+        <h2>The same care MOATiT gives every network it guards.</h2>
+        <p>Drawbridge is built and run by MOATiT, the Idaho IT and security company founded in 2013.</p>
+      </div>
+      <dl class="facts" data-reveal>
+        <div><dt>Agreement first</dt><dd>A business associate agreement is signed before any patient information flows.</dd></div>
+        <div><dt>Read on MOATiT's servers</dt><dd>Faxes are read page by page on MOATiT's own servers. The page never leaves MOATiT.</dd></div>
+        <div><dt>Callers verified on every call</dt><dd>Until a caller's identity is confirmed on that call, no patient record can be read or changed.</dd></div>
+        <div><dt>Every decision logged</dt><dd>Who, what and when, for every filing, every correction and every call.</dd></div>
+        <div><dt>A shadow week before go-live</dt><dd>Drawbridge suggests while your team files as usual. Nothing is filed for real until you approve.</dd></div>
+      </dl>
+    </div>
+  </section>
+
+  <section class="close">
+    <div class="wrap">
+      <div class="bar"></div>
+      <div class="close-grid">
+        <div>
+          <h2>See a fax cross, and a call answered, in 20 minutes.</h2>
+          <a class="btn" href="#">Book a walkthrough <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M3 10h13M11 5l5 5-5 5"/></svg></a>
+        </div>
+        <div class="reach">
+          <a href="tel:+12089006628"><span>Idaho</span>(208) 900-6628</a>
+          <a href="tel:+18555506628"><span>Toll-free</span>(855) 550-6628</a>
+          <a href="mailto:questions@moatit.com"><span>Email</span>questions@moatit.com</a>
+        </div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <img src="logo/lockup-reverse.svg" alt="Drawbridge, A MOATiT Service" width="240" height="40">
+    <p>Drawbridge is a service of MOATiT, LLC, Pocatello, Idaho. Samples use invented patients. Veradigm® is a registered trademark of Veradigm Inc. or its affiliates. References describe compatibility only and do not imply endorsement.</p>
+  </div>
+</footer>
+
+<a class="concept-tag" href="../index.html">Concept C of 3. Back to overview</a>
+
+<script>
+(function () {
+  var els = document.querySelectorAll('[data-reveal]');
+  if (!('IntersectionObserver' in window) || matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    els.forEach(function (e) { e.classList.add('in'); }); return;
+  }
+  var io = new IntersectionObserver(function (entries) {
+    entries.forEach(function (en) { if (en.isIntersecting) { en.target.classList.add('in'); io.unobserve(en.target); } });
+  }, { rootMargin: '0px 0px -8% 0px' });
+  els.forEach(function (e) { io.observe(e); });
+})();
+</script>
+</body>
+</html>
