@@ -32,7 +32,7 @@ export function statusBanner(status: SystemStatus): string {
   const o = s.outage;
   const alert = o?.down_alerted ? `Help desk notified ${esc(fmtTime(o.last_alert_at, 'time'))}.` : s.helpdesk_configured ? 'Notifying the help desk…' : 'Help-desk alerts are not configured: call MOATiT support.';
   const agent = s.overall === 'down' ? 'The phone agent is telling callers it cannot reach their records and is taking messages.' : 'Some phone-agent requests may fail.';
-  return `<div role="alert" style="background:var(--urgent-bg);color:var(--urgent);padding:9px 16px;font-weight:600;border-bottom:1px solid var(--line)">
+  return `<div role="alert" class="notice urgent">
 SYSTEM STATUS: ${s.overall === 'down' ? 'Veradigm® connection DOWN' : 'Veradigm® connection DEGRADED'} — ${downLine(s)}.
 <span style="font-weight:400">${agent}${o ? ` Messages taken: ${esc(o.messages_taken)}.` : ''} ${alert}</span> <a href="${APP_BASE}/veradigm" style="color:inherit">Details</a></div>`;
 }

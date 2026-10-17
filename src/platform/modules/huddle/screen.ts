@@ -9,8 +9,8 @@ import { dateLabel, money } from './dates';
 const STYLE = `<style>
 .hd-tools{display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap}.hd-tools label{display:flex;flex-direction:column;font-size:13px;color:var(--muted)}
 .hd-tools input{width:auto}.hd-tiles{grid-template-columns:repeat(auto-fit,minmax(150px,1fr))}.hd-tiles .card{margin:0}
-.hd-tiles .lbl{font-size:13px;color:var(--muted)}.pill.info{background:var(--line);color:var(--ink)}
-.pill.unknown{background:transparent;color:var(--muted);border:1px dashed var(--muted)}
+.hd-tiles .lbl{font-size:13px;color:var(--muted)}.pill.info{border-left-color:var(--navy);color:var(--ink)}
+.pill.unknown{background:transparent;color:var(--muted);border:1px dashed var(--field);border-left:3px solid var(--field)}
 .hd-cant{color:var(--muted);font-style:italic}.hd-flags .pill{display:inline-block;margin:0 4px 4px 0}
 .banner{border-left:4px solid var(--urgent);background:var(--urgent-bg)}.banner.warn{border-left-color:var(--warn);background:var(--warn-bg)}
 .hd-prov h3{margin-top:0}.hd-time{white-space:nowrap;font-weight:600}
