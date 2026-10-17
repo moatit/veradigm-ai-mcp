@@ -4,3 +4,4 @@ data/
 *.log
 .DS_Store
 scripts/brand/_og.html
+.preview-logs/

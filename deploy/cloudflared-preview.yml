@@ -1,0 +1,15 @@
+# Remote review previews for the Ledger look (synthetic data only). Run on Ali's desktop:
+#   /c/Users/alisj/cloudflared.exe tunnel --config deploy/cloudflared-preview.yml run drawbridge-preview
+# Stop it when the review is over; delete with `cloudflared tunnel delete drawbridge-preview`.
+tunnel: b79cfc22-c095-410e-9479-9e4ba2302232
+credentials-file: C:\Users\alisj\.cloudflared\b79cfc22-c095-410e-9479-9e4ba2302232.json
+protocol: http2
+
+ingress:
+  - hostname: drawbridge-preview.moatit.dev          # marketing site (scripts/serve.mjs, preview build)
+    service: http://127.0.0.1:4417
+  - hostname: drawbridge-portal-preview.moatit.dev   # staff portal demo instance
+    service: http://127.0.0.1:4320
+  - hostname: drawbridge-admin-preview.moatit.dev    # admin dashboard demo instance
+    service: http://127.0.0.1:5092
+  - service: http_status:404
