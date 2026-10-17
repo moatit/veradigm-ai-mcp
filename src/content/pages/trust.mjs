@@ -21,7 +21,7 @@ export const security = {
   body: `${pageHero({
     eyebrow: "Trust center",
     title: 'Security &amp; HIPAA, <span class="accent-i">in plain words.</span>',
-    lede: "What patient information Drawbridge handles, how it's protected, and what is still in progress. We list only what is true today, and say so when something isn't finished.",
+    lede: "What patient information Drawbridge handles, how it's protected, and what is still in progress. We list what is true today, and label work in progress as in progress.",
     crumbs: [{ name: "Security & HIPAA", href: "/security/" }],
     actions: btnPrimary("Request our security packet", "/contact/?topic=security") + btnSecondary("Email questions@moatit.com", "mailto:questions@moatit.com?subject=Drawbridge%20security"),
   })}
@@ -119,7 +119,7 @@ export const security = {
     <ul class="checks">
       <li><span>Two identifiers, one patient, no conflicts, or the document goes to a person</span></li>
       <li><span>Records requests, prior authorizations, refill requests and referrals always to a person by default</span></li>
-      <li><span>Original documents filed unaltered; Drawbridge never summarizes or edits clinical content</span></li>
+      <li><span>Original documents filed exactly as received, with clinical content left as written</span></li>
       <li><span>A shadow week before any filing; switch on in stages</span></li>
       <li><span>No medical advice on the phone; emergencies told to call 911</span></li>
       <li><span>Read-back and a yes before any appointment change</span></li>
@@ -181,7 +181,7 @@ export const integrations = {
           <li><span>Tasks: provider review tasks and staff messages</span></li>
           <li><span>Scanned documents filed to the chart</span></li>
         </ul>
-        <p class="small">Drawbridge never writes clinical content: no notes, orders, results values or medication changes.</p>
+        <p class="small">Clinical content (notes, orders, result values and medications) stays with your clinicians; Drawbridge writes only the items above.</p>
       </div>
     </div>
   </div>

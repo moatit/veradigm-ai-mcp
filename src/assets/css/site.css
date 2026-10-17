@@ -177,6 +177,9 @@ hr { border: 0; border-top: 1px solid var(--line); margin: 2rem 0; }
 
 /* the ledger: five synthetic faxes, two filed and three handed to a person */
 .ledger { margin-top: clamp(2.5rem, 6vw, 4.5rem); border-top: 1px solid var(--ink); }
+.ledger-sample { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.25rem 0.9rem; margin: 0; padding: 0.75rem 1rem; background: var(--ink); color: #fff; font-size: 0.95rem; line-height: 1.45; }
+.ledger-sample b { font: 600 0.9rem/1.3 var(--font-display); letter-spacing: 0.06em; text-transform: uppercase; }
+.ledger-sample span { color: #D9DAEA; }
 .ledger-head { display: flex; justify-content: space-between; align-items: baseline; gap: 0.4rem 1rem; padding: 1rem 0; flex-wrap: wrap; }
 .ledger-head h2 { font: 600 1.05rem/1.3 var(--font-display); letter-spacing: -0.01em; margin: 0; }
 .ledger-head p { font-size: 0.95rem; color: var(--slate); margin: 0; }

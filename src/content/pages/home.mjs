@@ -8,18 +8,18 @@ import {
 export const HEROES = {
   a: {
     kicker: "Drawbridge, MOATiT's AI technology for healthcare practices",
-    h1: 'Lab results filed. Calls answered. <span class="accent-i">Nothing guessed.</span>',
-    lede: `For practices on <strong>Veradigm® EHR and Veradigm® Practice Management</strong>. Drawbridge reads incoming faxes and lab results and files them to the right patient's chart, and its phone assistant answers your line 24/7, verifying every caller before it shares a thing. When it isn't sure, it hands the work to a person. <strong>More capacity for the team you already have.</strong>`,
+    h1: 'Lab results filed. Calls answered. <span class="accent-i">Every one checked.</span>',
+    lede: `For practices on <strong>Veradigm® EHR and Veradigm® Practice Management</strong>. Drawbridge reads incoming faxes and lab results and files them to the right patient's chart, and its phone assistant answers your line 24/7, verifying every caller before it shares a thing. Anything that needs judgment goes to a person, already read and explained. <strong>More capacity for the team you already have.</strong>`,
   },
   fax: {
     kicker: "Drawbridge fax &amp; lab intake, A MOATiT Service",
-    h1: 'Stop indexing faxes <span class="accent-i">by hand.</span>',
-    lede: `Drawbridge reads every incoming fax and lab result, matches it to exactly one patient on full name and date of birth, and files it to the right category in <strong>Veradigm® EHR</strong>, with a review task for the ordering provider. Anything uncertain lands in your staff queue, already read, so your team spends its time on patients instead of paperwork.`,
+    h1: 'Every fax and lab result, <span class="accent-i">filed for you.</span>',
+    lede: `Drawbridge reads every incoming fax and lab result, matches it to exactly one patient on full name and date of birth, and files it to the right category in <strong>Veradigm® EHR</strong>, with a review task for the ordering provider. Anything that needs a person lands in your staff queue, already read, so your team spends its time on patients.`,
   },
   phone: {
     kicker: "Drawbridge phone assistant, A MOATiT Service",
     h1: 'Every call answered, <span class="accent-i">even at 2 a.m.</span>',
-    lede: `Drawbridge answers your clinic line around the clock. It verifies callers, books, moves and confirms visits in <strong>Veradigm® Practice Management</strong> with a read-back, and takes clear messages for your staff. Emergencies are told to call 911. It never gives medical advice.`,
+    lede: `Drawbridge answers your clinic line around the clock. It verifies callers, books, moves and confirms visits in <strong>Veradigm® Practice Management</strong> with a read-back, and takes clear messages for your staff. Emergencies are directed to 911, and clinical questions stay with your clinicians.`,
   },
 };
 
@@ -51,8 +51,8 @@ export const demoBand = () => `<section class="section on-white" id="demo" aria-
     </div>
     <div class="demo-grid">
       <div class="demo-col sticky" id="sample-filing">
-        <h3>A fax it isn't sure about</h3>
-        <p>The sample at the top was filed. This one wasn't: the address on the fax disagrees with the chart, so it goes to a person, already read, with the reason.</p>
+        <h3>A fax that needs a person</h3>
+        <p>This one goes to a person: the address on the fax differs from the chart, so staff receive it already read, with the reason and a suggested patient.</p>
         ${reviewCard("demo-review")}
       </div>
       <div class="demo-col" id="sample-call">
@@ -70,16 +70,16 @@ export const rulesSection = () => `<section class="section on-night blueprint" i
     <div class="section-head">
       <p class="eyebrow">The drawbridge rules</p>
       <h2 id="rules-title">AI reads the page. <span class="accent-i">Rules you can audit</span> decide where it goes.</h2>
-      <p class="lede">A drawbridge only comes down for the right traveler. Drawbridge works the same way: nothing reaches a chart or a caller unless it passes these checks, and every decision is logged.</p>
+      <p class="lede">A drawbridge only comes down for the right traveler. Drawbridge works the same way: every document and every caller passes these checks first, and every decision is logged.</p>
     </div>
     <div class="rules">
       <div class="rule"><span class="n">Rule 1</span><h3>Two identifiers, one patient.</h3><p>Full name and date of birth must match exactly one patient. A last-4 SSN or address on the document must agree too. Look-alikes, twins and conflicts go to a person.</p></div>
-      <div class="rule"><span class="n">Rule 2</span><h3>Never guess between patients.</h3><p>More than one patient on a page, an unreadable page in a batch, or a misread digit: the document waits for staff, with the reason written on it.</p></div>
-      <div class="rule"><span class="n">Rule 3</span><h3>Some documents always go to a person.</h3><p>Records requests, prior authorizations, refill requests and referrals are never auto-filed by default. Your practice sets the list.</p></div>
-      <div class="rule"><span class="n">Rule 4</span><h3>Critical results get attention, not silence.</h3><p>Lab critical flags create a High-priority review task marked CRITICAL, with a phone call required. Same-day rules never suppress them.</p></div>
-      <div class="rule"><span class="n">Rule 5</span><h3>Verify the caller before anything else.</h3><p>Enforced by the server, not just the script: until a caller is verified on that call, no patient record can be read or changed.</p></div>
+      <div class="rule"><span class="n">Rule 2</span><h3>Close calls go to your staff.</h3><p>More than one patient on a page, a hard-to-read page in a batch, or a doubtful digit: the document goes to staff, with the reason written on it.</p></div>
+      <div class="rule"><span class="n">Rule 3</span><h3>Some documents always go to a person.</h3><p>Records requests, prior authorizations, refill requests and referrals always go to staff by default. Your practice sets the list.</p></div>
+      <div class="rule"><span class="n">Rule 4</span><h3>Critical results get attention right away.</h3><p>Lab critical flags create a High-priority review task marked CRITICAL, with a phone call required. They notify even on same-day visits.</p></div>
+      <div class="rule"><span class="n">Rule 5</span><h3>Verify the caller before anything else.</h3><p>Enforced by the server itself: the caller is verified on the call before any patient record is read or changed.</p></div>
       <div class="rule"><span class="n">Rule 6</span><h3>Read it back. Wait for a yes.</h3><p>Every booking, move, cancellation and confirmation is read back to the caller and made only after they agree.</p></div>
-      <div class="rule"><span class="n">Rule 7</span><h3>No medical advice. 911 for emergencies.</h3><p>The assistant never interprets results or medications. Emergencies hear one clear line: hang up and call 911 now.</p></div>
+      <div class="rule"><span class="n">Rule 7</span><h3>Clinical questions go to clinicians. Emergencies go to 911.</h3><p>The assistant leaves results and medications to your clinical team. Emergencies hear one clear line: hang up and call 911 now.</p></div>
       <div class="rule"><span class="n">Rule 8</span><h3>A person, whenever you ask.</h3><p>Callers can ask for staff at any time. After hours, urgent calls go to your on-call provider with a short brief.</p></div>
     </div>
   </div>
@@ -89,8 +89,8 @@ export const rolloutSection = () => `<section class="section" id="rollout" aria-
   <div class="wrap">
     <div class="section-head">
       <p class="eyebrow">Going live</p>
-      <h2 id="rollout-title">Nothing changes for your staff until you've seen <span class="accent-i">a week of proof.</span></h2>
-      <p class="lede">Turnkey. With your permission, we enable Drawbridge on your existing Veradigm® setup. Nothing about how you work has to change: no new fax lines, no change to how your lab sends results, nothing for staff to install. If MOATiT already supports your IT, we take care of all of it.</p>
+      <h2 id="rollout-title">Your staff keep working as usual through <span class="accent-i">a week of proof.</span></h2>
+      <p class="lede">Turnkey. With your permission, we enable Drawbridge on your existing Veradigm® setup. You keep your fax lines, your lab's result flow and your staff's computers exactly as they are. If MOATiT already supports your IT, we take care of all of it.</p>
     </div>
     <ol class="flow cols-4">
       <li><h3>Five-minute setup sheet</h3><p>Your practice manager answers 15 policy questions: who reviews results, which documents always go to a person, booking rules.</p></li>
@@ -105,7 +105,7 @@ export const rolloutSection = () => `<section class="section" id="rollout" aria-
 export default {
   path: "/",
   title: "Drawbridge: AI fax intake & phone assistant for medical practices | A MOATiT Service",
-  ogTitle: "Drawbridge: lab results filed, calls answered, nothing guessed",
+  ogTitle: "Drawbridge: lab results filed, calls answered, every one checked",
   description:
     "Drawbridge is MOATiT's AI technology for healthcare practices. It files faxes and lab results to the right patient chart and answers your phone line 24/7, verifying every caller. Integrates with Veradigm® EHR and PM.",
   app: true,
@@ -135,7 +135,7 @@ ${demoBand()}
     <div class="section-head">
       <p class="eyebrow">The future of your practice</p>
       <h2 id="vision-title">Is your Veradigm® practice ready to be <span class="accent-i">agentified?</span></h2>
-      <p class="lede">Drawbridge adds capacity. It isn't a replacement for your current system or your staff; it multiplies what they can do. Your team does the work they're great at, with patients and care, while Drawbridge handles the repetitive indexing and the routine calls.</p>
+      <p class="lede">Drawbridge adds capacity. It works alongside your current system and your staff and multiplies what they can do. Your team does the work they're great at, with patients and care, while Drawbridge handles the repetitive indexing and the routine calls.</p>
     </div>
     <div class="grid grid-3">
       <div class="card"><div class="icon">${icon("users")}</div><h3>More capacity, same team</h3><p>Drawbridge is built so the same team can serve many times more patients. Imagine your front desk handling ten times the volume without adding headcount.</p></div>
@@ -268,8 +268,8 @@ ${rolloutSection()}
     </div>
     <blockquote>
       <p>For more than a decade we've run the networks, phones, fax lines and EHR hosting behind medical practices in Idaho and the Intermountain West. We've watched front-desk teams spend their mornings indexing faxes and their afternoons on hold.</p>
-      <p>We built Drawbridge to give that time back to patients and care, without ever trading safety for speed. It isn't a replacement for your systems or your people; it multiplies what they can do. It files what it is sure of, explains what it isn't, and leaves the judgment calls to your team.</p>
-      <footer class="small note-sign">— The MOATiT team, Pocatello, Idaho</footer>
+      <p>We built Drawbridge to give that time back to patients and care, without ever trading safety for speed. It works alongside your systems and your people and multiplies what they can do. It files the clear matches, explains the rest, and leaves the judgment calls to your team.</p>
+      <footer class="small note-sign">The MOATiT team, Pocatello, Idaho</footer>
     </blockquote>
   </div>
 </section>

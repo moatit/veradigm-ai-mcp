@@ -32,21 +32,24 @@ body{border-top:10px solid #29AAE1;box-sizing:border-box;position:relative}
 .logo{position:absolute;left:72px;top:56px;height:78px}
 h1{position:absolute;left:72px;top:176px;width:1000px;margin:0;font:500 70px/1.02 Poppins,sans-serif;letter-spacing:-2.4px}
 h1 span{color:#0F6E9C}
-.rows{position:absolute;left:72px;right:72px;bottom:86px;border-top:2px solid #222236;font:500 22px/1 Barlow,sans-serif}
-.r{display:grid;grid-template-columns:120px 1fr 230px;align-items:center;gap:20px;padding:16px 0;border-bottom:1px solid #DCE3EA}
+.rows{position:absolute;left:72px;right:72px;bottom:86px;font:500 22px/1 Barlow,sans-serif}
+.sample{display:flex;gap:16px;align-items:baseline;background:#222236;color:#fff;padding:12px 16px;font:500 18px/1.2 Barlow,sans-serif}
+.sample b{font:600 17px/1 Poppins,sans-serif;letter-spacing:1px;text-transform:uppercase}
+.sample span{color:#D9DAEA}
+.r{display:grid;grid-template-columns:120px 1fr 230px;align-items:center;gap:20px;padding:13px 0;border-bottom:1px solid #DCE3EA}
 .r i{font-style:normal;color:#5A5C78;font-variant-numeric:tabular-nums}
 .r b{justify-self:start;font:600 18px/1 Poppins,sans-serif;padding:8px 12px;border-left:4px solid #29AAE1;background:#EAF6FC}
 .r b.p{border-color:#C68010;background:#FBF1DF;color:#8A5A0B}
 .u{position:absolute;left:72px;bottom:34px;font:600 20px Barlow,sans-serif;color:#5A5C78}
-.s{position:absolute;right:72px;bottom:34px;font:500 18px Barlow,sans-serif;color:#8A5A0B}
 </style></head><body>
 <img class="logo" src="%(brand)s/drawbridge-lockup.svg">
-<h1>Lab results filed. Calls answered. <span>Nothing guessed.</span></h1>
+<h1>Lab results filed. Calls answered. <span>Every one checked.</span></h1>
 <div class="rows">
+<div class="sample"><b>Synthetic sample</b><span>Invented patients, for illustration</span></div>
 <div class="r"><i>7:42</i><span>Lab result, 3 pages</span><b>Filed</b></div>
 <div class="r"><i>8:11</i><span>Lab batch, two patients on one page</span><b class="p">To a person</b></div>
 </div>
-<div class="u">drawbridge.moatit.com</div><div class="s">Synthetic sample, invented patients</div>
+<div class="u">drawbridge.moatit.com</div>
 </body></html>"""
 
 

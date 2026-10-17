@@ -8,7 +8,7 @@ Preview page (local build): `/brand/` (noindex). Source files: `brand/logo/`. Ge
 
 ## 1. The idea
 
-MOATiT's name is a moat: the protection around a practice's systems. Drawbridge is the one **controlled crossing**: it comes down only for the right patient. That is the product's real behavior: two identifiers or the document doesn't cross, and callers are verified before anything is shared. Lines to use: *"Nothing guessed."*, *"AI reads the page. Rules you can audit decide where it goes."*, *"The drawbridge rules."*
+MOATiT's name is a moat: the protection around a practice's systems. Drawbridge is the one **controlled crossing**: it comes down only for the right patient. That is the product's real behavior: a document crosses on two matching identifiers, and callers are verified before anything is shared. Lines to use: *"Every one checked."*, *"AI reads the page. Rules you can audit decide where it goes."*, *"The drawbridge rules."*
 
 Ledger shows that behavior instead of illustrating it: a morning's synthetic faxes, the ones that filed and the ones that went to a person, each with the reason.
 
@@ -83,7 +83,8 @@ Both faces are MOATiT's own: Poppins from the MOATiT documents, Barlow from moat
 
 - Plain words, short sentences, the practice's vocabulary (charts, faxes, front desk), never "MCP", "FHIR", "Unity", "pipeline" or "agentic".
 - Honest by default: synthetic-test numbers are labeled "Synthetic test" with N, date and method; unfinished items say "in progress".
-- Safety before speed: always say what happens when Drawbridge isn't sure.
+- Safety before speed: always say what happens when a document needs a person.
+- Say what Drawbridge does, in positive terms. Don't prove a strength by negation ("nothing guessed", "never guesses", "won't release"). Keep required disclosures (no medical advice, synthetic test, not a guarantee) plain and factual.
 - No em dashes and none of these words in new copy: leverage, seamless, empower, unlock, robust, actionable, elevate, delve, solutions.
 - No invented testimonials, logos, awards or customer names. No client names at all until a client gives written permission.
 

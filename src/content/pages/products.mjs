@@ -2,8 +2,8 @@ import { CTA, COMPAT_LINE } from "../site.mjs";
 import { pageHero } from "../layout.mjs";
 import { icon, btnPrimary, btnSecondary, gateCard, reviewCard, callCard, proofCards, ctaBand, faqList, faqSchema, FAQS, itNeedsBlock } from "../partials.mjs";
 
-const faxFaqs = FAQS.filter((f) => /right patient|isn't sure|always handled|going live|IT team|train AI|stored/i.test(f.q));
-const phoneFaqs = FAQS.filter((f) => /medical advice|verify callers|isn't sure|IT team|HIPAA/i.test(f.q));
+const faxFaqs = FAQS.filter((f) => /right patient|needs a person|always handled|going live|IT team|train AI|stored/i.test(f.q));
+const phoneFaqs = FAQS.filter((f) => /medical advice|verify callers|needs a person|IT team|HIPAA/i.test(f.q));
 
 export const fax = {
   path: "/fax-lab-intake/",
@@ -16,7 +16,7 @@ export const fax = {
   body: `${pageHero({
     eyebrow: "Fax &amp; lab-result intake",
     title: 'The fax pile, <span class="accent-i">filed</span>, to the right chart.',
-    lede: "Drawbridge reads every fax, emailed result and lab drop file on MOATiT's own servers, matches it to exactly one patient, files it to the right category in Veradigm® EHR and tells the right provider. Anything it isn't sure of goes to your staff, already read, with the reason.",
+    lede: "Drawbridge reads every fax, emailed result and lab drop file on MOATiT's own servers, matches it to exactly one patient, files it to the right category in Veradigm® EHR and tells the right provider. Anything that needs judgment goes to your staff, already read, with the reason.",
     crumbs: [{ name: "Fax & lab intake", href: "/fax-lab-intake/" }],
     actions: btnPrimary() + btnSecondary("See a fax get filed", "#sample-filing"),
   })}
@@ -40,7 +40,7 @@ export const fax = {
   <div class="wrap">
     <div class="section-head">
       <p class="eyebrow">Samples</p>
-      <h2 id="sample-title">Filed when sure. <span class="accent-i">Handed over when not.</span></h2>
+      <h2 id="sample-title">Clear matches filed. <span class="accent-i">Close calls handed over.</span></h2>
     </div>
     <div class="demo-grid">
       <div class="demo-col">${gateCard("fax-gate")}<p class="mt-1"><button class="btn-link btn-replay" type="button" data-replay="fax-gate">Replay the filing</button></p></div>
@@ -55,9 +55,9 @@ export const fax = {
       <h2 id="features-title">Built around how practices actually receive results.</h2>
     </div>
     <div class="grid grid-3">
-      <div class="card"><div class="icon">${icon("user")}</div><h3>Patient matching that never guesses</h3><p>Two identifiers (full name and date of birth) matching exactly one patient. A conflicting MRN, phone, SSN last 4 or address sends the document to staff, even when everything else agrees. Twins and look-alike names are checked for on every decision.</p></div>
-      <div class="card"><div class="icon">${icon("split")}</div><h3>Daily lab batches, split by patient</h3><p>One file with many patients' results is read page by page and cut into one document per patient, each matched and filed on its own. Any doubt about a page, and the whole file goes to staff.</p></div>
-      <div class="card"><div class="icon">${icon("alert")}</div><h3>Critical results, flagged</h3><p>A lab's critical flags (HH, LL, CRITICAL, PANIC) create a High-priority review task marked CRITICAL, with a phone call recorded as required. Drawbridge never places that call itself.</p></div>
+      <div class="card"><div class="icon">${icon("user")}</div><h3>Patient matching on two identifiers</h3><p>Two identifiers (full name and date of birth) matching exactly one patient. A conflicting MRN, phone, SSN last 4 or address sends the document to staff, even when everything else agrees. Twins and look-alike names are checked for on every decision.</p></div>
+      <div class="card"><div class="icon">${icon("split")}</div><h3>Daily lab batches, split by patient</h3><p>One file with many patients' results is read page by page and cut into one document per patient, each matched and filed on its own. If any page needs a second look, the whole file goes to staff.</p></div>
+      <div class="card"><div class="icon">${icon("alert")}</div><h3>Critical results, flagged</h3><p>A lab's critical flags (HH, LL, CRITICAL, PANIC) create a High-priority review task marked CRITICAL, with a phone call recorded as required. Your staff make that call.</p></div>
       <div class="card"><div class="icon">${icon("users")}</div><h3>Review task to the ordering provider</h3><p>Drawbridge reads the ordering provider from the document and matches them to one of your EHR users. If it can't, the task goes to your designated reviewer.</p></div>
       <div class="card"><div class="icon">${icon("calendar")}</div><h3>Same-day appointment rule</h3><p>If your providers see same-day results at the visit, results collected on an appointment day can be filed without an extra task. Critical results always notify.</p></div>
       <div class="card"><div class="icon">${icon("clipboard")}</div><h3>Always to a person</h3><p>Records requests, prior authorizations, refill requests and referrals go to staff by default, even with a perfect match. Your practice decides the list.</p></div>
@@ -122,7 +122,7 @@ export const phone = {
     <div>
       <p class="eyebrow">A sample call</p>
       <h2 id="call-title">Verified, offered, read back, booked.</h2>
-      <p class="lede">The assistant asks for name and date of birth first. Drawbridge's server won't release or change any record until they match exactly one patient on that call.</p>
+      <p class="lede">The assistant asks for name and date of birth first. Drawbridge's server releases or changes a record only after they match exactly one patient on that call.</p>
       <ul class="checks">
         <li><span>Upcoming visits and open appointment times</span></li>
         <li><span>Book, reschedule, cancel and confirm, always with a read-back and a yes</span></li>
@@ -143,10 +143,10 @@ export const phone = {
       <h2 id="safety-title">Friendly on the phone. <span class="accent-i">Strict on the server.</span></h2>
     </div>
     <div class="grid grid-3">
-      <div class="card"><div class="icon">${icon("key")}</div><h3>Identity before information</h3><p>First name, last name and date of birth must match exactly one patient. The server refuses any record request for someone not verified on that call, and logs it.</p></div>
+      <div class="card"><div class="icon">${icon("key")}</div><h3>Identity before information</h3><p>First name, last name and date of birth must match exactly one patient. The server answers record requests only for people verified on that call, and logs every attempt.</p></div>
       <div class="card"><div class="icon">${icon("users")}</div><h3>Family calls, within limits</h3><p>A parent can handle a child's visit: each person is verified on their own. At most two people per call, and lookups are capped to stop fishing.</p></div>
-      <div class="card"><div class="icon">${icon("alert")}</div><h3>911 and no medical advice</h3><p>Emergencies hear one line: "If this is an emergency, please hang up and call 911 now." The assistant never interprets results, symptoms or medications.</p></div>
-      <div class="card"><div class="icon">${icon("refresh")}</div><h3>Read-back on every change</h3><p>Nothing is booked, moved or cancelled until the caller hears the change and says yes. A reschedule keeps the old visit until the new one is booked.</p></div>
+      <div class="card"><div class="icon">${icon("alert")}</div><h3>911 for emergencies, clinicians for clinical questions</h3><p>Emergencies hear one line: "If this is an emergency, please hang up and call 911 now." The assistant leaves results, symptoms and medications to your clinical team.</p></div>
+      <div class="card"><div class="icon">${icon("refresh")}</div><h3>Read-back on every change</h3><p>Every booking, move and cancellation happens after the caller hears the change and says yes. A reschedule keeps the old visit until the new one is booked.</p></div>
       <div class="card"><div class="icon">${icon("eye")}</div><h3>Recordings with PII redacted</h3><p>Call recordings and transcripts have personal details redacted after the call and are kept 30 days.</p></div>
       <div class="card"><div class="icon">${icon("server")}</div><h3>Honest when systems are down</h3><p>If the EHR connection drops, callers hear so right away and can leave a message or be transferred. Your help desk is alerted automatically.</p></div>
     </div>

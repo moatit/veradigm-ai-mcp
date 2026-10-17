@@ -53,8 +53,8 @@ export const addressLine = () =>
 export const trustStrip = () => `<div class="trust-strip" role="list">
   <div role="listitem">${icon("shield")}<span><strong>BAA with every practice</strong>HIPAA business associate agreement before any patient data flows.</span></div>
   <div role="listitem">${icon("eye")}<span><strong>A shadow week first</strong>Drawbridge watches and compares for a week before it files anything.</span></div>
-  <div role="listitem">${icon("user")}<span><strong>Unsure? It goes to a person</strong>No guessing between patients. Ever.</span></div>
-  <div role="listitem">${icon("link")}<span><strong>${COMPAT_LINE}</strong>Turnkey: enabled on your existing setup with your permission. No new fax lines, no rip-and-replace.</span></div>
+  <div role="listitem">${icon("user")}<span><strong>A person for every close call</strong>Anything that needs judgment goes to your staff, already read.</span></div>
+  <div role="listitem">${icon("link")}<span><strong>${COMPAT_LINE}</strong>Turnkey: enabled on your existing setup with your permission. Keep your fax lines and your systems.</span></div>
 </div>`;
 
 // ---------------------------------------------------------------- intake ledger (home hero; synthetic)
@@ -63,13 +63,14 @@ const LEDGER = [
   ["7:42", "Lab result, 3 pages", "Rowan Ellery", "04/12/1961", "1", "ok", "Filed", "Lab Results. Review task to the ordering provider."],
   ["7:58", "Imaging report, 2 pages", "Jordan Pike", "09/30/1974", "1", "person", "To a person", "The address on the page differs from the chart."],
   ["8:05", "Referral letter, 4 pages", "Amara Quinn", "02/17/1988", "1", "person", "To a person", "Referrals always go to staff. Your practice set that rule."],
-  ["8:11", "Lab batch, 6 pages", "Two names on page 4", "Two dates", "2", "person", "To a person", "Two patients on one page. Nothing guessed."],
+  ["8:11", "Lab batch, 6 pages", "Two names on page 4", "Two dates", "2", "person", "To a person", "Two patients on one page. Staff split it."],
   ["8:20", "Lab result, 1 page", "Dana Whitlock", "11/03/1956", "1", "ok", "Filed", "Critical flag: high-priority task, call required."],
 ];
-export const intakeLedger = () => `<div class="ledger" role="region" aria-labelledby="ledger-title">
+export const intakeLedger = () => `<div class="ledger" role="region" aria-labelledby="ledger-title" aria-describedby="ledger-sample">
+  <p class="ledger-sample" id="ledger-sample"><b>Synthetic sample</b><span>Invented patients and documents, shown to illustrate how Drawbridge handles a morning's faxes.</span></p>
   <div class="ledger-head">
-    <h2 id="ledger-title">This morning's faxes</h2>
-    <p>Synthetic sample, invented patients. Filed: 2. <b>Sent to a person: 3.</b></p>
+    <h2 id="ledger-title">Sample morning: five incoming faxes</h2>
+    <p>Filed: 2. <b>Sent to a person: 3.</b></p>
   </div>
   <div class="ledger-rows" role="table" aria-labelledby="ledger-title">
     <div class="lr-head" role="row"><span role="columnheader">Time</span><span role="columnheader">Document</span><span role="columnheader">Full name</span><span role="columnheader">Date of birth</span><span role="columnheader">Matches</span><span role="columnheader">Outcome</span></div>
@@ -78,7 +79,7 @@ ${LEDGER.map(([t, doc, name, dob, n, kind, out, why]) => {
   return `    <div class="lr" role="row"><span role="cell" class="lr-time">${t}</span><span role="cell" class="lr-doc">${doc}</span><span role="cell" class="lr-${id}">${name}</span><span role="cell" class="lr-${id}">${dob}</span><span role="cell" class="lr-n">${n}</span><span role="cell" class="lr-out${kind === "person" ? " person" : ""}"><b>${out}</b><em>${why}</em></span></div>`;
 }).join("\n")}
   </div>
-  <p class="ledger-foot">Every decision is logged with who, what and when. Staff confirm or correct a suggestion with one click.</p>
+  <p class="ledger-foot">Synthetic sample with invented patients. In practice, every decision is logged with who, what and when, and staff confirm or correct a suggestion with one click.</p>
 </div>`;
 
 // ---------------------------------------------------------------- sample filing (animated)
@@ -89,8 +90,8 @@ export const gateCard = (id = "gate-demo") => `<figure class="gate-card" id="${i
     <div class="meta"><strong>Outside lab result · 3 pages</strong>Sender: reference lab (sample)<br>Patient: Rowan Ellery · DOB 04/12/1961</div>
   </div>
   <ol class="gate-steps">
-    <li><span class="ok">${icon("check")}</span><span><b>Read on MOATiT's servers</b><span class="d">Page by page. The fax never leaves MOATiT.</span></span></li>
-    <li><span class="ok">${icon("check")}</span><span><b>Matched: full name + date of birth</b><span class="d">Exactly one patient. No look-alikes, no conflicting address.</span></span></li>
+    <li><span class="ok">${icon("check")}</span><span><b>Read on MOATiT's servers</b><span class="d">Page by page. The fax stays with MOATiT.</span></span></li>
+    <li><span class="ok">${icon("check")}</span><span><b>Matched: full name + date of birth</b><span class="d">Exactly one patient, with every identifier in agreement.</span></span></li>
     <li><span class="ok">${icon("check")}</span><span><b>Category: Lab Results</b><span class="d">Your clinic's own category name.</span></span></li>
     <li><span class="ok">${icon("check")}</span><span><b>Review task → ordering provider</b><span class="d">Linked to the filed document in the EHR task list.</span></span></li>
   </ol>
@@ -107,7 +108,7 @@ export const reviewCard = (id = "review-demo") => `<figure class="gate-card revi
   </div>
   <ol class="gate-steps">
     <li><span class="ok">${icon("check")}</span><span><b>Name + date of birth match one patient</b></span></li>
-    <li class="warn"><span class="ok">${icon("alert")}</span><span><b>Address on the document is different</b><span class="d">An old address, or someone else. Drawbridge doesn't guess.</span></span></li>
+    <li class="warn"><span class="ok">${icon("alert")}</span><span><b>Address on the document is different</b><span class="d">An old address, or someone else. A person decides.</span></span></li>
   </ol>
   <div class="review-actions" aria-hidden="true"><span class="fake-btn primary">File to Jordan Pike</span><span class="fake-btn">Choose another patient</span></div>
   <figcaption class="sample-note" id="${id}-cap">Illustration with an invented patient. Staff confirm or correct with one click; every decision is logged with who and when.</figcaption>
@@ -206,13 +207,13 @@ export const FAQS = [
     home: true,
   },
   {
-    q: "What happens when Drawbridge isn't sure?",
-    a: "It doesn't guess. The document goes to your staff review queue with the reason (for example, 'address on the document is different'), already read and with its best suggestion, so staff can file or correct it with one click. On the phone, the assistant offers a transfer during business hours or takes a message.",
+    q: "What happens when a document needs a person?",
+    a: "It goes to your staff review queue with the reason (for example, 'address on the document is different'), already read and with its best suggestion, so staff can file or correct it with one click. On the phone, the assistant offers a transfer during business hours or takes a message.",
     home: true,
   },
   {
     q: "Are some documents always handled by a person?",
-    a: "Yes. By default, records requests, prior authorizations, refill requests and referrals always go to your staff, even when the patient match is perfect. Your practice can change that list. Critical lab results are filed with a High-priority review task marked CRITICAL and a note that a phone call is required; Drawbridge never places that call itself.",
+    a: "Yes. By default, records requests, prior authorizations, refill requests and referrals always go to your staff, even when the patient match is perfect. Your practice can change that list. Critical lab results are filed with a High-priority review task marked CRITICAL and a note that a phone call is required; Your staff make that call.",
   },
   {
     q: "Can the phone assistant give medical advice?",
@@ -225,7 +226,7 @@ export const FAQS = [
   },
   {
     q: "Does Drawbridge replace our staff or our current systems?",
-    a: "No. Drawbridge isn't a replacement for your current system or your staff; it multiplies what they can do. It works alongside Veradigm® EHR and Veradigm® Practice Management, your fax line, your lab's result flow and your phones, and takes on the repetitive indexing and routine calls. Your team spends more of its time on patients and care, and the practice has room to grow without the front desk becoming the bottleneck.",
+    a: "No. Drawbridge works alongside your current system and your staff and multiplies what they can do. It works alongside Veradigm® EHR and Veradigm® Practice Management, your fax line, your lab's result flow and your phones, and takes on the repetitive indexing and routine calls. Your team spends more of its time on patients and care, and the practice has room to grow without the front desk becoming the bottleneck.",
     home: true,
   },
   {
@@ -244,7 +245,7 @@ export const FAQS = [
   },
   {
     q: "Is our patient data used to train AI models?",
-    a: "No. Drawbridge does not use your practice's data to train AI models. Documents are read by OCR running on MOATiT's own servers, and the decision of which chart a document goes to is made by rules you can audit, not by a model guessing.",
+    a: "No. Drawbridge does not use your practice's data to train AI models. Documents are read by OCR running on MOATiT's own servers, and the decision of which chart a document goes to is made by rules you can audit.",
   },
   {
     q: "Where is our data stored, and for how long?",

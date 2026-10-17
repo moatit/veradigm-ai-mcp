@@ -20,7 +20,7 @@ export const about = {
   <div class="wrap split lead-left">
     <div>
       <p class="eyebrow">Who we are</p>
-      <h2 id="who-title">A local technology team, not a call center.</h2>
+      <h2 id="who-title">A local technology team in Pocatello, Idaho.</h2>
     </div>
     <div>
       <p>Founded in Pocatello, Idaho, in 2013, MOATiT provides managed IT, cybersecurity, business phone systems, online fax, backup and disaster recovery, and EHR hosting. Many of the practices we support have run on our networks, phones and fax lines for years.</p>
@@ -33,7 +33,7 @@ export const about = {
   <div class="wrap">
     <div class="section-head"><p class="eyebrow">How we build</p><h2 id="principles-title">Four principles behind Drawbridge</h2></div>
     <div class="grid grid-4">
-      <div class="card"><h3>Never guess</h3><p>If the evidence isn't there, a person decides. Every time.</p></div>
+      <div class="card"><h3>People make the close calls</h3><p>When the evidence is incomplete, a person decides. Every time.</p></div>
       <div class="card"><h3>Show the work</h3><p>Every decision carries its reason, and every action is logged.</p></div>
       <div class="card"><h3>Prove it first</h3><p>A shadow week on your real documents before anything is filed.</p></div>
       <div class="card"><h3>Say what's true</h3><p>Test numbers are labeled as tests. Unfinished work is labeled unfinished.</p></div>
@@ -209,7 +209,7 @@ export const faq = {
   path: "/faq/",
   title: "Frequently asked questions",
   description:
-    "Answers about Drawbridge: how patient matching works, what happens when it isn't sure, the phone assistant's verification and safety rules, HIPAA and BAA, data storage, pricing and going live.",
+    "Answers about Drawbridge: how patient matching works, what happens when a document needs a person, the phone assistant's verification and safety rules, HIPAA and BAA, data storage, pricing and going live.",
   crumbs: [{ name: "FAQ", href: "/faq/" }],
   schema: [faqSchema(FAQS)],
   body: `${pageHero({

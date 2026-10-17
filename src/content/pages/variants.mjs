@@ -24,15 +24,15 @@ ${ctaBand()}
 export const lpFax = variant(
   "fax",
   "fax",
-  "Stop indexing faxes by hand | Drawbridge, A MOATiT Service",
-  "Drawbridge reads incoming faxes and lab results, matches each to exactly one patient and files it to Veradigm® EHR with a review task for the ordering provider. Unsure? It goes to your staff.",
-  `<section class="section on-white" id="sample-filing" aria-labelledby="lp-fax-demo"><div class="wrap"><div class="section-head"><p class="eyebrow">See it work</p><h2 id="lp-fax-demo">Filed when sure. Handed over when not.</h2></div><div class="split"><div><p class="lede">The sample at the top was filed: one patient, two identifiers, no conflicts. This one wasn't. The address disagrees with the chart, so a person decides, with the document already read and the reason in front of them.</p><ul class="checks"><li><span>Daily lab batches split into one document per patient</span></li><li><span>Critical results as High-priority tasks marked CRITICAL</span></li><li><span>Records requests, prior auths, refills and referrals always to a person</span></li></ul></div>${reviewCard("lp-review")}</div></div></section>`
+  "Faxes and lab results, filed for you | Drawbridge, A MOATiT Service",
+  "Drawbridge reads incoming faxes and lab results, matches each to exactly one patient and files it to Veradigm® EHR with a review task for the ordering provider. Close calls go to your staff.",
+  `<section class="section on-white" id="sample-filing" aria-labelledby="lp-fax-demo"><div class="wrap"><div class="section-head"><p class="eyebrow">See it work</p><h2 id="lp-fax-demo">Clear matches filed. Close calls handed over.</h2></div><div class="split"><div><p class="lede">The samples at the top show clear matches, filed: one patient, two identifiers, every detail in agreement. This one goes to a person. The address differs from the chart, so staff decide, with the document already read and the reason in front of them.</p><ul class="checks"><li><span>Daily lab batches split into one document per patient</span></li><li><span>Critical results as High-priority tasks marked CRITICAL</span></li><li><span>Records requests, prior auths, refills and referrals always to a person</span></li></ul></div>${reviewCard("lp-review")}</div></div></section>`
 );
 
 export const lpPhone = variant(
   "phone",
   "phone",
   "An AI phone assistant that answers every call | Drawbridge, A MOATiT Service",
-  "Drawbridge answers your clinic line 24/7, verifies every caller, books and reschedules with read-back in Veradigm® PM, and takes messages. No medical advice; 911 for emergencies.",
-  `<section class="section on-white" id="sample-call" aria-labelledby="lp-call-demo"><div class="wrap split"><div><p class="eyebrow">See it work</p><h2 id="lp-call-demo">Verified, offered, read back, booked.</h2><p class="lede">The server won't release or change any record until the caller is verified on that call.</p></div>${callCard("lp-call")}</div></section>`
+  "Drawbridge answers your clinic line 24/7, verifies every caller, books and reschedules with read-back in Veradigm® PM, and takes messages. Clinical questions go to your clinicians; emergencies to 911.",
+  `<section class="section on-white" id="sample-call" aria-labelledby="lp-call-demo"><div class="wrap split"><div><p class="eyebrow">See it work</p><h2 id="lp-call-demo">Verified, offered, read back, booked.</h2><p class="lede">The server releases or changes a record only after the caller is verified on that call.</p></div>${callCard("lp-call")}</div></section>`
 );
