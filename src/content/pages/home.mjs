@@ -90,15 +90,15 @@ export const rolloutSection = () => `<section class="section" id="rollout" aria-
     <div class="section-head">
       <p class="eyebrow">Going live</p>
       <h2 id="rollout-title">Your staff keep working as usual through <span class="accent-i">a week of proof.</span></h2>
-      <p class="lede">Turnkey. With your permission, we enable Drawbridge on your existing Veradigm® setup. You keep your fax lines, your lab's result flow and your staff's computers exactly as they are. If MOATiT already supports your IT, we take care of all of it.</p>
+      <p class="lede">Four steps, and your workflow stays exactly as it is. Drawbridge works from the documents already in your Veradigm® EHR document queue, so the work is simply done for you.</p>
     </div>
     <ol class="flow cols-4">
-      <li><h3>Five-minute setup sheet</h3><p>Your practice manager answers 15 policy questions: who reviews results, which documents always go to a person, booking rules.</p></li>
-      <li><h3>A few permissions</h3><p>BAA signed first. Your administrator authorizes the Veradigm® activation; your IT team or IT provider shares a copy of incoming faxes, read access to lab files and the calls you choose. We do the rest.</p></li>
-      <li><h3>One week in shadow mode</h3><p>Drawbridge reads everything and files nothing. It compares its decisions with where your staff filed each document. We review every difference with you.</p></li>
-      <li><h3>Switch on, step by step</h3><p>Start with staff-click filing, then auto-filing for the senders and document types that earned it. Your call, at every step.</p></li>
+      <li><h3>Five-minute setup sheet</h3><p>Your practice manager answers 15 questions about your rules and how documents flow today: who reviews results, which documents always go to a person, booking rules.</p></li>
+      <li><h3>BAA and Veradigm® access</h3><p>You sign our business associate agreement and authorize Veradigm® to give Drawbridge access. That is all the setup your team does.</p></li>
+      <li><h3>One week in shadow mode</h3><p>Drawbridge works through your queue alongside your staff and records what it would do. We compare it with what your staff actually did and align Drawbridge to the way your practice works.</p></li>
+      <li><h3>Switch on, step by step</h3><p>Start with staff-click filing, then automatic filing for the document types that earned it. You can switch Drawbridge off at any time, and your workflow carries on exactly as before.</p></li>
     </ol>
-    ${itNeedsBlock({ headingId: "rollout-it-needs" })}
+    <p class="small mt-1">For the phone assistant, we set up the calls you choose (after hours, overflow or all) with your phone provider, and your number stays the same.</p>
   </div>
 </section>`;
 
@@ -117,7 +117,7 @@ ${demoBand()}
     <div>
       <p class="eyebrow">The front desk, today</p>
       <h2 id="problem-title">Your front desk is the drawbridge. <span class="accent-i">It's up all day.</span></h2>
-      <p class="lede">Every fax, lab drop and phone call crosses one desk. The work is careful, repetitive and never finished.</p>
+      <p class="lede">Every fax, lab result and phone call crosses one desk. The work is careful, repetitive and never finished.</p>
     </div>
     <div>
       <ul class="checks pains">
@@ -140,7 +140,7 @@ ${demoBand()}
     <div class="grid grid-3">
       <div class="card"><div class="icon">${icon("users")}</div><h3>More capacity, same team</h3><p>Drawbridge is built so the same team can serve many times more patients. Imagine your front desk handling ten times the volume without adding headcount.</p></div>
       <div class="card"><div class="icon">${icon("gauge")}</div><h3>Room to grow</h3><p>More calls answered, results routed sooner and fewer bottlenecks at the desk give the practice room to see more patients and grow revenue.</p></div>
-      <div class="card"><div class="icon">${icon("link")}</div><h3>Turnkey</h3><p>Enabled on your existing Veradigm® setup with your permission. No new fax lines, no change to your lab flow, no rip-and-replace.</p></div>
+      <div class="card"><div class="icon">${icon("link")}</div><h3>Done for you</h3><p>Drawbridge works from your existing Veradigm® document queue. Your workflow stays exactly as it is, and you can switch it off at any time.</p></div>
     </div>
     <p class="small mt-2 vision-note">This is our vision for what Drawbridge makes possible, not a measured result. Our measured numbers are under "Results so far".</p>
   </div>
@@ -155,7 +155,7 @@ ${demoBand()}
       <a class="card card-link" href="/fax-lab-intake/">
         <div class="icon">${icon("fax")}</div>
         <h3>Fax &amp; lab-result intake</h3>
-        <p>Reads faxes, emailed results and lab drop files on MOATiT's servers. Matches each to one patient, splits multi-patient batch files, files to your category and sends a review task to the ordering provider.</p>
+        <p>Reads the faxes and lab results in your Veradigm® EHR document queue, on MOATiT's servers. Matches each to one patient, splits multi-patient batch files, files to your category and sends a review task to the ordering provider.</p>
         <ul class="checks">
           <li><span>Local OCR; nothing sent to outside AI services</span></li>
           <li><span>Critical results as High-priority tasks</span></li>

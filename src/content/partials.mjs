@@ -54,7 +54,7 @@ export const trustStrip = () => `<div class="trust-strip" role="list">
   <div role="listitem">${icon("shield")}<span><strong>BAA with every practice</strong>HIPAA business associate agreement before any patient data flows.</span></div>
   <div role="listitem">${icon("eye")}<span><strong>A shadow week first</strong>Drawbridge watches and compares for a week before it files anything.</span></div>
   <div role="listitem">${icon("user")}<span><strong>A person for every close call</strong>Anything that needs judgment goes to your staff, already read.</span></div>
-  <div role="listitem">${icon("link")}<span><strong>${COMPAT_LINE}</strong>Turnkey: enabled on your existing setup with your permission. Keep your fax lines and your systems.</span></div>
+  <div role="listitem">${icon("link")}<span><strong>${COMPAT_LINE}</strong>Works from the documents already in your Veradigm® EHR queue. Your workflow stays exactly as it is.</span></div>
 </div>`;
 
 // ---------------------------------------------------------------- intake ledger (home hero; synthetic)
@@ -151,23 +151,21 @@ ${keys
   .join("\n")}
 </div>`;
 
-// ---------------------------------------------------------------- what we need from the practice's IT side
-// Most prospects have their own IT team or another IT provider; never assume MOATiT already runs their systems.
+// ---------------------------------------------------------------- what we need from the practice
+// Drawbridge works from the practice's Veradigm EHR document queue: no fax forwarding, no lab access, no IT work.
+// It is the same for every practice, whoever runs its IT.
 export const IT_NEEDS = [
-  ["key", "Veradigm® activation and a Drawbridge user", "Your practice administrator authorizes the Veradigm® activation and creates a dedicated Drawbridge user in Veradigm® EHR and Veradigm® Practice Management, with only the permissions it needs."],
-  ["fax", "A copy of incoming faxes", "A small setting with your fax provider sends Drawbridge a copy of each incoming fax. Your fax number, your fax line and the way faxes reach you today stay the same."],
-  ["flask", "Read access to lab result files", "Read-only access to the folder where your lab already drops its result files. The lab keeps sending results exactly as it does today. (If a folder can't be shared, the lab can send a copy to a secure SFTP drop.)"],
-  ["phone", "Call forwarding for the calls you choose", "Your phone provider forwards the calls you pick (after hours, overflow, or all) to the assistant, or connects it over SIP. Your number and phone system stay the same."],
-  ["mail", "An alert contact", "An email address for your IT help desk, so it hears right away if the EHR connection goes down."],
+  ["clipboard", "A five-minute setup sheet", "Your practice manager answers 15 questions about your rules and how documents flow today: who reviews results, which documents always go to a person, your booking rules."],
+  ["key", "A signed BAA and Veradigm® access", "You sign our business associate agreement and authorize Veradigm® to give Drawbridge access to your Veradigm® EHR and Veradigm® Practice Management."],
 ];
 
-export const itNeedsBlock = ({ title = "A few permissions, no changes to how you work", lede = "Drawbridge is turnkey and works alongside the systems you already have. Your practice administrator and your IT team or IT provider grant a few permissions; we do the setup and walk them through each one. If MOATiT already supports your IT, we take care of all of it.", headingId = "it-needs-title", tag = "h3" } = {}) => `<div class="it-needs" role="region" aria-labelledby="${headingId}">
+export const itNeedsBlock = ({ title = "What we need from you", lede = "Two things, and we handle the rest.", headingId = "it-needs-title", tag = "h3" } = {}) => `<div class="it-needs" role="region" aria-labelledby="${headingId}">
   <${tag} id="${headingId}">${title}</${tag}>
   <p>${lede}</p>
   <ul class="it-list">
 ${IT_NEEDS.map(([ic, t, d]) => `    <li><span class="icon">${icon(ic)}</span><span><strong>${t}</strong>${d}</span></li>`).join("\n")}
   </ul>
-  <p class="small mb-0">No new fax lines, no change to your lab flow, nothing to install on staff computers. Filed results and review tasks appear in Veradigm® EHR, where your team already works.</p>
+  <p class="small mb-0">Drawbridge works from the documents already in your Veradigm® EHR document queue, so your fax lines, lab feeds and staff workflow stay exactly as they are. The work is simply done for you. Filed results and review tasks appear in Veradigm® EHR, where your team already works. For the phone assistant, we set up the calls you choose (after hours, overflow or all) with your phone provider, and your number stays the same.</p>
 </div>`;
 
 // ---------------------------------------------------------------- CTA band
@@ -226,17 +224,17 @@ export const FAQS = [
   },
   {
     q: "Does Drawbridge replace our staff or our current systems?",
-    a: "No. Drawbridge works alongside your current system and your staff and multiplies what they can do. It works alongside Veradigm® EHR and Veradigm® Practice Management, your fax line, your lab's result flow and your phones, and takes on the repetitive indexing and routine calls. Your team spends more of its time on patients and care, and the practice has room to grow without the front desk becoming the bottleneck.",
+    a: "No. Drawbridge works alongside your current system and your staff and multiplies what they can do. It works alongside Veradigm® EHR, Veradigm® Practice Management and your phones, and takes on the repetitive indexing and routine calls. Your team spends more of its time on patients and care, and the practice has room to grow without the front desk becoming the bottleneck.",
     home: true,
   },
   {
     q: "What does going live look like?",
-    a: "It's turnkey. With your permission (the Veradigm® activation and a BAA), we enable Drawbridge on your existing setup: no new fax lines, no change to how your lab sends results, nothing for staff to install. Your practice manager answers a 15-question setup sheet (about five minutes), and your IT team or IT provider grants a few permissions. Then Drawbridge runs in shadow mode for one week: your staff keep working as usual, and Drawbridge records what it would have done and compares it with what your staff did. We review the differences with you, fix them, and only then switch filing on.",
+    a: "Four steps. (1) Your practice manager answers a 15-question setup sheet about your rules and how documents flow today, in about five minutes. (2) You sign our BAA and authorize Veradigm® to give Drawbridge access. (3) Drawbridge runs in shadow mode for one week: your staff keep working as usual while Drawbridge records what it would have done. We compare the two and align Drawbridge to the way your practice works. (4) We switch filing on step by step, starting with staff-click filing. Your workflow stays exactly as it is throughout, and you can switch Drawbridge off at any time.",
     home: true,
   },
   {
-    q: "What do you need from our IT team or IT provider?",
-    a: "A few permissions, and no changes to how you work. (1) Your practice administrator authorizes the Veradigm® activation and creates a dedicated Drawbridge user in Veradigm® EHR and Veradigm® Practice Management. (2) A small setting with your fax provider sends Drawbridge a copy of each incoming fax; your fax number and line stay the same. (3) Read-only access to the folder where your lab already drops its files; the lab keeps sending results as it does today. (4) Your phone provider forwards the calls you choose to the assistant, or connects it over SIP; your number stays the same. (5) An email address for system alerts. Nothing is installed on staff computers. You don't need to be a MOATiT IT client; if you are, we handle all of it.",
+    q: "What do you need from our practice?",
+    a: "Two things: about five minutes for the setup sheet, and your signature on the BAA with the Veradigm® authorization. Drawbridge works from the documents already in your Veradigm® EHR document queue, so your fax lines, lab feeds and staff computers stay exactly as they are, whoever runs your IT. For the phone assistant, we set up the calls you choose with your phone provider, and your number stays the same.",
     home: true,
   },
   {

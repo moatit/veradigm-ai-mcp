@@ -77,9 +77,9 @@ We're new, so we won't show you logos. Here's what our testing shows, labeled fo
 - 0 wrong-patient filings across held-out synthetic test sets of 3,000 documents (invented patients, Oct 2026).
 - On a vendor test system, 20 of 20 auto-filed documents landed in the right chart; everything uncertain went to staff.
 
-It's turnkey. With your permission we enable Drawbridge on your existing Veradigm® setup: no new fax lines, no change to how your lab sends results, nothing for your staff to install. Your administrator and IT side grant a few permissions, and we do the rest.
+It's done for you in four steps: a five-minute setup sheet, the BAA with Veradigm® access authorized, one week in shadow mode, then switch on step by step. Drawbridge works from the documents already in your Veradigm® EHR queue, so your workflow stays exactly as it is, and you can switch it off at any time.
 
-Your own documents will differ, so every practice starts with a shadow week: Drawbridge reads everything and files nothing, and compares its decisions with where your staff filed each document. We review every difference with you before anything is switched on.
+Every practice starts with a shadow week: Drawbridge works alongside your staff and records what it would do, we compare it with what your staff actually did, and we align Drawbridge to the way your practice works before anything is switched on.
 
 If that sounds reasonable, pick a time: {{landing_url}}
 
@@ -107,7 +107,7 @@ Ali
 | Owner / physician | "What if the same team could serve many more patients? It starts with results reaching the right chart, and the right provider, safely." | "As a physician you'll want to know exactly when it files on its own and when it doesn't." |
 | Practice manager | "Between the fax pile, the daily lab batch and the phones, front-desk hours disappear before 10 a.m." | "Your staff stay in charge: Drawbridge only files what passes every check." |
 | Front-desk lead | "If your morning starts with the fax queue and the lab batch, this gives you time back for patients." | "It isn't a replacement for anyone: you still review every uncertain document, just with it already read and matched." |
-| IT / security | "You keep running the practice's IT. Drawbridge is turnkey: a few permissions, listed in plain words on our integrations page, and nothing installed on staff PCs." | "MFA for every user, a six-year tamper-evident audit log and server-enforced caller verification; the details are on our trust center." |
+| IT / security | "You keep running the practice's IT. Drawbridge works through the practice's Veradigm® authorization, with nothing to set up on your side." | "MFA for every user, a six-year tamper-evident audit log and server-enforced caller verification; the details are on our trust center." |
 
 ## LinkedIn
 

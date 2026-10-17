@@ -146,12 +146,12 @@ export const integrations = {
   path: "/integrations/",
   title: "Integrations: Veradigm® EHR, Veradigm® PM, fax and phones",
   description:
-    "Drawbridge integrates with Veradigm® EHR and Veradigm® Practice Management, your fax line, lab drop folders and your phone system. See what it reads and the short list of things it is allowed to write.",
+    "Drawbridge integrates with Veradigm® EHR and Veradigm® Practice Management and your phone system, working from the documents already in your Veradigm® EHR queue. See what it reads and the short list of things it is allowed to write.",
   crumbs: [{ name: "Integrations", href: "/integrations/" }],
   body: `${pageHero({
     eyebrow: "Integrations",
     title: 'Works inside the systems <span class="accent-i">you already use.</span>',
-    lede: `${COMPAT_LINE}. Turnkey: Drawbridge works alongside the systems you already have, filing into the chart and booking into the schedule your staff already work in. No rip-and-replace, no double entry.`,
+    lede: `${COMPAT_LINE}. Drawbridge works inside the systems you already have, filing into the chart and booking into the schedule your staff already use. Your workflow stays exactly as it is.`,
     crumbs: [{ name: "Integrations", href: "/integrations/" }],
     actions: btnPrimary(),
   })}
@@ -160,7 +160,7 @@ export const integrations = {
     <div class="section-head">
       <p class="eyebrow">EHR &amp; practice management</p>
       <h2 id="ehr-title">Veradigm® EHR and Veradigm® Practice Management</h2>
-      <p class="lede">Drawbridge connects through Veradigm's secure partner interface, over encrypted connections, as a dedicated Drawbridge user that your practice administrator creates in your EHR and PM.</p>
+      <p class="lede">Drawbridge connects through Veradigm's secure partner interface, over encrypted connections, with the access you authorize through Veradigm®.</p>
     </div>
     <div class="grid grid-2">
       <div class="card">
@@ -193,12 +193,10 @@ export const integrations = {
       <h2 id="other-title">Everything around the chart</h2>
     </div>
     <div class="grid grid-3">
-      <div class="card"><div class="icon">${icon("fax")}</div><h3>Fax line</h3><p>Keep your fax number, your fax line and your fax service. A small setting sends Drawbridge a copy of each incoming fax; it is received on MOATiT's servers and handed to Drawbridge over signed, encrypted connections.</p></div>
-      <div class="card"><div class="icon">${icon("flask")}</div><h3>Lab drop folders</h3><p>Daily lab files (PDF, TIFF, PNG, JPEG) read from the folder your lab already uses, with read-only access; the lab's flow doesn't change. Batch files are split by patient.</p></div>
-      <div class="card"><div class="icon">${icon("mail")}</div><h3>Emailed results &amp; uploads</h3><p>Results from other systems, or a staff upload on the intake screen, go through the same checks.</p></div>
-      <div class="card"><div class="icon">${icon("phone")}</div><h3>Your clinic number</h3><p>Keep your number and your phone system. Forward the calls you choose (after hours, overflow or all) to the assistant, or connect it over SIP; calls transfer back to your staff or on-call provider.</p></div>
-      <div class="card"><div class="icon">${icon("bell")}</div><h3>Help-desk alerts</h3><p>Status alerts by encrypted email or signed webhook to your IT help desk.</p></div>
-      <div class="card"><div class="icon">${icon("hospital")}</div><h3>MOATiT-hosted</h3><p>Drawbridge runs single-tenant per practice on MOATiT's infrastructure. Your own IT team or IT provider keeps running your network, phones and computers.</p></div>
+      <div class="card"><div class="icon">${icon("fax")}</div><h3>Your document queue</h3><p>Faxes and lab results keep arriving in your Veradigm® EHR document queue exactly as they do today. Drawbridge works through that queue for you, including multi-patient lab batches, which it splits by patient.</p></div>
+      <div class="card"><div class="icon">${icon("phone")}</div><h3>Your clinic number</h3><p>Keep your number and your phone system. We set up the calls you choose (after hours, overflow or all) to reach the assistant, and calls transfer back to your staff or on-call provider.</p></div>
+      <div class="card"><div class="icon">${icon("bell")}</div><h3>Status alerts</h3><p>Status alerts by encrypted email to the contact you choose, whenever the Veradigm® connection changes.</p></div>
+      <div class="card"><div class="icon">${icon("hospital")}</div><h3>MOATiT-hosted</h3><p>Drawbridge runs single-tenant per practice on MOATiT's infrastructure, and you can switch it off at any time without changing your workflow.</p></div>
     </div>
     <p class="tm-note">${esc(TRADEMARK_NOTE)}</p>
   </div>

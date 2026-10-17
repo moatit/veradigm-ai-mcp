@@ -24,7 +24,7 @@ export const about = {
     </div>
     <div>
       <p>Founded in Pocatello, Idaho, in 2013, MOATiT provides managed IT, cybersecurity, business phone systems, online fax, backup and disaster recovery, and EHR hosting. Many of the practices we support have run on our networks, phones and fax lines for years.</p>
-      <p>That is where the name comes from. A moat protects a practice's systems; Drawbridge is the one controlled way in, for documents and calls, and it only comes down for the right patient. You don't need MOATiT as your IT provider to use it: we set it up with your own IT team or IT provider, and if MOATiT already supports your IT, we handle everything.</p>
+      <p>That is where the name comes from. A moat protects a practice's systems; Drawbridge is the one controlled way in, for documents and calls, and it only comes down for the right patient. It works the same for every practice on Veradigm® EHR and Veradigm® Practice Management.</p>
       <div class="badge-row"><span class="badge">${icon("pin", "")}Pocatello, Idaho</span><span class="badge">Since 2013</span><span class="badge">Idaho · Utah · Wyoming</span></div>
     </div>
   </div>
@@ -163,7 +163,7 @@ export const pricing = {
   body: `${pageHero({
     eyebrow: "Pricing",
     title: 'Simple to start. <span class="accent-i">Priced to your volume.</span>',
-    lede: "Turnkey for every practice, quoted on its fax and call volumes and the parts of Drawbridge it uses. Tell us about your practice and we'll send a clear quote.",
+    lede: "Done for you, and quoted on your fax and call volumes and the parts of Drawbridge it uses. Tell us about your practice and we'll send a clear quote.",
     crumbs: [{ name: "Pricing", href: "/pricing/" }],
   })}
 <section class="section" aria-labelledby="plan-title">
@@ -174,7 +174,7 @@ export const pricing = {
       <p class="lede">for a quote for your practice</p>
       <h3 class="mt-2">Every plan includes</h3>
       <ul class="checks">
-        <li><span><strong>Turnkey:</strong> we enable Drawbridge on your existing Veradigm® setup with your permission. No new fax lines, no changes to your lab flow, and nothing new to install: results and review tasks appear in Veradigm® EHR, where your team already works.</span></li>
+        <li><span><strong>Done for you:</strong> once you authorize Veradigm® access, Drawbridge works from your existing document queue, and filed results and review tasks appear in Veradigm® EHR, where your team already works.</span></li>
         <li><span>The 15-question setup sheet turned into your practice's rules</span></li>
         <li><span>One week in shadow mode, with a review of every difference</span></li>
         <li><span>A business associate agreement</span></li>
@@ -199,7 +199,7 @@ export const pricing = {
         </ul>
       </div>
       <p class="mt-2"><a class="btn-link" href="/roi/">Estimate your time savings first</a></p>
-      <p class="small">Your IT team or IT provider keeps running your network, phones and computers. <a href="/integrations/#it-needs">See the few permissions we ask for.</a></p>
+      <p class="small">Your workflow stays exactly as it is, and you can switch Drawbridge off at any time. <a href="/integrations/#it-needs">See what we need from you.</a></p>
     </div>
   </div>
 </section>`,

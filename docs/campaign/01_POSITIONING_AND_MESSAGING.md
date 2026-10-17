@@ -9,7 +9,7 @@ Owner: Ali Khan (MOATiT). Drafted Oct 16, 2026. Nothing in this campaign has bee
 **Drawbridge**, MOATiT's AI technology for healthcare practices,
 **files incoming faxes and lab results to the right patient's chart and answers the clinic line 24/7**,
 **unlike** answering services, generic AI receptionists or offshore indexing teams,
-**because** it works inside the practice's own EHR and schedule, verifies every patient on two identifiers before it files or shares anything, never guesses, and is built and run by MOATiT, an IT, phone and security company that has supported businesses and practices since 2013. Practices keep their own IT team or IT provider; MOATiT handles the Drawbridge setup with them.
+**because** it works inside the practice's own EHR and schedule, verifies every patient on two identifiers before it files or shares anything, sends every close call to a person, and is built and run by MOATiT, an IT, phone and security company that has supported businesses and practices since 2013. It works from the documents already in the practice's Veradigm® EHR queue, so the practice's workflow stays exactly as it is, whoever runs its IT.
 
 **One-liner:** Lab results filed. Calls answered. Nothing guessed.
 
@@ -23,10 +23,10 @@ Owner: Ali Khan (MOATiT). Drafted Oct 16, 2026. Nothing in this campaign has bee
 
 **Roof (the promise):** More capacity for the team you already have: your people do the work they're great at (patients and care) while Drawbridge handles the repetitive indexing and routine calls, without trading safety for speed. Built so the same team can serve many times more patients (an aspiration, never stated as a measured number).
 
-| Pillar 1: Documents | Pillar 2: Phones | Pillar 3: Safety you can audit | Pillar 4: Turnkey, whoever runs your IT |
+| Pillar 1: Documents | Pillar 2: Phones | Pillar 3: Safety you can audit | Pillar 4: Done for you, workflow unchanged |
 |---|---|---|---|
-| Faxes and lab results read, matched to one patient, filed to your category, provider notified | Every call answered, 24/7; callers verified; visits booked and moved with read-back | Two identifiers or it doesn't cross; uncertain → a person, with the reason; every action logged | Enabled on the practice's existing Veradigm® setup with its permission (activation + BAA): no new fax lines, no change to the lab flow, nothing for staff to install; a few permissions from the practice's IT side; shadow week first |
-| *Proof:* 0 wrong-patient filings in synthetic testing; 20 of 20 right chart on a vendor test system | *Proof:* 1.4 s median first response on lookups (pre-release test) | *Proof:* independent launch audit (Oct 2026); MFA, 6-year tamper-evident audit log | *Proof:* the permissions list (Veradigm® activation and a Drawbridge EHR/PM user, a copy of incoming faxes, read-only lab folder, call forwarding or SIP, an alert email) |
+| Faxes and lab results read, matched to one patient, filed to your category, provider notified | Every call answered, 24/7; callers verified; visits booked and moved with read-back | A document crosses on two matching identifiers; close calls go to a person, with the reason; every action logged | Four steps: a five-minute setup sheet, the BAA with Veradigm® access authorized, one week in shadow mode, then switch on step by step. Drawbridge works from the practice's Veradigm® EHR document queue; the practice can switch it off at any time and its workflow carries on as before |
+| *Proof:* 0 wrong-patient filings in synthetic testing; 20 of 20 right chart on a vendor test system | *Proof:* 1.4 s median first response on lookups (pre-release test) | *Proof:* independent launch audit (Oct 2026); MFA, 6-year tamper-evident audit log | *Proof:* the four-step process and the shadow-week comparison with the practice's own staff decisions |
 
 **Foundation (always true, always said):** Integrates with Veradigm® EHR and Veradigm® Practice Management. HIPAA BAA. Synthetic numbers labeled as synthetic.
 
@@ -42,7 +42,7 @@ Owner: Ali Khan (MOATiT). Drafted Oct 16, 2026. Nothing in this campaign has bee
 ### 3.2 Practice manager / administrator (champion)
 - **Cares about:** staff hours, phone hold times, after-hours coverage, onboarding effort, predictable cost.
 - **Fears:** a long implementation; a big ask of their IT team or IT provider; staff rejecting it; hidden costs.
-- **Message:** "About half of documents filed with no staff touch in our tests, the rest arrive pre-read for one click. A five-minute setup sheet for you, a short checklist for your IT team or IT provider, a week in shadow mode, and you decide when to switch on."
+- **Message:** "About half of documents filed with no staff touch in our tests, the rest arrive pre-read for one click. A five-minute setup sheet, the BAA and your Veradigm® authorization, a week in shadow mode, and you decide when to switch on. Your workflow stays exactly as it is."
 - **Proof:** ROI calculator, setup sheet, shadow week, "Contact us" pricing with everything included.
 - **CTA:** Calculate your time savings → Book a walkthrough.
 
@@ -56,8 +56,8 @@ Owner: Ali Khan (MOATiT). Drafted Oct 16, 2026. Nothing in this campaign has bee
 ### 3.4 IT / security (gatekeeper: the practice's own IT staff or outside IT provider)
 - **Cares about:** BAA, MFA, encryption, audit, data location, least privilege, vendor risk questionnaires.
 - **Fears:** PHI in logs; shared logins; data leaving the US; unknown subprocessors; a vendor that wants to take over their network.
-- **What they're asked to do (a few permissions, no changes):** the practice administrator authorizes the Veradigm® activation and creates a dedicated Drawbridge user in Veradigm® EHR and PM; a small setting with the fax provider sends Drawbridge a copy of each incoming fax (number and line unchanged); read-only access to the folder the lab already uses (lab flow unchanged); the phone provider forwards the calls the practice chooses, or connects the assistant over SIP (number unchanged); an alert email. Nothing is installed on staff computers, and they keep running the practice's network, phones and PCs.
-- **Message:** "You stay in charge of the practice's IT. Drawbridge is turnkey: a few permissions, no changes to how the practice works, and we do the rest. Named logins with mandatory MFA, a tamper-evident six-year audit log, server-enforced caller verification, minimum-necessary data, US hosting, an independent launch audit, and our security packet on request."
+- **What they're asked to do:** nothing on the network or staff computers. The practice signs the BAA and authorizes Veradigm® to give Drawbridge access; Drawbridge works from the documents already in the practice's Veradigm® EHR queue. For the phone assistant, MOATiT sets up the calls the practice chooses with its phone provider (number unchanged).
+- **Message:** "You stay in charge of the practice's IT. Drawbridge works through the practice's Veradigm® authorization, the practice's workflow stays exactly as it is, and we do the rest. Named logins with mandatory MFA, a tamper-evident six-year audit log, server-enforced caller verification, minimum-necessary data, US hosting, an independent launch audit, and our security packet on request."
 - **Proof:** trust center with status pills; launch-audit summary; vendor security questionnaire answers.
 - **CTA:** Request the security packet.
 
@@ -69,9 +69,9 @@ Owner: Ali Khan (MOATiT). Drafted Oct 16, 2026. Nothing in this campaign has bee
 | "Patients won't like talking to AI." | It says it's the clinic's automated assistant, handles the routine requests quickly, and transfers to staff whenever asked. After hours it beats voicemail. |
 | "We tried an answering service." | Answering services can't see your schedule. Drawbridge books, moves and confirms in Veradigm® PM, with a read-back. |
 | "Is it HIPAA compliant?" | BAA with every practice; controls listed on the trust center, including what's still in progress. There's no official HIPAA certification, so we show our work instead. |
-| "How long does setup take?" | It's turnkey: a five-minute questionnaire for the practice manager, a few permissions from your administrator and IT side, one shadow week, then switch on in stages. No new fax lines, no change to the lab flow. |
+| "How long does setup take?" | Four steps: a five-minute setup sheet, the BAA with Veradigm® access authorized, one week in shadow mode, then switch on step by step. Your workflow stays exactly as it is, and you can switch Drawbridge off at any time. |
 | "Will this replace my staff?" | No. It isn't a replacement for your system or your staff; it multiplies what they can do. Your team spends its time on patients and care while Drawbridge handles the repetitive indexing and routine calls. |
-| "We already have an IT provider." | Good: keep them. Drawbridge doesn't replace your IT support. They grant a few permissions (a copy of incoming faxes, read-only lab-folder access, call forwarding or SIP, an alert email; your administrator creates the Drawbridge EHR/PM user) and we walk them through each. |
+| "We already have an IT provider." | Good: keep them. Drawbridge works the same whoever runs your IT. It works from the documents already in your Veradigm® EHR queue through the access you authorize, so there is nothing for your IT provider to set up. |
 | "What does it cost?" | Quoted to your volumes; setup, shadow week, BAA and support included. |
 
 ## 5. Words to use / avoid

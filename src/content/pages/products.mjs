@@ -2,8 +2,8 @@ import { CTA, COMPAT_LINE } from "../site.mjs";
 import { pageHero } from "../layout.mjs";
 import { icon, btnPrimary, btnSecondary, gateCard, reviewCard, callCard, proofCards, ctaBand, faqList, faqSchema, FAQS, itNeedsBlock } from "../partials.mjs";
 
-const faxFaqs = FAQS.filter((f) => /right patient|needs a person|always handled|going live|IT team|train AI|stored/i.test(f.q));
-const phoneFaqs = FAQS.filter((f) => /medical advice|verify callers|needs a person|IT team|HIPAA/i.test(f.q));
+const faxFaqs = FAQS.filter((f) => /right patient|needs a person|always handled|going live|from our practice|train AI|stored/i.test(f.q));
+const phoneFaqs = FAQS.filter((f) => /medical advice|verify callers|needs a person|from our practice|HIPAA/i.test(f.q));
 
 export const fax = {
   path: "/fax-lab-intake/",
@@ -16,7 +16,7 @@ export const fax = {
   body: `${pageHero({
     eyebrow: "Fax &amp; lab-result intake",
     title: 'The fax pile, <span class="accent-i">filed</span>, to the right chart.',
-    lede: "Drawbridge reads every fax, emailed result and lab drop file on MOATiT's own servers, matches it to exactly one patient, files it to the right category in Veradigm® EHR and tells the right provider. Anything that needs judgment goes to your staff, already read, with the reason.",
+    lede: "Drawbridge reads every fax and lab result in your Veradigm® EHR document queue on MOATiT's own servers, matches it to exactly one patient, files it to the right category in Veradigm® EHR and tells the right provider. Anything that needs judgment goes to your staff, already read, with the reason.",
     crumbs: [{ name: "Fax & lab intake", href: "/fax-lab-intake/" }],
     actions: btnPrimary() + btnSecondary("See a fax get filed", "#sample-filing"),
   })}
@@ -27,7 +27,7 @@ export const fax = {
       <h2 id="flow-title">Six steps, every one logged.</h2>
     </div>
     <ol class="flow cols-6">
-      <li><h3>Receive</h3><p>From your fax line, a lab's drop folder (PDF, TIFF, PNG, JPEG), emailed results or a staff upload. Duplicates are caught.</p></li>
+      <li><h3>Receive</h3><p>From your Veradigm® EHR document queue, where your faxes and lab results already arrive. Duplicates are caught.</p></li>
       <li><h3>Read</h3><p>OCR on MOATiT's servers, page by page: patient name, date of birth, MRN, sender, document type, dates and abnormal flags.</p></li>
       <li><h3>Match</h3><p>Full name + date of birth must match exactly one patient. SSN last 4 or address, when printed, must agree.</p></li>
       <li><h3>Categorize</h3><p>Mapped to your EHR's own document categories, for example lab results to "Lab Results".</p></li>
@@ -63,7 +63,7 @@ export const fax = {
       <div class="card"><div class="icon">${icon("clipboard")}</div><h3>Always to a person</h3><p>Records requests, prior authorizations, refill requests and referrals go to staff by default, even with a perfect match. Your practice decides the list.</p></div>
       <div class="card"><div class="icon">${icon("list")}</div><h3>A staff queue that saves clicks</h3><p>Everything that needs a person arrives already read, with the suggested patient and the reason. File it or correct it with one click.</p></div>
       <div class="card"><div class="icon">${icon("eye")}</div><h3>Shadow week before go-live</h3><p>For one week Drawbridge files nothing. It records what it would have done and compares it with where your staff filed each document.</p></div>
-      <div class="card"><div class="icon">${icon("lock")}</div><h3>Documents stay with MOATiT</h3><p>Faxes are received and read on MOATiT's infrastructure. No consumer cloud folders. Originals are deleted 30 days after filing; the chart copy is the record.</p></div>
+      <div class="card"><div class="icon">${icon("lock")}</div><h3>Documents stay with MOATiT</h3><p>Documents are read on MOATiT's own infrastructure. Drawbridge's working copies are deleted 30 days after filing; the chart copy is the record.</p></div>
     </div>
   </div>
 </section>
