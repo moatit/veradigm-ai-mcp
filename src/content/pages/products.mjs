@@ -104,16 +104,16 @@ ${ctaBand({ title: "Watch a fax get filed, live.", text: "In a 20-minute walkthr
 
 export const phone = {
   path: "/phone-assistant/",
-  title: "AI phone assistant for medical practices, 24/7",
+  title: "AI phone assistant for medical practices, day and night",
   description:
-    "Drawbridge's AI phone assistant answers your clinic line 24/7. It verifies callers, shares upcoming visits and open times, books, reschedules, cancels and confirms with read-back, and takes messages. No medical advice; 911 for emergencies.",
+    "Drawbridge's AI phone assistant answers the calls you route to it, day and night. It verifies callers, shares upcoming visits and open times, books, reschedules, cancels and confirms with read-back, and takes messages. No medical advice; 911 for emergencies.",
   app: true,
   crumbs: [{ name: "Phone assistant", href: "/phone-assistant/" }],
   schema: [faqSchema(phoneFaqs)],
   body: `${pageHero({
     eyebrow: "AI phone assistant",
-    title: 'Every call answered. <span class="accent-i">Every caller verified.</span>',
-    lede: "Drawbridge answers your clinic line day and night. It checks who is calling before it shares anything, handles the routine requests your front desk takes all day, and passes everything else to a person, so your staff can focus on the patients in front of them.",
+    title: 'Calls answered. <span class="accent-i">Every caller verified.</span>',
+    lede: "Drawbridge answers the calls you route to it, day and night. It checks who is calling before it shares anything, handles the routine requests your front desk takes all day, and passes everything else to a person, so your staff can focus on the patients in front of them.",
     crumbs: [{ name: "Phone assistant", href: "/phone-assistant/" }],
     actions: btnPrimary() + liveCallButton(),
   })}
@@ -128,6 +128,7 @@ export const phone = {
         <li><span>Book, reschedule, cancel and confirm, always with a read-back and a yes</span></li>
         <li><span>Balance and insurance on file</span></li>
         <li><span>Medication and allergy lists on file (read only; no advice)</span></li>
+        <li><span>Recent results, as recorded (read only; never interpreted)</span></li>
         <li><span>Messages for staff, filed as tasks in your EHR</span></li>
         <li><span>Transfer to staff whenever a caller asks</span></li>
       </ul>
@@ -146,10 +147,10 @@ ${liveCallDialog()}
     <div class="grid grid-3">
       <div class="card"><div class="icon">${icon("key")}</div><h3>Identity before information</h3><p>First name, last name and date of birth must match exactly one patient. The server answers record requests only for people verified on that call, and logs every attempt.</p></div>
       <div class="card"><div class="icon">${icon("users")}</div><h3>Family calls, within limits</h3><p>A parent can handle a child's visit: each person is verified on their own. At most two people per call, and lookups are capped to stop fishing.</p></div>
-      <div class="card"><div class="icon">${icon("alert")}</div><h3>911 for emergencies, clinicians for clinical questions</h3><p>Emergencies hear one line: "If this is an emergency, please hang up and call 911 now." The assistant leaves results, symptoms and medications to your clinical team.</p></div>
+      <div class="card"><div class="icon">${icon("alert")}</div><h3>911 for emergencies, clinicians for clinical questions</h3><p>Emergencies hear one line: "If this is an emergency, please hang up and call 911 now." The assistant never interprets results, symptoms or medications and never advises; clinical questions go to your clinicians.</p></div>
       <div class="card"><div class="icon">${icon("refresh")}</div><h3>Read-back on every change</h3><p>Every booking, move and cancellation happens after the caller hears the change and says yes. A reschedule keeps the old visit until the new one is booked.</p></div>
       <div class="card"><div class="icon">${icon("eye")}</div><h3>Recordings with PII redacted</h3><p>Call recordings and transcripts have personal details redacted after the call and are kept 30 days.</p></div>
-      <div class="card"><div class="icon">${icon("server")}</div><h3>Honest when systems are down</h3><p>If the EHR connection drops, callers hear so right away and can leave a message or be transferred. Your help desk is alerted automatically.</p></div>
+      <div class="card"><div class="icon">${icon("server")}</div><h3>Honest when systems are down</h3><p>If the EHR connection drops, callers hear so right away and can leave a message or be transferred. MOATiT's help desk is alerted automatically.</p></div>
     </div>
   </div>
 </section>
@@ -160,7 +161,8 @@ ${liveCallDialog()}
       <h2 id="after-title">The night line, <span class="accent-i">with a notebook.</span></h2>
       <p class="lede">After hours, the assistant greets callers as your after-hours line, verifies them and takes the message in their own words.</p>
       <ul class="checks">
-        <li><span><strong>Urgent:</strong> transferred to your on-call provider with a short brief: who is calling and why, plus the medication, allergy and problem lists, latest results and last and next visit</span></li>
+        <li><span><strong>Urgent:</strong> flagged for your on-call provider in the on-call notebook, with a short brief (who is calling and why, plus the medication, allergy and problem lists, latest results and last and next visit), and the caller is told how to reach them. Emergencies are directed to 911.</span></li>
+        <li><span><strong>In progress:</strong> live transfer to your on-call provider, with the brief</span></li>
         <li><span><strong>Routine:</strong> filed as a staff task for the morning</span></li>
         <li><span><strong>On-call notebook:</strong> every after-hours call in one place for the on-call provider and the morning team</span></li>
       </ul>
@@ -168,7 +170,6 @@ ${liveCallDialog()}
     <div class="card">
       <p class="eyebrow">Measured in testing</p>
       ${proofCards(["latency"])}
-      <p class="small mt-1 mb-0">The assistant says a short "one moment" line while it looks something up, so callers aren't left in silence.</p>
     </div>
   </div>
 </section>
@@ -198,10 +199,10 @@ export const platform = {
       <div class="card"><div class="icon">${icon("bell")}</div><h3>Reminder &amp; recall calls</h3><p>Appointment reminder calls, no-show follow-up and recall outreach. Calls go out only after a staff click or on a schedule you set, and patients can opt out.</p></div>
       <div class="card"><div class="icon">${icon("sun")}</div><h3>Morning huddle brief</h3><p>The day's schedule summarized for the team huddle, so everyone starts with the same picture.</p></div>
       <div class="card"><div class="icon">${icon("clipboard")}</div><h3>Pre-visit check</h3><p>A quick check of each upcoming visit so gaps are found before the patient arrives, not at the desk.</p></div>
-      <div class="card"><div class="icon">${icon("moon")}</div><h3>On-call notebook</h3><p>Every after-hours call and message, with the brief the on-call provider heard, ready for the morning team.</p></div>
+      <div class="card"><div class="icon">${icon("moon")}</div><h3>On-call notebook</h3><p>Every after-hours call and message, with the brief prepared for the on-call provider, ready for the morning team.</p></div>
       <div class="card"><div class="icon">${icon("chat")}</div><h3>Staff assistant</h3><p>Ask in plain words, such as "who has an opening Tuesday afternoon?", and get the answer from the live schedule.</p></div>
       <div class="card"><div class="icon">${icon("list")}</div><h3>Intake review queue</h3><p>Documents that need a person, already read, with the suggested patient and the reason. One click to file or correct.</p></div>
-      <div class="card"><div class="icon">${icon("gauge")}</div><h3>System status &amp; help-desk alerts</h3><p>A status banner on every staff screen and automatic alerts to your help desk when the EHR connection goes down and when it recovers, with the number of messages taken in between.</p></div>
+      <div class="card"><div class="icon">${icon("gauge")}</div><h3>System status &amp; help-desk alerts</h3><p>A status banner on every staff screen and automatic alerts to MOATiT's help desk when the EHR connection goes down and when it recovers, with the number of messages taken in between.</p></div>
       <div class="card"><div class="icon">${icon("shield")}</div><h3>Audit log</h3><p>Every tool call, staff view and change is recorded in a tamper-evident, hash-chained log kept for six years. No clinical content in the log, only IDs and outcomes.</p></div>
       <div class="card"><div class="icon">${icon("doc")}</div><h3>Patient access reports</h3><p>Administrators can report every access to one patient's records, or everything one staff user did, for any date range: the basis for an accounting of disclosures.</p></div>
     </div>

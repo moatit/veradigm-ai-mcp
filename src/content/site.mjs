@@ -10,7 +10,7 @@ export const SITE = {
   // Placeholder endpoint for the demo form. Replace before launch (see docs/DEPLOYMENT.md).
   demoEndpoint: "/api/demo-request",
   ogImage: "/assets/img/og-drawbridge.png",
-  lastUpdated: "2026-10-16",
+  lastUpdated: "2026-10-18",
 };
 
 export const ORG = {
@@ -58,7 +58,7 @@ export const CLAIMS = {
     how: "Held-out synthetic set of 3,000 documents, name + DOB rule, Oct 13, 2026. Real faxes vary with quality; your shadow week measures your own rate.",
   },
   latency: {
-    label: "Pre-release test",
+    label: "Unreleased agent version, web calls",
     num: "1.4 s",
     what: "median time to first response when the assistant looks something up",
     how: "13 lookup turns across pre-release test calls with synthetic patients, Oct 15, 2026 (median 1.36 s). Small sample; re-measured on the phone network before go-live.",

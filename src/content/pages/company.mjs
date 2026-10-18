@@ -178,7 +178,7 @@ export const pricing = {
         <li><span>The 15-question setup sheet turned into your practice's rules</span></li>
         <li><span>One week in shadow mode, with a review of every difference</span></li>
         <li><span>A business associate agreement</span></li>
-        <li><span>Hosting in the US, single-tenant, with backups and monitoring</span></li>
+        <li><span>Hosting in the US, single-tenant, with backups and monitoring, as required for every production deployment</span></li>
         <li><span>Support from a local team in Pocatello, Idaho</span></li>
       </ul>
       <div class="btn-row mt-1">${btnPrimary("Contact us for pricing", "/contact/")}</div>

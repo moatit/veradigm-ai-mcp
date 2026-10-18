@@ -44,7 +44,7 @@ export const terms = legalPage(
   "Terms of use for the Drawbridge website operated by MOATiT, LLC.",
   `<p>These terms govern your use of this website, drawbridge.moatit.com, operated by ${ORG.legalName}. Use of the Drawbridge service itself is governed by a separate agreement and business associate agreement between MOATiT and each practice.</p>
 <h2>Information on this site</h2>
-<p>We work to keep this site accurate. Numbers labeled "synthetic test", "sandbox test" or "pre-release test" come from testing with invented data and are not guarantees of results in your practice. The time savings calculator gives estimates based on assumptions you can see and change; it is not a quote or a promise.</p>
+<p>We work to keep this site accurate. Numbers labeled "synthetic test", "sandbox test", "pre-release test" or "unreleased agent version" come from testing with invented data and are not guarantees of results in your practice. The time savings calculator gives estimates based on assumptions you can see and change; it is not a quote or a promise.</p>
 <h2>No medical advice</h2>
 <p>Nothing on this website is medical advice. Drawbridge does not provide medical advice to patients or practices.</p>
 <h2>Trademarks</h2>

@@ -36,7 +36,7 @@ export const appSchema = () => ({
   name: "Drawbridge",
   alternateName: "Drawbridge, A MOATiT Service",
   description:
-    "MOATiT's AI technology for healthcare practices: fax and lab-result intake that files documents to the right patient chart, and a 24/7 AI phone assistant that verifies callers and manages appointments. Integrates with Veradigm® EHR and Veradigm® Practice Management.",
+    "MOATiT's AI technology for healthcare practices: fax and lab-result intake that files documents to the right patient chart, and an AI phone assistant that answers the calls a practice routes to it, day and night, verifies callers and manages appointments. Integrates with Veradigm® EHR and Veradigm® Practice Management.",
   applicationCategory: "BusinessApplication",
   applicationSubCategory: "Healthcare practice automation",
   operatingSystem: "Web",
@@ -51,7 +51,7 @@ export const appSchema = () => ({
     "Multi-patient batch file splitting",
     "Critical-result High-priority tasks",
     "Staff review queue with one-click file or correct",
-    "24/7 AI phone assistant with server-enforced caller verification",
+    "AI phone assistant, day and night, with server-enforced caller verification",
     "Appointment booking, rescheduling, cancellation and confirmation with read-back",
     "Reminder calls, recalls, huddle brief, pre-visit check and on-call notebook",
     "Tamper-evident audit log and patient access reports",

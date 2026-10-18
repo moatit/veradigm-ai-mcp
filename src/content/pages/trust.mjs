@@ -16,7 +16,7 @@ export const security = {
   path: "/security/",
   title: "Security & HIPAA trust center",
   description:
-    "How Drawbridge protects patient information: BAA, multi-factor sign-in, encryption in transit and at rest, a tamper-evident six-year audit log, per-call caller verification, US hosting, independent audit and SOC 2 in process.",
+    "How Drawbridge protects patient information: BAA, multi-factor sign-in, a tamper-evident six-year audit log, per-call caller verification, the encryption and US hosting every production deployment requires, a code audit and SOC 2 in process.",
   crumbs: [{ name: "Security & HIPAA", href: "/security/" }],
   body: `${pageHero({
     eyebrow: "Trust center",
@@ -36,7 +36,7 @@ export const security = {
       <div class="card"><div class="icon">${icon("phone")}</div><h3>Calls to your line</h3><p>Who is calling and what they need, so the assistant can verify them and help with visits, balances and messages.</p></div>
       <div class="card"><div class="icon">${icon("calendar")}</div><h3>Schedule and chart data</h3><p>Only what each task needs, read from and written to your EHR and practice-management system through a dedicated Drawbridge user that your practice administrator creates.</p></div>
     </div>
-    <p class="mt-2 lede">MOATiT is your business associate under HIPAA. We sign a BAA with every practice before any patient data flows, and hold BAAs with the service providers that handle patient information for us.</p>
+    <p class="mt-2 lede">MOATiT is your business associate under HIPAA. We sign a BAA with every practice before any patient data flows. BAAs with the service providers that handle patient information for us are required before patient data flows, and are in progress.</p>
   </div>
 </section>
 <section class="section on-white" aria-labelledby="controls-title">
@@ -72,9 +72,9 @@ export const security = {
           ${row("No patient data in logs", "Server logs carry tool names, IDs and outcomes only, never names, birth dates or chart contents.", "ok")}
           ${row("Call recordings", "Personal information is redacted from recordings and transcripts after each call; kept 30 days.", "ok")}
           ${row("Retention", "Original faxes deleted 30 days after filing (the chart copy is the record); patient details on intake records after 90 days; call records after 30 days.", "ok")}
-          ${row("Backups", "Every two hours, kept six months, encrypted and immutable.", "org")}
+          ${row("Backups", "Every two hours, kept six months, encrypted and immutable: required for every production deployment.", "req")}
           ${row("Document integrity", "Each document is fingerprinted on arrival and checked again before it is filed.", "ok")}
-          ${row("No model training on your data", "Drawbridge does not use your practice's data to train AI models.", "ok")}
+          ${row("No model training on your data", "Drawbridge's own software does not train AI models on your data. Written confirmation for the voice platform the assistant runs on is in progress.", "prog")}
         </tbody>
       </table>
     </div>
@@ -86,7 +86,7 @@ export const security = {
           ${row("Tamper-evident audit log", "Every tool call, staff view and change is written to a hash-chained log kept for six years; edits, deletions and re-ordering are detectable.", "ok")}
           ${row("Access and disclosure reports", "Administrators can list every access to one patient, or every action by one user, for any date range.", "ok")}
           ${row("Security events", "Sign-in failures, lockouts, rejected keys, emergency access and unusual export volumes are recorded as security events for review.", "ok")}
-          ${row("System status and alerts", "Connection health checked every two minutes; your help desk is alerted when it goes down and when it recovers.", "ok")}
+          ${row("System status and alerts", "Connection health checked every two minutes; MOATiT's help desk is alerted by email when it goes down and when it recovers. Alert delivery is configured for every production deployment.", "req")}
           ${row("Endpoint protection", "Managed endpoint detection and response; critical patches applied within seven days after testing.", "org")}
         </tbody>
       </table>
@@ -96,12 +96,12 @@ export const security = {
         <caption>Program, people and assurance</caption>
         <thead><tr><th scope="col">Item</th><th scope="col">Detail</th><th scope="col">Status</th></tr></thead>
         <tbody>
-          ${row("Business associate agreements", "With every practice, and with every provider that handles patient information for us.", "org")}
+          ${row("Business associate agreements", "With every practice before any patient data flows. BAAs with every provider that handles patient information for us are required before patient data flows, and are in progress.", "prog")}
           ${row("HIPAA training", "Annual HIPAA security and privacy training for the MOATiT workforce.", "org")}
           ${row("Incident response", "Documented incident response plan, with breach notification to practices as set out in the BAA.", "org")}
           ${row("Disaster recovery &amp; continuity", "Documented disaster recovery and business continuity plans.", "org")}
           ${row("Independent testing", "Annual vulnerability scans and penetration tests by an independent outside firm.", "org")}
-          ${row("Independent launch audit", "Security and HIPAA technical-safeguards audit of the Drawbridge code by a reviewer who did not write it, October 2026: passed, with every high-severity finding fixed.", "ok")}
+          ${row("Independent code audit", "Security and HIPAA technical-safeguards audit of the Drawbridge code by a reviewer who did not write it, October 2026: code audit passed, with every high-severity finding fixed; production re-review pending.", "prog")}
           ${row("SOC 2", "In process; the audit is to be completed before the end of 2027.", "prog")}
           ${row("Veradigm Connect certification", "MOATiT's certification for Drawbridge is in progress.", "prog")}
         </tbody>
@@ -160,7 +160,7 @@ export const integrations = {
     <div class="section-head">
       <p class="eyebrow">EHR &amp; practice management</p>
       <h2 id="ehr-title">Veradigm® EHR and Veradigm® Practice Management</h2>
-      <p class="lede">Drawbridge connects through Veradigm's secure partner interface, over encrypted connections, with the access you authorize through Veradigm®.</p>
+      <p class="lede">Drawbridge connects through Veradigm's secure API, over encrypted connections, with the access you authorize through Veradigm®.</p>
     </div>
     <div class="grid grid-2">
       <div class="card">
@@ -169,7 +169,7 @@ export const integrations = {
           <li><span>Patient search (to verify callers and match documents)</span></li>
           <li><span>Schedules, open times and appointment types</span></li>
           <li><span>Balance and insurance on file</span></li>
-          <li><span>Medication, allergy and problem lists, for verified callers and on-call briefs</span></li>
+          <li><span>Medication, allergy and problem lists and recent results, for verified callers and on-call briefs</span></li>
           <li><span>Document categories and the provider list</span></li>
         </ul>
       </div>
@@ -181,7 +181,7 @@ export const integrations = {
           <li><span>Tasks: provider review tasks and staff messages</span></li>
           <li><span>Scanned documents filed to the chart</span></li>
         </ul>
-        <p class="small">Clinical content (notes, orders, result values and medications) stays with your clinicians; Drawbridge writes only the items above.</p>
+        <p class="small">Drawbridge writes only the items above. It never writes clinical content (notes, orders, result values or medication changes), and the phone assistant never interprets results or medications.</p>
       </div>
     </div>
   </div>
@@ -194,8 +194,8 @@ export const integrations = {
     </div>
     <div class="grid grid-3">
       <div class="card"><div class="icon">${icon("fax")}</div><h3>Your document queue</h3><p>Faxes and lab results keep arriving in your Veradigm® EHR document queue exactly as they do today. Drawbridge works through that queue for you, including multi-patient lab batches, which it splits by patient.</p></div>
-      <div class="card"><div class="icon">${icon("phone")}</div><h3>Your clinic number</h3><p>Keep your number and your phone system. We set up the calls you choose (after hours, overflow or all) to reach the assistant, and calls transfer back to your staff or on-call provider.</p></div>
-      <div class="card"><div class="icon">${icon("bell")}</div><h3>Status alerts</h3><p>Status alerts by encrypted email to the contact you choose, whenever the Veradigm® connection changes.</p></div>
+      <div class="card"><div class="icon">${icon("phone")}</div><h3>Your clinic number</h3><p>Keep your number and your phone system. We set up the calls you choose (after hours, overflow or all) to reach the assistant. During business hours calls transfer back to your staff; after hours, urgent calls are flagged for your on-call provider.</p></div>
+      <div class="card"><div class="icon">${icon("bell")}</div><h3>Status alerts</h3><p>Status alerts by encrypted email to MOATiT's help desk whenever the Veradigm® connection changes.</p></div>
       <div class="card"><div class="icon">${icon("hospital")}</div><h3>MOATiT-hosted</h3><p>Drawbridge runs single-tenant per practice on MOATiT's infrastructure, and you can switch it off at any time without changing your workflow.</p></div>
     </div>
     <p class="tm-note">${esc(TRADEMARK_NOTE)}</p>

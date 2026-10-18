@@ -9,7 +9,7 @@ export const HEROES = {
   a: {
     kicker: "Drawbridge, MOATiT's AI technology for healthcare practices",
     h1: 'Lab results filed. Calls answered. <span class="accent-i">Every one checked.</span>',
-    lede: `For practices on <strong>Veradigm® EHR and Veradigm® Practice Management</strong>. Drawbridge reads incoming faxes and lab results and files them to the right patient's chart, and its phone assistant answers your line 24/7, verifying every caller before it shares a thing. Anything that needs judgment goes to a person, already read and explained. <strong>More capacity for the team you already have.</strong>`,
+    lede: `For practices on <strong>Veradigm® EHR and Veradigm® Practice Management</strong>. Drawbridge reads incoming faxes and lab results and files them to the right patient's chart, and its phone assistant answers the calls you route to it, day and night, verifying every caller before it shares a thing. Anything that needs judgment goes to a person, already read and explained. <strong>More capacity for the team you already have.</strong>`,
   },
   fax: {
     kicker: "Drawbridge fax &amp; lab intake, A MOATiT Service",
@@ -18,8 +18,8 @@ export const HEROES = {
   },
   phone: {
     kicker: "Drawbridge phone assistant, A MOATiT Service",
-    h1: 'Every call answered, <span class="accent-i">even at 2 a.m.</span>',
-    lede: `Drawbridge answers your clinic line around the clock. It verifies callers, books, moves and confirms visits in <strong>Veradigm® Practice Management</strong> with a read-back, and takes clear messages for your staff. Emergencies are directed to 911, and clinical questions stay with your clinicians.`,
+    h1: 'Calls answered, <span class="accent-i">day and night.</span>',
+    lede: `Drawbridge answers the calls you route to it, day and night. It verifies callers, books, moves and confirms visits in <strong>Veradigm® Practice Management</strong> with a read-back, and takes clear messages for your staff. Emergencies are directed to 911, and clinical questions stay with your clinicians.`,
   },
 };
 
@@ -59,8 +59,8 @@ export const demoBand = () => `<section class="section on-white" id="demo" aria-
       <div class="demo-col" id="sample-call">
         <h3>A reschedule call, handled</h3>
         <p>Verified first, offered real open times, read back, then booked.</p>
-        ${callCard("demo-call")}
-        <p class="mt-1"><button class="btn-link btn-replay" type="button" data-replay="demo-call" >Replay the call</button></p>
+        ${callCard("demo-call", { play: false })}
+        <p class="mt-1"><a class="btn-link" href="/phone-assistant/#sample-call">Play the call on the phone assistant page</a></p>
       </div>
     </div>
   </div>
@@ -80,8 +80,8 @@ export const rulesSection = () => `<section class="section on-night blueprint" i
       <div class="rule"><span class="n">Rule 4</span><h3>Critical results get attention right away.</h3><p>Lab critical flags create a High-priority review task marked CRITICAL, with a phone call required. They notify even on same-day visits.</p></div>
       <div class="rule"><span class="n">Rule 5</span><h3>Verify the caller before anything else.</h3><p>Enforced by the server itself: the caller is verified on the call before any patient record is read or changed.</p></div>
       <div class="rule"><span class="n">Rule 6</span><h3>Read it back. Wait for a yes.</h3><p>Every booking, move, cancellation and confirmation is read back to the caller and made only after they agree.</p></div>
-      <div class="rule"><span class="n">Rule 7</span><h3>Clinical questions go to clinicians. Emergencies go to 911.</h3><p>The assistant leaves results and medications to your clinical team. Emergencies hear one clear line: hang up and call 911 now.</p></div>
-      <div class="rule"><span class="n">Rule 8</span><h3>A person, whenever you ask.</h3><p>Callers can ask for staff at any time. After hours, urgent calls go to your on-call provider with a short brief.</p></div>
+      <div class="rule"><span class="n">Rule 7</span><h3>Clinical questions go to clinicians. Emergencies go to 911.</h3><p>The assistant never interprets results or medications and never advises; clinical questions go to your clinicians. Emergencies hear one clear line: hang up and call 911 now.</p></div>
+      <div class="rule"><span class="n">Rule 8</span><h3>A person, whenever you ask.</h3><p>Callers can ask for staff at any time. After hours, urgent calls are flagged for your on-call provider in the on-call notebook, and callers are told how to reach them. Emergencies are directed to 911.</p></div>
     </div>
   </div>
 </section>`;
@@ -105,10 +105,10 @@ export const rolloutSection = () => `<section class="section" id="rollout" aria-
 
 export default {
   path: "/",
-  title: "Drawbridge: AI fax intake & phone assistant for medical practices | A MOATiT Service",
+  title: "AI fax intake and phone assistant for medical practices | Drawbridge, A MOATiT Service",
   ogTitle: "Drawbridge: lab results filed, calls answered, every one checked",
   description:
-    "Drawbridge is MOATiT's AI technology for healthcare practices. It files faxes and lab results to the right patient chart and answers your phone line 24/7, verifying every caller. Integrates with Veradigm® EHR and PM.",
+    "Drawbridge is MOATiT's AI technology for healthcare practices. It files faxes and lab results to the right patient chart and answers the calls you route to it, day and night, verifying every caller. Integrates with Veradigm® EHR and PM.",
   app: true,
   schema: [faqSchema(FAQS.filter((f) => f.home))],
   body: `${homeHero("a")}
@@ -135,7 +135,7 @@ ${demoBand()}
   <div class="wrap">
     <div class="section-head">
       <p class="eyebrow">The future of your practice</p>
-      <h2 id="vision-title">Is your Veradigm® practice ready to be <span class="accent-i">agentified?</span></h2>
+      <h2 id="vision-title">Is your practice ready for <span class="accent-i">more capacity?</span></h2>
       <p class="lede">Drawbridge adds capacity. It works alongside your current system and your staff and multiplies what they can do. Your team does the work they're great at, with patients and care, while Drawbridge handles the repetitive indexing and the routine calls.</p>
     </div>
     <div class="grid grid-3">
@@ -167,10 +167,10 @@ ${demoBand()}
       <a class="card card-link" href="/phone-assistant/">
         <div class="icon">${icon("phone")}</div>
         <h3>AI phone assistant</h3>
-        <p>Answers your clinic line 24/7. Verifies callers, shares upcoming visits and open times, books, moves, cancels and confirms with read-back, and takes messages for staff.</p>
+        <p>Answers the calls you route to it, day and night. Verifies callers, shares upcoming visits and open times, books, moves, cancels and confirms with read-back, and takes messages for staff.</p>
         <ul class="checks">
-          <li><span>Balance, insurance, medication and allergy lists on file</span></li>
-          <li><span>After-hours notebook and on-call handoff</span></li>
+          <li><span>Balance, insurance, medication and allergy lists and recent results, as recorded</span></li>
+          <li><span>After-hours notebook for the on-call provider</span></li>
           <li><span>Transfers to staff whenever a caller asks</span></li>
         </ul>
         <span class="btn-link">Phone assistant</span>
@@ -180,7 +180,7 @@ ${demoBand()}
       <div class="card"><div class="icon">${icon("bell")}</div><h3>Reminders &amp; recalls</h3><p>Reminder calls, no-show follow-up and recall outreach, only with a staff click or a schedule you set.</p></div>
       <div class="card"><div class="icon">${icon("sun")}</div><h3>Huddle brief</h3><p>A morning summary of the day's schedule, plus a pre-visit check for each patient.</p></div>
       <div class="card"><div class="icon">${icon("moon")}</div><h3>On-call notebook</h3><p>Every after-hours call and message in one place for the on-call provider and the morning team.</p></div>
-      <div class="card"><div class="icon">${icon("gauge")}</div><h3>Status &amp; alerts</h3><p>System status on every staff screen and automatic help-desk alerts if the EHR connection drops.</p></div>
+      <div class="card"><div class="icon">${icon("gauge")}</div><h3>Status &amp; alerts</h3><p>System status on every staff screen and automatic alerts to MOATiT's help desk if the EHR connection drops.</p></div>
     </div>
     <p class="mt-2"><a class="btn-link" href="/platform/">All staff tools</a></p>
   </div>
@@ -219,16 +219,16 @@ ${rolloutSection()}
     <div>
       <p class="eyebrow">Security &amp; HIPAA</p>
       <h2 id="sec-title">Built by a security-first IT company.</h2>
-      <p class="lede">MOATiT has run IT, phones and security for businesses since 2013. Drawbridge was built to the HIPAA Security Rule from the first line of code, and audited independently before launch.</p>
+      <p class="lede">MOATiT has run IT, phones and security for businesses since 2013. Drawbridge was built to the HIPAA Security Rule from the first line of code, and its code passed an independent audit in October 2026; the production re-review is pending.</p>
       <div class="btn-row mt-1">${btnSecondary(CTA.security.label, CTA.security.href)}</div>
     </div>
     <ul class="checks">
       <li><span><strong>BAA with every practice</strong>, before any patient data flows</span></li>
       <li><span><strong>Multi-factor sign-in</strong> for every staff user; passwords expire every 90 days; lockout after failed attempts</span></li>
-      <li><span><strong>Encrypted</strong> in transit (TLS 1.2+) and at rest; hosted in the US</span></li>
+      <li><span><strong>Encryption</strong> in transit (TLS 1.2+) and at rest, and US hosting: required for every production deployment before patient data flows</span></li>
       <li><span><strong>Tamper-evident audit log</strong> kept six years, with patient access reports</span></li>
       <li><span><strong>Minimum necessary</strong>: the phone assistant sees only what the verified caller's request needs</span></li>
-      <li><span><strong>Independent launch audit</strong> (Oct 2026); SOC 2 in process, to be completed before the end of 2027</span></li>
+      <li><span><strong>Code audit passed</strong> (Oct 2026), production re-review pending; SOC 2 in process, to be completed before the end of 2027</span></li>
     </ul>
   </div>
 </section>

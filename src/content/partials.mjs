@@ -157,7 +157,7 @@ const callLines = [
   ["system", "", "Rescheduled in the practice-management system · read back and confirmed"],
   ["agent", "Drawbridge", "Done. You're booked for Thursday at 2:15. Is there anything else?"],
 ];
-export const callCard = (id = "call-demo") => `<figure class="call-card" id="${id}" data-play aria-labelledby="${id}-cap">
+export const callCard = (id = "call-demo", { play = true } = {}) => `<figure class="call-card" id="${id}"${play ? " data-play" : ""} aria-labelledby="${id}-cap">
   <header><span class="live">Sample call · business hours</span><span>Synthetic patient</span></header>
   <ol class="transcript">
 ${callLines
@@ -220,7 +220,7 @@ export const ctaBand = ({
 export const FAQS = [
   {
     q: "What does Drawbridge do?",
-    a: "Drawbridge is MOATiT's AI technology for healthcare practices. It reads incoming faxes and lab results and files them to the right patient's chart, and its phone assistant answers your clinic line 24/7: it verifies callers, handles appointments and takes messages for your staff. Staff tools such as reminder calls, a morning huddle brief and an on-call notebook come with it.",
+    a: "Drawbridge is MOATiT's AI technology for healthcare practices. It reads incoming faxes and lab results and files them to the right patient's chart, and its phone assistant answers the calls you route to it, day and night: it verifies callers, handles appointments and takes messages for your staff. Staff tools such as reminder calls, a morning huddle brief and an on-call notebook come with it.",
     home: true,
   },
   {
@@ -240,11 +240,11 @@ export const FAQS = [
   },
   {
     q: "Are some documents always handled by a person?",
-    a: "Yes. By default, records requests, prior authorizations, refill requests and referrals always go to your staff, even when the patient match is perfect. Your practice can change that list. Critical lab results are filed with a High-priority review task marked CRITICAL and a note that a phone call is required; Your staff make that call.",
+    a: "Yes. By default, records requests, prior authorizations, refill requests and referrals always go to your staff, even when the patient match is perfect. Your practice can change that list. Critical lab results are filed with a High-priority review task marked CRITICAL and a note that a phone call is required; your staff make that call.",
   },
   {
     q: "Can the phone assistant give medical advice?",
-    a: "No. It never gives medical advice. If a caller describes an emergency, it tells them to hang up and dial 911. It can tell callers about upcoming visits, open times, balances and insurance on file, and read their medication and allergy lists, but only after it has verified who is calling.",
+    a: "No. It never gives medical advice. If a caller describes an emergency, it tells them to hang up and dial 911. It can tell callers about upcoming visits, open times, balances and insurance on file, and read their medication and allergy lists and recent results as recorded, but only after it has verified who is calling. It never interprets results or medications.",
     home: true,
   },
   {
@@ -268,15 +268,15 @@ export const FAQS = [
   },
   {
     q: "Is Drawbridge HIPAA compliant? Will you sign a BAA?",
-    a: "MOATiT signs a business associate agreement with every practice before any patient data flows. Drawbridge was built around the HIPAA Security Rule: multi-factor sign-in for every user, a tamper-evident audit log kept six years, encryption in transit and at rest, minimum-necessary access and per-call caller verification. There is no official HIPAA 'certification', so we publish our controls on the Security page instead.",
+    a: "MOATiT signs a business associate agreement with every practice before any patient data flows. Drawbridge was built around the HIPAA Security Rule: multi-factor sign-in for every user, a tamper-evident audit log kept six years, minimum-necessary access and per-call caller verification. Encryption in transit and at rest and US hosting are required for every production deployment before patient data flows. There is no official HIPAA 'certification', so we publish our controls on the Security page instead.",
   },
   {
     q: "Is our patient data used to train AI models?",
-    a: "No. Drawbridge does not use your practice's data to train AI models. Documents are read by OCR running on MOATiT's own servers, and the decision of which chart a document goes to is made by rules you can audit.",
+    a: "Drawbridge's own software does not train AI models on your practice's data: documents are read by OCR running on MOATiT's own servers, and the decision of which chart a document goes to is made by rules you can audit. For calls, written confirmation that the voice platform the assistant runs on does not train on your data is in progress.",
   },
   {
     q: "Where is our data stored, and for how long?",
-    a: "In the United States, on MOATiT's cloud infrastructure and in MOATiT's data center, single-tenant per practice. The chart copy in your EHR is the record: Drawbridge deletes the original fax 30 days after filing and patient details on its intake records after 90 days, keeps call records 30 days, and keeps the audit log for six years.",
+    a: "In the United States, on MOATiT's cloud infrastructure and in MOATiT's data center, single-tenant per practice: required for every production deployment before patient data flows. The chart copy in your EHR is the record: Drawbridge deletes the original fax 30 days after filing and patient details on its intake records after 90 days, keeps call records 30 days, and keeps the audit log for six years.",
   },
   {
     q: "How much does Drawbridge cost?",

@@ -32,7 +32,7 @@ export const lpFax = variant(
 export const lpPhone = variant(
   "phone",
   "phone",
-  "An AI phone assistant that answers every call | Drawbridge, A MOATiT Service",
-  "Drawbridge answers your clinic line 24/7, verifies every caller, books and reschedules with read-back in Veradigm® PM, and takes messages. Clinical questions go to your clinicians; emergencies to 911.",
+  "An AI phone assistant for the calls you route to it | Drawbridge, A MOATiT Service",
+  "Drawbridge answers the calls you route to it, day and night, verifies every caller, books and reschedules with read-back in Veradigm® PM, and takes messages. Clinical questions go to your clinicians; emergencies to 911.",
   `<section class="section on-white" id="sample-call" aria-labelledby="lp-call-demo"><div class="wrap split"><div><p class="eyebrow">See it work</p><h2 id="lp-call-demo">Verified, offered, read back, booked.</h2><p class="lede">The server releases or changes a record only after the caller is verified on that call.</p></div>${callCard("lp-call")}</div></section>`
 );
