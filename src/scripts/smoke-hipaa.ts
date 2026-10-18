@@ -274,21 +274,21 @@ async function main(): Promise<void> {
     assert.strictEqual(audit.retentionDays(), 2190, 'audit log kept 6 years by default');
     ok('retention: filed intake records drop names, DOBs, text and file names after INTAKE_RECORD_RETENTION_DAYS (IDs, hash, history stay; waiting items untouched); audit default 6 years');
 
-    // 8. HIPAA & Compliance page: signed-in only, plain language, generated from the same list as the document
+    // 8. HIPAA & Compliance in the staff portal is "Your part" (staff duties only; Ali, Oct 18): signed-in only,
+    // plain language. The full checklist goes to the admin dashboard as docs/drawbridge/hipaa-safeguards.json.
     const out = await fetch(`${url}/app/compliance`, { redirect: 'manual' });
     assert.ok(out.status === 302 && /\/app\/login\?next=%2Fapp%2Fcompliance/.test(out.headers.get('location') || ''), 'signed out → sign-in page');
     const cp = await get(pat, '/app/compliance');
     assert.strictEqual(cp.status, 200);
     const chtml = await cp.text();
     const body = chtml.split('<main>')[1] || '';
-    assert.ok(body.includes('HIPAA &amp; Compliance') && chtml.includes('HIPAA &amp; Compliance</a>'), 'page and nav item');
-    for (const s of safeguards.SAFEGUARDS) {
-      assert.ok(body.includes(shell.esc(s.citation)) && body.includes(shell.esc(s.plain)), `row ${s.citation}`);
-    }
-    for (const o of safeguards.ORGANIZATIONAL_SAFEGUARDS) assert.ok(body.includes(shell.esc(o)), o);
-    for (const want of ['In place', 'Deployment', 'Organizational', 'Last security checks', '0 vulnerabilities, after remediation of 1 critical and 6 high', 'Only TLS 1.2 and 1.3', 'help@moatit.com', '(208) 900-6628', 'SOC 2: in process; audit to be completed before the end of 2027']) {
+    assert.ok(body.includes('<h2 style="margin-top:4px">Your part</h2>') && chtml.includes('HIPAA &amp; Compliance</a>'), 'page heading "Your part" and the nav item');
+    for (const want of ['Use only your own sign-in', 'authenticator code', 'Sign out when you step away', `after ${shell.idleMinutes()} minutes without activity`, 'Keep patient details out of email and chat', 'Report anything that looks wrong', 'help@moatit.com', '(208) 900-6628', 'Emergency access is for emergencies only']) {
       assert.ok(body.includes(shell.esc(want)), `page lacks "${want}"`);
     }
+    for (const s of safeguards.SAFEGUARDS) assert.ok(!body.includes(shell.esc(s.citation)), `no checklist row ${s.citation} on the staff page`);
+    for (const o of safeguards.ORGANIZATIONAL_SAFEGUARDS) assert.ok(!body.includes(shell.esc(o)), `no MOATiT item on the staff page: ${o}`);
+    assert.ok(!/Last security checks|In place|Organizational/.test(body), 'no checklist badges or security checks on the staff page');
     const visible = body.replace(/<[^>]+>/g, ' ');
     assert.ok(!/\b(mcp|fhir|unity)\b/i.test(visible), 'client-facing words only (Veradigm® EHR / PM, never MCP, FHIR or Unity)');
     assert.ok(!/src\/|\.ts\b|DRAWBRIDGE_|INTAKE_|AUDIT_|NODE_ENV|localhost|127\.0\.0\.1|\.internal\b|\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b/.test(visible), 'no code paths, settings, host names or IPs');
@@ -296,9 +296,15 @@ async function main(): Promise<void> {
     assert.ok(l.some((x) => x.kind === 'view' && x.tool === 'compliance_view' && x.user === 'pat.staff'), 'page view audited like every staff screen');
     const hipaaDoc = fs.readFileSync(path.join(process.cwd(), 'docs', 'drawbridge', 'HIPAA_TECHNICAL_SAFEGUARDS.md'), 'utf8');
     assert.strictEqual(safeguards.checklistInDoc(hipaaDoc), safeguards.checklistMarkdown(), 'HIPAA_TECHNICAL_SAFEGUARDS.md is out of date: run npm run docs:hipaa');
+    const jsonFile = fs.readFileSync(path.join(process.cwd(), safeguards.CHECKLIST_JSON), 'utf8').replace(/\r\n/g, '\n');
+    assert.strictEqual(jsonFile, safeguards.checklistJson(), `${safeguards.CHECKLIST_JSON} is out of date: run npm run docs:hipaa`);
+    const exported = JSON.parse(jsonFile);
+    assert.strictEqual(exported.safeguards.length, safeguards.SAFEGUARDS.length);
+    assert.ok(exported.safeguards.every((s: any, i: number) => s.citation === safeguards.SAFEGUARDS[i].citation && s.plain === safeguards.SAFEGUARDS[i].plain && s.status_label));
+    assert.deepStrictEqual(exported.organizational_safeguards, safeguards.ORGANIZATIONAL_SAFEGUARDS);
     const c = safeguards.statusCounts();
     assert.strictEqual(c.PASS + c.FIXED + c.DEPLOYMENT + c.ORGANIZATIONAL, safeguards.SAFEGUARDS.length);
-    ok(`HIPAA & Compliance page: signed-in only, every safeguard with a badge, MOATiT safeguards, last checks and contact, plain language; the document matches the same list (${safeguards.SAFEGUARDS.length} rows: ${c.PASS} PASS, ${c.FIXED} FIXED, ${c.DEPLOYMENT} DEPLOYMENT, ${c.ORGANIZATIONAL} ORGANIZATIONAL)`);
+    ok(`HIPAA & Compliance: the staff page is "Your part" (signed-in only, five staff duties, help-desk contact, no checklist or MOATiT items, plain language); the document and the admin JSON match the same list (${safeguards.SAFEGUARDS.length} rows: ${c.PASS} PASS, ${c.FIXED} FIXED, ${c.DEPLOYMENT} DEPLOYMENT, ${c.ORGANIZATIONAL} ORGANIZATIONAL)`);
   } finally {
     await new Promise((r) => setTimeout(r, 300)); // last responses finish, then their audit lines are written
     await audit.flushAudit();
