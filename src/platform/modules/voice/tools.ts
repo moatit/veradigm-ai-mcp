@@ -3,6 +3,7 @@ import * as path from 'path';
 import { AGENT_TOOLS, compactAgentTools, ToolDef } from '../../agent-tools';
 import { AgentConfig, HandoffAction } from './config';
 import { MODEL_SCRIPTS } from './scripts';
+import { allowedByList, classifyTarget } from './dialplan';
 import { ToolSpec } from './providers/types';
 
 /**
@@ -38,20 +39,21 @@ export function harnessToolSpecs(agent: AgentConfig): ToolSpec[] {
       },
     });
   }
-  if (on.has('warm_transfer') && agent.warm_transfer.enabled && agent.dial_allow.length) {
+  const warmDest = warmDestinations(agent);
+  if (on.has('warm_transfer') && agent.warm_transfer.enabled && warmDest.length) {
     out.push({
       name: 'warm_transfer',
       description:
-        'Put the caller on hold, call a staff extension, brief the staff member, then connect them. Use when the caller needs a person and a warm hand-off helps. ' +
-        'You will be told when staff answers. Extensions: ' + agent.dial_allow.join(', '),
+        'Put the caller on hold, call a person, brief them, then connect them. Use when the caller needs a person and a warm hand-off helps. ' +
+        'You will be told when they answer. Destinations: ' + warmDest.map((h) => `${h.id} = ${h.label}`).join(' | '),
       parameters: {
         type: 'object',
         properties: {
-          extension: { type: 'string', enum: agent.dial_allow },
+          destination: { type: 'string', enum: warmDest.map((h) => h.id) },
           reason: { type: 'string', description: "Why the caller is calling, in a few words (minimum necessary)" },
           caller_name: { type: 'string', description: 'Only if verified on this call' },
         },
-        required: ['extension', 'reason'],
+        required: ['destination', 'reason'],
       },
     });
     out.push({ name: 'connect_caller', description: 'During a warm transfer: the staff member agreed to take the call. Connects them.', parameters: { type: 'object', properties: {} } });
@@ -61,6 +63,15 @@ export function harnessToolSpecs(agent: AgentConfig): ToolSpec[] {
     out.push({ name: 'end_call', description: 'End the call when the caller is done (plays the goodbye line, then hangs up).', parameters: { type: 'object', properties: {} } });
   }
   return out;
+}
+
+/** Transfer destinations that may be called out to (warm transfer): on the dial allow-list, or any US number if allowed. */
+export function warmDestinations(agent: AgentConfig): HandoffAction[] {
+  return agent.handoffs.filter((h) => {
+    if (h.kind !== 'transfer') return false;
+    const c = classifyTarget(h.target);
+    return c.ok && allowedByList(c, agent.dial_allow, agent.allow_any_nanp);
+  });
 }
 
 export function agentToolSpecs(agent: AgentConfig, unityDefs: ToolDef[]): ToolSpec[] {

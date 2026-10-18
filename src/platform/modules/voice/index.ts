@@ -58,9 +58,12 @@ function form(a: AgentConfig, errors: string[] = []): string {
   <label>Prompt <select name="prompt_source">${opt('default', a.prompt_source, 'Default (phone agent prompt + voice line rules)')}${opt('custom', a.prompt_source, 'Custom')}</select></label>
   <label>Custom prompt (only with "Custom"; must keep the safety rules)<textarea name="custom_prompt" rows="6" style="width:100%">${esc(a.custom_prompt)}</textarea></label>
   <fieldset><legend>Tools</legend>${tools}</fieldset>
-  <label>Handoff actions, one per line: id | label | kind (transfer, voicemail, park, valet_park) | target (4500, **4500, *3, *4) | when to use
+  <label>Handoff actions, one per line: id | label | kind (transfer, voicemail, park, valet_park) | target (4500, a 10-digit US number, **4500, *3, *4) | when to use
   <textarea name="handoffs" rows="4" style="width:100%;font-family:monospace">${esc(handoffLines(a.handoffs))}</textarea></label>
-  <label>Warm transfer: extensions the agent may dial (comma-separated, internal only) <input name="dial_allow" value="${esc(a.dial_allow.join(', '))}"></label>
+  <label>Dial allow-list: extensions and outside US numbers the agent may call out to (comma-separated; international, premium, N11 and 911 are always refused) <input name="dial_allow" value="${esc(a.dial_allow.join(', '))}"></label>
+  <label><input type="checkbox" name="allow_any_nanp" ${a.allow_any_nanp ? 'checked' : ''}> Allow any US/NANP number (off by default)</label>
+  <label>Outgoing calls per call <input name="max_dials_per_call" value="${a.max_dials_per_call}" size="3"></label>
+  <label>Outgoing calls per hour (help-desk alert when reached) <input name="max_dials_per_hour" value="${a.max_dials_per_hour}" size="4"></label>
   <label><input type="checkbox" name="warm_enabled" ${a.warm_transfer.enabled ? 'checked' : ''}> Warm transfer enabled</label>
   <label>Mode <select name="warm_mode">${opt('conference', a.warm_transfer.mode, 'Local conference')}${opt('attended_refer', a.warm_transfer.mode, 'Attended transfer (REFER/Replaces), conference if refused')}</select></label>
   <label>Ring timeout (s) <input name="ring_timeout_s" value="${a.warm_transfer.ring_timeout_s}" size="4"></label>
@@ -90,6 +93,9 @@ function fromForm(b: any, prev: AgentConfig): any {
     enabled_tools: list(b.tool),
     handoffs: parseHandoffs(b.handoffs),
     dial_allow: String(b.dial_allow || '').split(',').map((x) => x.trim()).filter(Boolean),
+    allow_any_nanp: !!b.allow_any_nanp,
+    max_dials_per_call: b.max_dials_per_call,
+    max_dials_per_hour: b.max_dials_per_hour,
     warm_transfer: {
       enabled: !!b.warm_enabled,
       mode: b.warm_mode,

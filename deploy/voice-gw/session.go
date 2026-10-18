@@ -40,8 +40,9 @@ func ValidateDialTarget(target, realm string) (string, error) {
 	}
 	user := strings.TrimPrefix(clean, "sip:")
 	user = user[:strings.Index(user, "@")]
-	if !dialUserRe.MatchString(user) {
-		return "", fmt.Errorf("dial target must be an internal extension/group number (2-8 digits)")
+	kind, _, err := ClassifyTarget(user)
+	if err != nil || (kind != TargetInternal && kind != TargetExternal) {
+		return "", fmt.Errorf("dial target must be an internal extension/group or a 10-digit US/NANP number")
 	}
 	return clean, nil
 }

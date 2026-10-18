@@ -246,10 +246,14 @@ async function main(): Promise<void> {
     bad({ name: 'agent sk-proj-abcdefghijklmnopqrstuvwxyz0123' }, 'looks like a key');
     bad({ handoffs: [{ id: 'icom', label: 'Intercom', kind: 'transfer', target: '*0101', description: '' }] }, 'not allowed');
     bad({ handoffs: [{ id: 'fwd', label: 'Forward', kind: 'park', target: '*72', description: '' }] }, 'not allowed');
-    bad({ handoffs: [{ id: 'ext', label: 'Cell', kind: 'transfer', target: '12085551234', description: '' }] }, 'not allowed');
+    bad({ handoffs: [{ id: 'ext', label: 'Cell', kind: 'transfer', target: '12085551234', description: '' }] }, 'must also be on the dial allow-list');
+    bad({ dial_allow: ['9005551234'] }, 'premium');
+    bad({ dial_allow: ['011442071234567'] }, 'international');
+    bad({ dial_allow: ['8765551234'] }, 'outside the US');
+    bad({ dial_allow: ['911'] }, 'emergency');
+    bad({ dial_allow: ['*72'] }, 'star codes');
+    bad({ max_dials_per_call: 50 }, 'dials per call');
     bad({ handoffs: [{ id: 'vm', label: 'VM', kind: 'voicemail', target: '4500', description: '' }] }, 'not allowed');
-    bad({ dial_allow: ['+12085551234'] }, 'internal extension');
-    bad({ dial_allow: ['011441234567'] }, 'internal extension');
     bad({ enabled_tools: [...base.enabled_tools, 'unity_save_patient'] }, 'unknown tool');
     bad({ enabled_tools: base.enabled_tools.filter((t) => t !== 'say_script') }, 'say_script');
     bad({ provider: 'retell' }, 'provider');
@@ -457,10 +461,10 @@ async function main(): Promise<void> {
     const { s, ev, provider, gw, timers, callId, segDone, transcribed } = makeSession({}, { transcriber: true });
     s.onGwEvent({ type: 'answered', at: 0, leg: 0, codec: 'G722', srtp: true });
     segDone(gw.last('segment').segment);
-    ev.toolCall({ id: 'w0', name: 'warm_transfer', args: { extension: '9999', reason: 'billing' } });
+    ev.toolCall({ id: 'w0', name: 'warm_transfer', args: { destination: 'nope', reason: 'billing' } });
     assert.ok(provider.results.find((r) => r.id === 'w0')!.output.includes('NOT_ALLOWED'), 'extension outside the allow-list refused');
     assert.ok(!gw.last('dial'));
-    ev.toolCall({ id: 'w1', name: 'warm_transfer', args: { extension: '4500', reason: 'question about a bill', caller_name: 'Lucius Marchetti' } });
+    ev.toolCall({ id: 'w1', name: 'warm_transfer', args: { destination: 'front_desk', reason: 'question about a bill', caller_name: 'Lucius Marchetti' } });
     const holdSeg = gw.last('segment').segment;
     assert.ok(gw.bytesOf(holdSeg).equals(clipBytes.get(texts.HOLD)!));
     segDone(holdSeg);
@@ -495,7 +499,7 @@ async function main(): Promise<void> {
     const n = makeSession();
     n.s.onGwEvent({ type: 'answered', at: 0, leg: 0, codec: 'G722', srtp: true });
     n.segDone(n.gw.last('segment').segment);
-    n.ev.toolCall({ id: 'w2', name: 'warm_transfer', args: { extension: '4500', reason: 'refill' } });
+    n.ev.toolCall({ id: 'w2', name: 'warm_transfer', args: { destination: 'front_desk', reason: 'refill' } });
     n.segDone(n.gw.last('segment').segment);
     const d2 = n.gw.last('dial');
     n.s.onGwEvent({ type: 'leg_failed', at: 0, leg: 1, request_id: d2.request_id, code: 0, reason: 'no_answer' });
@@ -511,7 +515,7 @@ async function main(): Promise<void> {
     const t = makeSession();
     t.s.onGwEvent({ type: 'answered', at: 0, leg: 0, codec: 'G722', srtp: true });
     t.segDone(t.gw.last('segment').segment);
-    t.ev.toolCall({ id: 'w3', name: 'warm_transfer', args: { extension: '4500', reason: 'refill' } });
+    t.ev.toolCall({ id: 'w3', name: 'warm_transfer', args: { destination: 'front_desk', reason: 'refill' } });
     t.segDone(t.gw.last('segment').segment);
     const d3 = t.gw.last('dial');
     t.s.onGwEvent({ type: 'leg_answered', at: 0, leg: 1, request_id: d3.request_id });
@@ -525,7 +529,7 @@ async function main(): Promise<void> {
     const c = makeSession();
     c.s.onGwEvent({ type: 'answered', at: 0, leg: 0, codec: 'G722', srtp: true });
     c.segDone(c.gw.last('segment').segment);
-    c.ev.toolCall({ id: 'w4', name: 'warm_transfer', args: { extension: '4500', reason: 'x' } });
+    c.ev.toolCall({ id: 'w4', name: 'warm_transfer', args: { destination: 'front_desk', reason: 'x' } });
     c.segDone(c.gw.last('segment').segment);
     const d4 = c.gw.last('dial');
     c.s.onGwEvent({ type: 'leg_answered', at: 0, leg: 1, request_id: d4.request_id });
@@ -534,6 +538,87 @@ async function main(): Promise<void> {
     c.s.finish('test');
     console.log = origLog;
     ok('warm transfer: allow-list, hold line + hold + dial, model hears only staff, DTMF 1 -> resume + conference + agent leaves (audited); no answer and hold timeout bring the caller back; caller hang-up drops staff');
+  }
+
+  // ── 6b. Outside numbers: allow-list, guardrails, dial limits, masking ──────────────────────────────────
+  {
+    const dp = await import('../platform/modules/voice/dialplan');
+    dp.resetRateLimits();
+    const cls = (t: string) => dp.classifyTarget(t);
+    assert.deepStrictEqual(cls('+1 (208) 555-0123'), { ok: true, kind: 'external', dial: '2085550123', masked: '...0123' });
+    assert.strictEqual((cls('4501') as any).kind, 'internal');
+    assert.strictEqual((cls('**4500') as any).kind, 'voicemail');
+    for (const bad of ['911', '411', '9005551234', '2089761234', '0114420712345', '+442071234567', '8095551234', '5005551234', '*0101', '*72', '5551234']) {
+      assert.ok(!cls(bad).ok, `${bad} must be refused`);
+    }
+    // Agent with the owner's test targets: an outside number and an internal extension (synthetic test numbers here).
+    const cellAgent = {
+      handoffs: [
+        { id: 'owner_cell', label: 'Owner cell (test)', kind: 'transfer', target: '2085550123', description: 'Owner test' },
+        { id: 'owner_desk', label: 'Owner desk', kind: 'transfer', target: '4501', description: 'Owner desk' },
+        { id: 'stranger', label: 'Not allow-listed', kind: 'transfer', target: '4999', description: '' },
+      ],
+      dial_allow: ['2085550123', '4501'],
+      max_dials_per_call: 2,
+      max_dials_per_hour: 3,
+      warm_transfer: { ...config.activeAgent().warm_transfer, enabled: true },
+    };
+    const v = config.validateAgent({ ...config.activeAgent(), ...cellAgent });
+    assert.ok(v.ok, JSON.stringify(v));
+    const tw = tools.warmDestinations((v as any).config).map((h: any) => h.id);
+    assert.deepStrictEqual(tw, ['owner_cell', 'owner_desk'], 'warm transfer only to allow-listed destinations');
+    const spec = tools.harnessToolSpecs((v as any).config).find((t) => t.name === 'warm_transfer')!;
+    assert.ok(!JSON.stringify(spec).includes('2085550123'), 'the model sees destination IDs, never the numbers');
+
+    console.log = capture;
+    const a = makeSession((v as any).config);
+    a.s.onGwEvent({ type: 'answered', at: 0, leg: 0, codec: 'PCMU', srtp: true });
+    a.segDone(a.gw.last('segment').segment);
+    a.ev.toolCall({ id: 'x1', name: 'warm_transfer', args: { destination: 'owner_cell', reason: 'test transfer' } });
+    a.segDone(a.gw.last('segment').segment);
+    assert.strictEqual(a.gw.last('dial').target, 'sip:2085550123@pbx.example.test');
+    a.s.onGwEvent({ type: 'leg_failed', at: 0, leg: 1, request_id: a.gw.last('dial').request_id, code: 486, reason: 'rejected_486' });
+    a.segDone(a.gw.last('segment').segment);
+    a.ev.toolCall({ id: 'x2', name: 'warm_transfer', args: { destination: 'owner_desk', reason: 'test transfer' } });
+    a.segDone(a.gw.last('segment').segment);
+    assert.strictEqual(a.gw.last('dial').target, 'sip:4501@pbx.example.test');
+    a.s.onGwEvent({ type: 'leg_failed', at: 0, leg: 2, request_id: a.gw.last('dial').request_id, code: 0, reason: 'no_answer' });
+    a.segDone(a.gw.last('segment').segment);
+    const dialsBefore = a.gw.all('dial').length;
+    a.ev.toolCall({ id: 'x3', name: 'warm_transfer', args: { destination: 'owner_cell', reason: 'third try' } });
+    assert.strictEqual(a.gw.all('dial').length, dialsBefore, 'third dial on one call refused');
+    assert.ok(a.provider.results.find((r) => r.id === 'x3')!.output.includes('DIAL_LIMIT_CALL'));
+    a.ev.toolCall({ id: 'x4', name: 'warm_transfer', args: { destination: 'stranger', reason: 'x' } });
+    assert.ok(a.provider.results.find((r) => r.id === 'x4')!.output.includes('NOT_ALLOWED'));
+    a.s.finish('test');
+    // Hourly limit across calls: 2 used above, 1 left of 3.
+    const b = makeSession((v as any).config);
+    b.s.onGwEvent({ type: 'answered', at: 0, leg: 0, codec: 'PCMU', srtp: true });
+    b.segDone(b.gw.last('segment').segment);
+    b.ev.toolCall({ id: 'y1', name: 'transfer_to_staff', args: { destination: 'owner_cell' } });
+    b.segDone(b.gw.last('segment').segment);
+    assert.strictEqual(b.gw.last('transfer').target, 'sip:2085550123@pbx.example.test');
+    b.s.finish('test');
+    const c2 = makeSession((v as any).config);
+    c2.s.onGwEvent({ type: 'answered', at: 0, leg: 0, codec: 'PCMU', srtp: true });
+    c2.segDone(c2.gw.last('segment').segment);
+    c2.ev.toolCall({ id: 'z1', name: 'transfer_to_staff', args: { destination: 'owner_cell' } });
+    assert.ok(c2.provider.results.find((r) => r.id === 'z1')!.output.includes('DIAL_LIMIT_HOUR'));
+    assert.ok(!c2.gw.last('transfer'));
+    c2.ev.toolCall({ id: 'z2', name: 'transfer_to_staff', args: { destination: 'owner_desk' } });
+    c2.segDone(c2.gw.last('segment').segment);
+    assert.strictEqual(c2.gw.last('transfer').target, 'sip:4501@pbx.example.test', 'internal transfers are not outside dials');
+    c2.s.finish('test');
+    console.log = origLog;
+    await audit.flushAudit();
+    const auditText = fs.readFileSync(path.join(TMP, 'audit', `${audit.dayKey()}.jsonl`), 'utf8');
+    assert.ok(!auditText.includes('2085550123'), 'full outside number never in the audit');
+    assert.ok(auditText.includes('pstn:...0123') && auditText.includes('voice_dial_limit') && auditText.includes('DIAL_LIMIT_CALL'));
+    assert.ok(!logLines.join('\n').includes('2085550123'), 'full outside number never in the server log');
+    const rec = readVoiceCall(a.callId)!;
+    assert.ok(!JSON.stringify(rec).includes('2085550123'), 'transcript keeps the last 4 digits only');
+    dp.resetRateLimits();
+    ok('outside numbers: NANP only (never international, premium, Caribbean, N11, 911, star codes), allow-list, model sees IDs not numbers, 2 dials per call, hourly cap with security event, last 4 digits only in audit/log/transcript');
   }
 
   // ── 7. The model never hears itself ────────────────────────────────────────────────────────────────────
@@ -546,7 +631,7 @@ async function main(): Promise<void> {
     ev.audio(pcm(200, 24000, 999), 'r9');
     assert.ok(!provider.audioIn.some((b) => b.includes(pcm(20, 24000, 999))), 'agent audio never goes back to the model');
     ev.responseDone('r9', 'completed');
-    ev.toolCall({ id: 'm1', name: 'warm_transfer', args: { extension: '4500', reason: 'x' } });
+    ev.toolCall({ id: 'm1', name: 'warm_transfer', args: { destination: 'front_desk', reason: 'x' } });
     segDone(gw.last('segment').segment);
     const d = gw.last('dial');
     s.onGwEvent({ type: 'leg_answered', at: 0, leg: 1, request_id: d.request_id });
