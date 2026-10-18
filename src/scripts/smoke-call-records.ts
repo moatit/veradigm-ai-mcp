@@ -25,6 +25,8 @@ delete process.env.CALL_ANALYTICS_FORWARD;
 delete process.env.CALL_ANALYTICS_HASH_KEY;
 delete process.env.CALL_ANALYTICS_HTTP_HOSTS;
 process.env.NODE_ENV = 'test';
+// Local smoke: the explicit local-only opt-out lets a key be generated into the throwaway AUDIT_DIR (audit N1).
+process.env.CALL_ANALYTICS_ALLOW_GENERATED_KEY = 'local';
 
 import assert from 'assert';
 import type { AddressInfo } from 'net';
@@ -138,9 +140,17 @@ async function main(): Promise<void> {
   assert.strictEqual(r!.agent_id, 'agent_5a1e5a1e5a1e5a1e5a1e5a1e5a');
   for (const t of r!.tools) assert.match(t.name, /^[a-z][a-z0-9_]{0,48}$/);
   const oddAgent = await ca.buildCallRecord('call_analyzed', analyzedCall('call_syn007', { agent_id: 'Agent Zelda 2085550142' }));
-  assert.strictEqual(oddAgent!.agent_id, '', 'an agent ID outside the vendor format is left empty');
+  assert.strictEqual(oddAgent!.agent_id, null, 'an agent ID outside the vendor format is null (N2)');
   const shortAgent = await ca.buildCallRecord('call_analyzed', analyzedCall('call_syn008', { agent_id: 'agent_synthetic01' }));
-  assert.strictEqual(shortAgent!.agent_id, '');
+  assert.strictEqual(shortAgent!.agent_id, 'agent_synthetic01', 'agent_ + 8..64 letters or digits is kept');
+  const digitAgent = await ca.buildCallRecord('call_analyzed', analyzedCall('call_syn010', { agent_id: 'agent_1234567abcdefabcdefabcdef' }));
+  assert.strictEqual(digitAgent!.agent_id, null, 'an agent ID with a 7+ digit run is null, as the admin schema requires');
+  const noAgent = await ca.buildCallRecord('call_analyzed', analyzedCall('call_syn011', { agent_id: undefined }));
+  assert.strictEqual(noAgent!.agent_id, null);
+  const noStart = await ca.buildCallRecord('call_analyzed', analyzedCall('call_syn012', { start_timestamp: undefined, end_timestamp: undefined, duration_ms: undefined }));
+  assert.strictEqual(noStart!.started_at, null, 'no start time is null, never ""');
+  assert.strictEqual(noStart!.duration_s, null);
+  audit.auditToolCall({ server: 'unity', tool: 'lookup_2085550142', callId: 'call_syn009', success: true, latencyMs: 1, channel: 'retell' });
   audit.auditToolCall({ server: 'unity', tool: 'Weird.Tool:Name', callId: 'call_syn009', success: true, latencyMs: 1, channel: 'retell' });
   audit.auditToolCall({ server: 'unity', tool: 'unity_get_patient', callId: 'call_syn009', success: true, latencyMs: 1, channel: 'retell' });
   await audit.flushAudit();
@@ -247,12 +257,32 @@ async function main(): Promise<void> {
   assert.ok(!fs.existsSync(path.join(TMP, 'call-records-outbox.json')), 'nothing queued when off');
   ok('forwarding is off by default and needs https (http only to loopback or hosts in CALL_ANALYTICS_HTTP_HOSTS)');
 
-  // 6b. Production requires CALL_ANALYTICS_HASH_KEY: no key file is generated, forwarding refuses to start (L4)
+  // 6b. CALL_ANALYTICS_HASH_KEY is required whenever forwarding is on, whatever NODE_ENV is (L4, N1).
+  //     The only exception is the explicit local opt-out, which is refused under NODE_ENV=production.
   const PROD = fs.mkdtempSync(path.join(os.tmpdir(), 'drawbridge-call-records-prod-'));
   process.env.AUDIT_DIR = PROD;
-  process.env.NODE_ENV = 'production';
   process.env.CALL_ANALYTICS_FORWARD = 'on';
-  assert.deepStrictEqual(fw.forwardStatus(), { ok: false, reason: 'hash key required in production' });
+  delete process.env.CALL_ANALYTICS_ALLOW_GENERATED_KEY;
+  for (const env of ['sandbox', 'test', 'development', 'production', '']) {
+    process.env.NODE_ENV = env;
+    assert.deepStrictEqual(fw.forwardStatus(), { ok: false, reason: 'hash key required' }, `NODE_ENV=${env || '(unset)'}: no key, no forwarding`);
+    assert.throws(() => ca.callRef('call_n1'), /CALL_ANALYTICS_HASH_KEY is required/);
+  }
+  assert.ok(!fs.existsSync(path.join(PROD, 'caller-history.key')), 'no key generated under any NODE_ENV without the opt-out');
+  process.env.NODE_ENV = 'sandbox';
+  process.env.CALL_ANALYTICS_ALLOW_GENERATED_KEY = 'yes';
+  assert.strictEqual(fw.forwardStatus().ok, false, 'only the exact value "local" opts out');
+  process.env.CALL_ANALYTICS_ALLOW_GENERATED_KEY = 'local';
+  assert.strictEqual(fw.forwardStatus().ok, true, 'sandbox + explicit local opt-out');
+  assert.match(ca.callRef('call_n1'), /^cr_[0-9a-f]{32}$/);
+  assert.ok(fs.existsSync(path.join(PROD, 'caller-history.key')), 'the opt-out generates the key');
+  fs.rmSync(path.join(PROD, 'caller-history.key'));
+  process.env.NODE_ENV = 'production';
+  assert.deepStrictEqual(fw.forwardStatus(), { ok: false, reason: 'generated key refused in production' });
+  assert.throws(() => ca.callRef('call_n1'), /refused when NODE_ENV=production/);
+  assert.ok(!fs.existsSync(path.join(PROD, 'caller-history.key')));
+  delete process.env.CALL_ANALYTICS_ALLOW_GENERATED_KEY;
+  assert.deepStrictEqual(fw.forwardStatus(), { ok: false, reason: 'hash key required' });
   const errors: string[] = [];
   const origError = console.error;
   console.error = (...a: unknown[]) => void errors.push(a.join(' '));
@@ -261,11 +291,11 @@ async function main(): Promise<void> {
   } finally {
     console.error = origError;
   }
-  assert.ok(errors.some((e) => /forwarding refused: hash key required in production/.test(e)), 'refusal is logged');
+  assert.ok(errors.some((e) => /forwarding refused: hash key required/.test(e)), 'refusal is logged');
   assert.ok(!errors.some((e) => /vdm_|synthetic-smoke/.test(e)), 'the log carries no key');
   await fw.forwardCallEvent('call_analyzed', analyzedCall('call_prod1'));
-  assert.throws(() => ca.callRef('call_prod1'), /CALL_ANALYTICS_HASH_KEY is required in production/);
-  await assert.rejects(ca.buildCallRecord('call_analyzed', analyzedCall('call_prod2')), /required in production/);
+  assert.throws(() => ca.callRef('call_prod1'), /CALL_ANALYTICS_HASH_KEY is required/);
+  await assert.rejects(ca.buildCallRecord('call_analyzed', analyzedCall('call_prod2')), /CALL_ANALYTICS_HASH_KEY is required/);
   assert.ok(!fs.existsSync(path.join(PROD, 'caller-history.key')), 'no key generated next to the hashes');
   assert.ok(!fs.existsSync(path.join(PROD, 'call-records-outbox.json')), 'nothing queued');
   process.env.CALL_ANALYTICS_HASH_KEY = 'short';
@@ -280,9 +310,39 @@ async function main(): Promise<void> {
   delete process.env.CALL_ANALYTICS_HASH_KEY;
   delete process.env.CALL_ANALYTICS_FORWARD;
   process.env.NODE_ENV = 'test';
+  process.env.CALL_ANALYTICS_ALLOW_GENERATED_KEY = 'local';
   process.env.AUDIT_DIR = TMP;
   fs.rmSync(PROD, { recursive: true, force: true });
-  ok('production: no hash key means no forwarding, no generated key file and no record');
+  ok('hash key required whenever forwarding is on, under any NODE_ENV; the local opt-out is refused in production');
+
+  // 6d. Wire contract (N2): every edge case the builder can produce meets the admin schema's rules.
+  //     The admin side runs the same cases through its zod schema (lib/call-records/contract.test.ts).
+  const { buildContractCases } = await import('./call-record-contract');
+  const cases = await buildContractCases();
+  assert.strictEqual(process.env.AUDIT_DIR, TMP, 'the generator restores the environment');
+  const HOUR = /^\d{4}-\d{2}-\d{2}T\d{2}:00:00[+-]\d{2}:\d{2}$/;
+  const noLong = (v: string) => !/\d{7,}/.test(v);
+  const byName = new Map(cases.map((c) => [c.name, c.record as any]));
+  for (const { name, record } of cases) {
+    const r = record as any;
+    assert.ok(r, `${name}: built`);
+    assert.deepStrictEqual(Object.keys(r).sort(), ALLOWED_KEYS, `${name}: keys`);
+    assert.match(r.call_id, /^cr_[0-9a-f]{32}$/, `${name}: call_id`);
+    assert.ok(r.started_at === null || HOUR.test(r.started_at), `${name}: started_at`);
+    assert.ok(r.agent_id === null || (/^agent_[A-Za-z0-9]{8,64}$/.test(r.agent_id) && noLong(r.agent_id)), `${name}: agent_id`);
+    assert.ok(r.practice_id === '' || /^[a-z0-9][a-z0-9-]{0,39}$/.test(r.practice_id), `${name}: practice_id`);
+    assert.ok(/^[a-z0-9_]{0,48}$/.test(r.disconnection_reason), `${name}: disconnection_reason`);
+    assert.ok(r.tools.length <= 40, `${name}: at most 40 tools`);
+    for (const t of r.tools) assert.ok(/^[a-z][a-z0-9_]{0,48}$/.test(t.name) && noLong(t.name), `${name}: tool ${t.name}`);
+    assertNoPhi(JSON.stringify(r), `contract case "${name}"`);
+  }
+  assert.strictEqual(byName.get('no start time: started_at null').started_at, null);
+  assert.strictEqual(byName.get('no agent ID: agent_id null').agent_id, null);
+  assert.strictEqual(byName.get('agent ID with a 7+ digit run: null').agent_id, null);
+  assert.strictEqual(byName.get('half-hour offset clinic (+05:30)').started_at, '2026-10-14T21:00:00+05:30');
+  assert.strictEqual(byName.get('more than 40 tools: capped at 40').tools.length, 40);
+  assert.deepStrictEqual(byName.get('analyzed inbound call with tools (odd tool names left out)').tools.map((t: any) => t.name), ['unity_get_patient_appointments', 'drawbridge_create_staff_task']);
+  ok(`wire contract: ${cases.length} edge-case records meet the admin schema rules (no "", nulls where data is missing)`);
 
   // 6c. Private files: a stale loose temp file never leaks its mode; new directories are 0700 (L3)
   const L3 = path.join(TMP, 'l3', 'nested');
