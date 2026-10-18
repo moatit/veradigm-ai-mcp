@@ -74,6 +74,7 @@ interface WarmState {
   /** extension, or ...last4 of an outside number (transcript label, audit) */
   label: string;
   object: string;
+  rang?: boolean;
   reason: string;
   name: string;
   verified: boolean;
@@ -216,7 +217,11 @@ export class CallSession {
         this.onTransferEvent(ev);
         break;
       case 'leg_ringing':
-        if (this.warm && ev.request_id === this.warm.requestId) this.o.transcript.event(`ringing extension ${this.warm.ext}`, ev.leg);
+        // Once per dial, and never the full number (label = extension or ...last4).
+        if (this.warm && ev.request_id === this.warm.requestId && !this.warm.rang) {
+          this.warm.rang = true;
+          this.o.transcript.event(`ringing ${this.warm.label}`, ev.leg);
+        }
         break;
       case 'leg_answered':
         this.legsUp.add(ev.leg);
@@ -232,8 +237,14 @@ export class CallSession {
         this.quality[`leg${ev.leg}`] = ev.quality;
         break;
       case 'hold_result':
+        // The PBX refused the hold re-INVITE (Titan answered 488 on Oct 18): hold locally instead. The caller is
+        // already cut off from the model; the hold line repeats every 20 s so they don't sit in silence.
+        if (ev.code === 200) this.heldByPbx = true;
+        else if (this.warm && (this.warm.phase === 'ringing' || this.warm.phase === 'consult')) this.startLocalHold();
+        this.audit('hold', ev.code === 200, ev.code === 200 ? undefined : `SIP_${ev.code || 0}`, `leg:${ev.leg}`);
+        break;
       case 'resume_result':
-        this.audit(ev.type === 'hold_result' ? 'hold' : 'resume', ev.code === 200, ev.code === 200 ? undefined : `SIP_${ev.code || 0}`, `leg:${ev.leg}`);
+        this.audit('resume', ev.code === 200, ev.code === 200 ? undefined : `SIP_${ev.code || 0}`, `leg:${ev.leg}`);
         break;
       case 'hangup':
         this.finish(ev.by === 'agent' ? 'agent_hangup' : 'caller_hangup');
@@ -601,9 +612,15 @@ export class CallSession {
       tellModel: true,
       onDone: () => {
         if (!this.warm || this.ended) return;
+        // The caller is cut off from the model from here on, and hears only our hold line (local hold) or the
+        // PBX's music on hold (SIP hold). The model's briefing goes to the staff leg only.
         this.modelIn = new Set();
-        this.o.link.send({ type: 'hold', leg: 0, request_id: this.warm.requestId });
         this.warm.phase = 'ringing';
+        if (this.o.agent.warm_transfer.hold_method === 'reinvite') {
+          this.o.link.send({ type: 'hold', leg: 0, request_id: this.warm.requestId });
+        } else {
+          this.startLocalHold();
+        }
         this.warm.holdTimer = this.t.set(() => this.warmGiveUp('hold_timeout'), this.o.agent.warm_transfer.hold_timeout_s * 1000);
         this.audit('dial', true, undefined, this.warm.object);
         this.o.link.send({ type: 'dial', target: `sip:${ext}@${this.o.realm}`, timeout_s: this.o.agent.warm_transfer.ring_timeout_s, request_id: this.warm.requestId });
@@ -680,7 +697,7 @@ export class CallSession {
   private joinConference(): void {
     const w = this.warm!;
     w.phase = 'joined';
-    this.o.link.send({ type: 'resume', leg: 0 });
+    this.resumeCaller();
     this.o.link.send({ type: 'conference', legs: [0, w.leg] });
     this.audit('conference_join', true, undefined, w.object);
     this.o.transcript.handoff('warm_transfer', w.object, 'joined');
@@ -719,7 +736,7 @@ export class CallSession {
     tr?.close();
     this.transcribers.delete(w.leg);
     if (!this.legsUp.has(0)) return;
-    this.o.link.send({ type: 'resume', leg: 0 });
+    this.resumeCaller();
     this.modelIn = new Set([0]);
     this.agentOut = 0;
     this.playScript(0, 'STAFF_UNAVAILABLE', {
@@ -730,6 +747,35 @@ export class CallSession {
           true
         ),
     });
+  }
+
+  private localHold: unknown = null;
+  /** The PBX accepted our hold re-INVITE (a resume is needed). */
+  private heldByPbx = false;
+
+  private resumeCaller(): void {
+    this.stopLocalHold();
+    if (this.heldByPbx) {
+      this.heldByPbx = false;
+      this.o.link.send({ type: 'resume', leg: 0 });
+    }
+  }
+
+  private startLocalHold(): void {
+    if (this.localHold) return;
+    this.o.transcript.event(this.o.agent.warm_transfer.hold_method === 'reinvite' ? 'hold by the PBX refused; holding locally' : 'caller on hold (local)', 0);
+    const again = () => {
+      this.localHold = null;
+      if (!this.warm || this.ended || (this.warm.phase !== 'ringing' && this.warm.phase !== 'consult')) return;
+      this.playScript(0, 'HOLD', { protect: false });
+      this.localHold = this.t.set(again, 20_000);
+    };
+    this.localHold = this.t.set(again, 20_000);
+  }
+
+  private stopLocalHold(): void {
+    if (this.localHold) this.t.clear(this.localHold);
+    this.localHold = null;
   }
 
   private startTranscriber(leg: number): void {

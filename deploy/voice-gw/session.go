@@ -433,6 +433,17 @@ func (s *Session) holdResume(l *Leg, hold bool, reqID string) {
 	ev := Event{Type: typ, Leg: l.idx, RequestID: reqID, Code: 200, Reason: "ok"}
 	if err != nil {
 		ev.Code, ev.Reason = responseCode(err), "reinvite_failed"
+		// The PBX's reason phrase and Warning header (no caller data) say why it refused.
+		var dp *sipgo.ErrDialogResponse
+		if errors.As(err, &dp) && dp != nil && dp.Res != nil {
+			warn := ""
+			if h := dp.Res.GetHeader("Warning"); h != nil {
+				warn = h.Value()
+			}
+			s.g.log.Warn("re-INVITE refused", "call", s.ref, "leg", l.idx, "code", dp.Res.StatusCode, "reason", dp.Res.Reason, "warning", warn)
+		} else {
+			s.g.log.Warn("re-INVITE failed", "call", s.ref, "leg", l.idx, "err", err.Error())
+		}
 	} else {
 		l.held = hold
 	}

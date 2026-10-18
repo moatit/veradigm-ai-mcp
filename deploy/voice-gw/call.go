@@ -262,6 +262,8 @@ type Quality struct {
 	LossPct     float64 `json:"loss_pct"`
 	JitterMs    float64 `json:"jitter_ms"`
 	JitterMaxMs float64 `json:"jitter_max_ms"`
+	Gaps        int     `json:"rtp_gaps"`
+	MaxGapMs    float64 `json:"rtp_max_gap_ms"`
 	RTTMs       int     `json:"rtt_ms"`
 	EchoGated   int     `json:"echo_gated_frames"`
 	EchoPassed  int     `json:"echo_passed_frames"`
@@ -283,6 +285,8 @@ func (m *CallMedia) Quality() Quality {
 	m.statMu.Lock()
 	q.JitterMs = math.Round(m.jit.J*10) / 10
 	q.JitterMaxMs = math.Round(m.jit.Max*10) / 10
+	q.Gaps = m.jit.Gaps
+	q.MaxGapMs = math.Round(m.jit.MaxGap)
 	if m.qN > 0 {
 		q.QueueAvgMs = m.qSum / m.qN
 	}

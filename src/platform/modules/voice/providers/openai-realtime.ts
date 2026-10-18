@@ -136,7 +136,9 @@ export class OpenAiRealtime implements VoiceProvider {
       case 'error': {
         // Codes only: the message can quote conversation content.
         const code = String(m.error?.code || m.error?.type || 'error').replace(/[^A-Za-z0-9_.-]/g, '').slice(0, 60);
-        ev.error(code, false);
+        // The parameter name (never its value) says which request was refused.
+        const param = String(m.error?.param || '').replace(/[^A-Za-z0-9_.\[\]-]/g, '').slice(0, 60);
+        ev.error(param ? `${code}:${param}` : code, false);
         break;
       }
     }

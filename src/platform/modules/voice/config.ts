@@ -39,6 +39,12 @@ export interface WarmTransferConfig {
   ring_timeout_s: number;
   hold_timeout_s: number;
   agent_after_join: 'leave' | 'stay_muted';
+  /**
+   * local (default): the caller stays connected to our gateway, hears only the hold line (repeated every 20 s), and
+   * nothing from the model or the staff leg. reinvite: SIP hold (re-INVITE sendonly, PBX music on hold), falling
+   * back to local when the PBX refuses it (Titan answered 488 on Oct 18 2026).
+   */
+  hold_method: 'local' | 'reinvite';
   /** Keep transcribing the human legs after the agent left the conference (default off). */
   transcribe_after_agent_leaves: boolean;
 }
@@ -133,7 +139,7 @@ export function defaultAgent(env: NodeJS.ProcessEnv = process.env): AgentConfig 
     allow_any_nanp: false,
     max_dials_per_call: 2,
     max_dials_per_hour: 20,
-    warm_transfer: { enabled: EXT_RE.test(front), mode: 'conference', ring_timeout_s: 25, hold_timeout_s: 90, agent_after_join: 'leave', transcribe_after_agent_leaves: false },
+    warm_transfer: { enabled: EXT_RE.test(front), mode: 'conference', ring_timeout_s: 25, hold_timeout_s: 90, agent_after_join: 'leave', hold_method: 'local', transcribe_after_agent_leaves: false },
     turn: { vad: 'semantic_vad', eagerness: 'auto', silence_ms: 500 },
     elevenlabs_agent_id: '',
     updated_at: '',
@@ -175,6 +181,7 @@ export function validateAgent(input: any): ValidationResult {
       ring_timeout_s: int(c.warm_transfer?.ring_timeout_s, 25),
       hold_timeout_s: int(c.warm_transfer?.hold_timeout_s, 90),
       agent_after_join: c.warm_transfer?.agent_after_join === 'stay_muted' ? 'stay_muted' : 'leave',
+      hold_method: c.warm_transfer?.hold_method === 'reinvite' ? 'reinvite' : 'local',
       transcribe_after_agent_leaves: bool(c.warm_transfer?.transcribe_after_agent_leaves),
     },
     turn: {
