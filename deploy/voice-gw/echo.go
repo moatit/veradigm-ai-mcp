@@ -39,10 +39,23 @@ func NewEchoGate(marginDB float64, window time.Duration) *EchoGate {
 
 // Played records the level of one outbound 20 ms frame (agent audio only; silence = -120).
 func (e *EchoGate) Played(db float64) {
+	if e == nil {
+		return
+	}
 	e.mu.Lock()
 	e.ring[e.pos] = db
 	e.pos = (e.pos + 1) % len(e.ring)
 	e.mu.Unlock()
+}
+
+// Counts returns frames gated and passed (nil-safe).
+func (e *EchoGate) Counts() (gated, passed int) {
+	if e == nil {
+		return 0, 0
+	}
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.Suppressed, e.Passed
 }
 
 // Filter returns the frame to send to the model: the input, or silence when it looks like our own echo.

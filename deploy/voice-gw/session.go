@@ -135,13 +135,17 @@ func (s *Session) attach(l *Leg, med *diago.DialogMedia) {
 		s.send(outMsg{bin: true, data: b})
 	}
 	cm.onDTMF = func(d rune) { s.emit(Event{Type: "dtmf", Leg: l.idx, Digit: string(d)}) }
+	cm.fail = l.hangup
 	s.mu.Lock()
 	s.legs[l.idx] = l
 	s.mu.Unlock()
 	go func() {
+		defer func() {
+			close(l.ended)
+			s.legEnded(l)
+		}()
+		defer recoverCall(s.g.log, s.ref, "leg", l.hangup)
 		_ = cm.Run(l.ctx())
-		close(l.ended)
-		s.legEnded(l)
 	}()
 }
 
@@ -222,14 +226,17 @@ func (g *Gateway) bridge(in *diago.DialogServerSession, ref string, offer Offer,
 	s := &Session{g: g, ref: ref, callID: ctl.CallID, rate: ctl.PCMRate, conn: conn, out: make(chan outMsg, 512),
 		mix: NewMixer(200), ctx: sctx, cancel: scancel, legs: map[int]*Leg{}, next: 1}
 	writerDone := make(chan struct{})
-	go s.writer(writerDone)
+	goSafe(g.log, ref, "writer", nil, func() { s.writer(writerDone) })
 
 	leg0 := &Leg{idx: 0, kind: "inbound", srv: in, ended: make(chan struct{})}
 	s.attach(leg0, med)
 	g.log.Info("answered", "call", ref, "voice_call", s.callID, "codec", leg0.cm.CodecName(), "srtp", srtp, "pcm_rate", s.rate)
 	s.emit(Event{Type: "answered", Leg: 0, Codec: leg0.cm.CodecName(), SRTP: boolp(srtp)})
 
-	harnessLost := s.readLoop()
+	harnessLost := func() (lost bool) {
+		defer recoverCall(g.log, ref, "session", func() { lost = true })
+		return s.readLoop()
+	}()
 	if harnessLost {
 		g.log.Error("harness connection lost mid-call", "call", ref)
 		if l := s.leg(0); l != nil && g.cfg.FallbackTarget != "" {
@@ -356,7 +363,7 @@ func (s *Session) handle(c Control) {
 	case "hangup":
 		s.agentHungUp.Store(true)
 		for _, l := range s.targets(c.Leg) {
-			go func(l *Leg) {
+			goSafe(s.g.log, s.ref, "hangup", l.hangup, func() {
 				// Let a queued closing line finish (at most 15 s).
 				deadline := time.Now().Add(15 * time.Second)
 				for l.cm.play.QueuedMs() > 0 && time.Now().Before(deadline) && l.ctx().Err() == nil {
@@ -364,7 +371,7 @@ func (s *Session) handle(c Control) {
 				}
 				time.Sleep(300 * time.Millisecond)
 				l.hangup()
-			}(l)
+			})
 		}
 	case "transfer":
 		l := s.leg(c.Leg)
@@ -375,23 +382,23 @@ func (s *Session) handle(c Control) {
 		if _, busy := s.transferring.LoadOrStore(l.idx, true); busy {
 			return
 		}
-		go func() {
+		goSafe(s.g.log, s.ref, "transfer", nil, func() {
 			defer s.transferring.Delete(l.idx)
 			if c.ReplacesLeg != nil {
 				s.attendedTransfer(l, *c.ReplacesLeg, c.RequestID)
 			} else {
 				s.blindTransfer(l, c.Target, c.RequestID)
 			}
-		}()
+		})
 	case "dial":
-		go s.dial(c)
+		goSafe(s.g.log, s.ref, "dial", nil, func() { s.dial(c) })
 	case "hold", "resume":
 		l := s.leg(c.Leg)
 		if l == nil {
 			s.emit(Event{Type: c.Type + "_result", Leg: c.Leg, RequestID: c.RequestID, Reason: "no_such_leg"})
 			return
 		}
-		go s.holdResume(l, c.Type == "hold", c.RequestID)
+		goSafe(s.g.log, s.ref, "holdResume", nil, func() { s.holdResume(l, c.Type == "hold", c.RequestID) })
 	case "conference":
 		legs := []int{}
 		for _, i := range c.Legs {
@@ -439,6 +446,10 @@ func responseCode(err error) int {
 	var de sipgo.ErrDialogResponse
 	if errors.As(err, &de) && de.Res != nil {
 		return de.Res.StatusCode
+	}
+	var dp *sipgo.ErrDialogResponse
+	if errors.As(err, &dp) && dp != nil && dp.Res != nil {
+		return dp.Res.StatusCode
 	}
 	return 0
 }

@@ -31,6 +31,7 @@ type StatusSnapshot struct {
 	RegisteredAt    string `json:"registered_at"`
 	UpdatedAt       string `json:"updated_at"`
 	ActiveCalls     int    `json:"active_calls"`
+	Panics          int64  `json:"panics_recovered"`
 	MediaRule       string `json:"media_rule"`
 	Mode            string `json:"mode"`
 }

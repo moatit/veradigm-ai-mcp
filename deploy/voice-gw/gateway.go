@@ -208,7 +208,7 @@ func (g *Gateway) keepRegistered(ctx context.Context, t *diago.RegisterTransacti
 				g.st.Update(func(s *StatusSnapshot) { s.Registered = false; s.LastError = "connection_lost" })
 				return
 			}
-			g.st.Update(func(s *StatusSnapshot) { s.ActiveCalls = int(g.active.Load()) })
+			g.st.Update(func(s *StatusSnapshot) { s.ActiveCalls = int(g.active.Load()); s.Panics = PanicsRecovered.Load() })
 		case <-probe.C:
 			if err := g.ping(ctx, proxy); err != nil {
 				g.log.Warn("OPTIONS liveness check got no answer", "proxy", proxy)
@@ -307,10 +307,16 @@ func (g *Gateway) SourceGuard(next sipgo.RequestHandler) sipgo.RequestHandler {
 
 func (g *Gateway) HandleCall(in *diago.DialogServerSession) {
 	ref := newRef()
+	// A panic anywhere in this call ends this call only (BYE), never the gateway or other calls.
+	defer recoverCall(g.log, ref, "HandleCall", func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = in.Hangup(ctx)
+	})
 	req := in.InviteRequest
 	offer := ParseOffer(req.Body())
 	caller, callerName := CallerID(req)
-	g.log.Info("incoming call", "call", ref, "from_last4", last4(caller), "proto", offer.Proto, "srtp_offered", offer.SRTP, "codecs", offer.Codecs)
+	g.log.Info("incoming call", "call", ref, "from_last4", last4(caller), "proto", offer.Proto, "srtp_offered", offer.SRTP, "crypto_offered", offer.Crypto, "codecs", offer.Codecs)
 
 	if int(g.active.Add(1)) > g.cfg.MaxCalls {
 		g.active.Add(-1)
@@ -358,8 +364,17 @@ func (g *Gateway) greetingEcho(in *diago.DialogServerSession, ref string) {
 		return
 	}
 	cm := NewCallMedia(ref, med, InternalRate, g.log)
-	cm.gate = nil // the echo test plays the caller back as received
-	g.log.Info("answered", "call", ref, "codec", cm.CodecName(), "srtp", srtp, "mode", "greeting-echo")
+	cm.gate = nil // the echo test plays the caller back as received (nil-safe)
+	cm.fail = func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = in.Hangup(ctx)
+	}
+	suite := ""
+	if in.InviteResponse != nil {
+		suite = AnswerCryptoSuite(in.InviteResponse.Body())
+	}
+	g.log.Info("answered", "call", ref, "codec", cm.CodecName(), "srtp", srtp, "srtp_suite", suite, "mode", "greeting-echo")
 	cm.onEvent = func(ev Event) {
 		switch ev.Type {
 		case "media_in":

@@ -72,6 +72,17 @@ func TestReferTargetAllowList(t *testing.T) {
 	}
 }
 
+func TestNilEchoGateIsSafe(t *testing.T) {
+	var g *EchoGate
+	g.Played(-10) // echo-test mode runs without a gate: must not panic
+	if out := g.Filter(make([]int16, 160)); len(out) != 160 {
+		t.Fatalf("nil gate filter")
+	}
+	if a, b := g.Counts(); a != 0 || b != 0 {
+		t.Fatalf("nil gate counts")
+	}
+}
+
 func TestParseOffer(t *testing.T) {
 	plain := "v=0\r\nm=audio 4000 RTP/AVP 0 8 101\r\na=rtpmap:0 PCMU/8000\r\na=rtpmap:8 PCMA/8000\r\na=rtpmap:101 telephone-event/8000\r\n"
 	o := ParseOffer([]byte(plain))

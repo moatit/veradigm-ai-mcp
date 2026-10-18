@@ -42,11 +42,13 @@ type CallMedia struct {
 	pktsOut    atomic.Int64
 	firstInMs  atomic.Int64 // -1 until the first inbound packet
 
-	mu         sync.Mutex
-	turnArmed  bool
-	onCaller   func(pcm []int16)
-	onEvent    func(Event)
-	onDTMF     func(digit rune)
+	mu        sync.Mutex
+	turnArmed bool
+	onCaller  func(pcm []int16)
+	onEvent   func(Event)
+	onDTMF    func(digit rune)
+	// fail ends this call (BYE) after a panic in one of its goroutines; set by the owner of the leg.
+	fail       func()
 	agentAudio atomic.Bool // agent audio currently going out
 
 	gate   *EchoGate
@@ -124,8 +126,15 @@ func (m *CallMedia) Run(ctx context.Context) error {
 	}
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	go m.writeLoop(ctx, w)
-	go m.watchInbound(ctx)
+	fail := func() {
+		cancel()
+		if m.fail != nil {
+			m.fail()
+		}
+	}
+	goSafe(m.log, m.ref, "writeLoop", fail, func() { m.writeLoop(ctx, w) })
+	goSafe(m.log, m.ref, "watchInbound", fail, func() { m.watchInbound(ctx) })
+	defer recoverCall(m.log, m.ref, "readLoop", fail)
 	return m.readLoop(ctx, dtmfR)
 }
 
@@ -278,6 +287,6 @@ func (m *CallMedia) Quality() Quality {
 	}
 	q.QueueMaxMs = m.qMax
 	m.statMu.Unlock()
-	q.EchoGated, q.EchoPassed = m.gate.Suppressed, m.gate.Passed
+	q.EchoGated, q.EchoPassed = m.gate.Counts()
 	return q
 }

@@ -11,6 +11,7 @@ type Offer struct {
 	Proto  string   // RTP/AVP, RTP/SAVP, ...
 	SRTP   bool     // RTP/SAVP with at least one a=crypto (SDES)
 	Codecs []string // rtpmap names, offer order
+	Crypto []string // SDES suites offered (a=crypto), keys never kept
 }
 
 func ParseOffer(body []byte) Offer {
@@ -28,6 +29,9 @@ func ParseOffer(body []byte) Offer {
 			}
 		case inAudio && strings.HasPrefix(line, "a=crypto:"):
 			crypto = true
+			if f := strings.Fields(line); len(f) >= 2 {
+				o.Crypto = append(o.Crypto, f[1])
+			}
 		case inAudio && strings.HasPrefix(line, "a=rtpmap:"):
 			f := strings.Fields(line)
 			if len(f) >= 2 {
@@ -38,6 +42,19 @@ func ParseOffer(body []byte) Offer {
 	}
 	o.SRTP = crypto && (o.Proto == "RTP/SAVP" || o.Proto == "RTP/SAVPF")
 	return o
+}
+
+// AnswerCryptoSuite: the SDES suite in our answer ("" = none). Keys are never returned.
+func AnswerCryptoSuite(body []byte) string {
+	for _, line := range strings.Split(string(body), string(rune(10))) {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "a=crypto:") {
+			if f := strings.Fields(line); len(f) >= 2 {
+				return f[1]
+			}
+		}
+	}
+	return ""
 }
 
 // AnswerHasCrypto: did our 200 OK carry SDES keys (media actually encrypted)?
