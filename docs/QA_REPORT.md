@@ -12,7 +12,23 @@ The site was restyled to the "Ledger" identity (see `brand/BRAND_KIT.md`). Prese
 - **Contrast:** every text pair is ≥ 4.5:1 (lowest: `#8E90B6` on ink 5.05:1, Blue 700 on Callout Blue 5.1:1); input borders 3.2:1; the focus ring is Blue 700 on light surfaces (MOATiT Blue would be 2.6:1) and MOATiT Blue on ink (5.9:1).
 - **Banned patterns in the built HTML:** no italic, no 999px radius, no monospace, no gradients, no shadows or backdrop blur, no Google Fonts URLs, no Newsreader / Public Sans / IBM Plex Mono.
 - **Functional:** demo form (5 inline errors, focus to "Full name", valid POST with utm fields and confirmation), ROI calculator (82 h default, 109 h at 100 docs/day), mobile menu (opens, Escape closes and returns focus) and every replay button behave as before.
-- **Not re-run:** Lighthouse (not installed on this machine; nothing was installed for it). The scores below are from the launch look.
+- **Lighthouse:** see the Oct 18 section below; the launch-look scores further down are kept for comparison.
+
+## Brand finish and checks (Oct 18, 2026)
+
+Lighthouse 12.8.2 (`npx lighthouse@12.8.2`, run locally against `scripts/serve.mjs` on 127.0.0.1:4417; nothing uploaded), default mobile (Moto G Power, slow 4G, 4x CPU) and `--preset=desktop`, on the preview build:
+
+| Page | Mobile P / A / BP / SEO | Desktop P / A / BP / SEO |
+|---|---|---|
+| `/` | 98 / 100 / 100 / 100* | 100 / 100 / 100 / 100* |
+| `/fax-lab-intake/` | 100 / 100 / 100 / 100* | 100 / 100 / 100 / 100* |
+| `/phone-assistant/` | 100 / 100 / 100 / 100* | 100 / 100 / 100 / 100* |
+| `/contact/` | 100 / 100 / 100 / 100* | 100 / 100 / 100 / 100* |
+
+\* Lighthouse reports SEO 69 on the preview build because its robots.txt blocks crawling on purpose (`DRAWBRIDGE_PREVIEW=1`). With that one audit counted as passing, which the production build's robots.txt does, SEO is 100 on all eight runs. Mobile LCP 1.3 to 1.7 s, desktop 0.4 s, TBT 0 ms, CLS 0 except home on mobile.
+
+- **Home, mobile CLS 0.079** (inside the "good" band, under 0.1). On the 412 px emulated phone, the hero paragraph lands on a line-break boundary and wraps to one more line when Barlow replaces the metric-matched fallback. Seven fallback `size-adjust` settings were tested against 136 text blocks on these four pages at 360, 393 and 412 px; the current setting is already the best (3 mismatches). Removing the last shift would need `font-display: optional` for Barlow, which shows body text in Arial on slow first visits; that trade-off is left to Ali. Fixed in passing: buttons in a row now take the full width on phones, so that row no longer reflows with the font.
+- **`npm run check`** now exists (`scripts/check.mjs`): build; banned CSS (italic, pill radius, monospace, gradients, glass, Google Fonts); banned words, vendor names, MCP/FHIR/Unity and em dashes in pages, metadata and scripts; and every internal link, srcset, popover target and #anchor. Result: OK, 19 pages, 675 internal links and anchors. Negative test: planting an em dash, "solutions", "AWS", a broken link and a missing anchor produced exactly those five failures.
 
 ## Launch look (Oct 16, 2026)
 

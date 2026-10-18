@@ -107,6 +107,8 @@ hr { border: 0; border-top: 1px solid var(--line); margin: 2rem 0; }
 .btn-link:hover { color: var(--ink); text-decoration: underline; text-decoration-color: var(--blue); text-decoration-thickness: 2px; }
 .btn-link:hover::after { transform: translateX(3px); }
 .btn-row { display: flex; flex-wrap: wrap; gap: 0.75rem; align-items: center; }
+/* On phones, buttons in a row take the full width, so the row wraps the same way before and after the web font loads (no layout shift). */
+@media (max-width: 640px) { .btn-row > .btn { flex: 1 1 100%; } }
 
 /* ---------- header ---------- */
 .utility { background: var(--white); color: var(--slate); font-size: 0.875rem; border-bottom: 1px solid var(--line); }
