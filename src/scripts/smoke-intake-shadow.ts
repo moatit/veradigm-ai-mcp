@@ -566,7 +566,7 @@ async function main(): Promise<void> {
   assert.strictEqual((await app.runTool('unity_save_appointment', {})).error_code, 'SHADOW_READ_ONLY');
   const sv = await listen(app.app);
   try {
-    assert.deepStrictEqual(await fetch(`${sv.url}/health`).then((r) => r.json()), { status: 'healthy', server: 'intake-shadow', mode: 'shadow', filing: 'impossible', patient_search: 'veradigm read-only' });
+    assert.deepStrictEqual(await fetch(`${sv.url}/health`).then((r) => r.json()), { status: 'healthy', server: 'intake-shadow', mode: 'shadow', filing: 'impossible', patient_search: 'veradigm read-only', indexing_queue_source: 'off' });
     const gate = await fetch(`${sv.url}/app/intake`, { redirect: 'manual' });
     assert.ok(gate.status === 302 && /\/app\/login/.test(gate.headers.get('location') || ''), 'staff screens need a login');
     assert.strictEqual((await fetch(`${sv.url}/unity/api/retell`, { method: 'POST' })).status, 404, 'no phone-agent endpoints');

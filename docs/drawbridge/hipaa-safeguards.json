@@ -368,7 +368,7 @@
       "technical": "SHA-256 at receipt; verified before download (409) and before SaveScanDocument (INTEGRITY_FAILED); audit hash chain; atomic file writes; idempotent writes.",
       "evidence": [
         "src/platform/modules/intake/file.ts:312",
-        "src/platform/modules/intake/index.ts:478"
+        "src/platform/modules/intake/index.ts:480"
       ],
       "status": "FIXED",
       "status_label": "In place",

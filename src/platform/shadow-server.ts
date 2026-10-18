@@ -50,6 +50,7 @@ export async function createShadowApp(startup: ShadowStartup) {
   const { auditToolCall } = await import('./audit');
   const { intakeModule, mountFaxWebhook } = await import('./modules/intake');
   const { lockUnityReadOnly, shadowMode } = await import('./modules/intake/shadow');
+  const { queueSourceState } = await import('./modules/intake/queue-source');
   const { toToolFailure } = await import('../unity/utils/tool-result');
 
   if (!shadowMode()) throw Object.assign(new Error('This server runs only with INTAKE_MODE=shadow.'), { code: 'NOT_SHADOW' });
@@ -116,7 +117,7 @@ export async function createShadowApp(startup: ShadowStartup) {
     next();
   });
   app.get('/health', (_req, res) => {
-    res.json({ status: 'healthy', server: 'intake-shadow', mode: 'shadow', filing: 'impossible', patient_search: startup.roster ? 'local list' : 'veradigm read-only' });
+    res.json({ status: 'healthy', server: 'intake-shadow', mode: 'shadow', filing: 'impossible', patient_search: startup.roster ? 'local list' : 'veradigm read-only', indexing_queue_source: queueSourceState() });
   });
   app.get('/', (_req, res) => res.redirect('/app/intake'));
   registerModule(intakeModule);

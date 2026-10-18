@@ -13,6 +13,7 @@ import { MoatitFaxClient, setFaxRecordedHandler } from './moatit-fax';
 import { ALWAYS_PERSON_LABEL, alwaysPersonType, RECIPIENT_SOURCE_LABEL } from './rules';
 import { observeEnabled, StaffFilingObserver } from './observe';
 import { QueueSource, queueSourceState } from './queue-source';
+import { startAliveMarker } from './server-lock';
 import { OcrClient } from './ocr';
 import { IntakePipeline } from './pipeline';
 import { rosterPath } from './roster';
@@ -359,6 +360,7 @@ let stopWatcher: (() => void) | null = null;
 let stopWatchDirs: (() => void) | null = null;
 let stopObserver: (() => void) | null = null;
 let stopQueueSource: (() => void) | null = null;
+let stopAlive: (() => void) | null = null;
 let docTypeCache: DocTypeSource | null = null;
 /** Shadow mode: the read-only patient search for the Confirm panel. */
 let shadowRunTool: ((name: string, args: any) => Promise<any>) | null = null;
@@ -578,6 +580,9 @@ export const intakeModule: PlatformModule = {
   },
 
   start(deps) {
+    // Tells offline tools (intake:purge-shadow) that this server holds the store in memory.
+    stopAlive?.();
+    stopAlive = startAliveMarker(intakeStore().dir);
     if (shadowMode()) {
       // Read-only Veradigm: the patient search and GetDocumentType only (INTAKE_CATEGORIES_CSV as the
       // fallback, INTAKE_ROSTER_CSV instead of the search when set). No filing deps: nothing can be filed.
