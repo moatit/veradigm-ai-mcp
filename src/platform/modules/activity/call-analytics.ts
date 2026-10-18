@@ -20,8 +20,10 @@ import { AuditEntry, auditBaseDir, dayKey, readAuditRange, safeId } from '../../
  *
  * Repeat callers are counted here, in the stack: a keyed hash (HMAC-SHA256) of the caller's number
  * and the call start time go into <AUDIT_DIR>/caller-history.json (mode 0600, 8 days kept). Only the
- * counts leave the stack. The key is CALL_ANALYTICS_HASH_KEY (required in production, from the secret
- * store); outside production a random key is generated once into <AUDIT_DIR>/caller-history.key.
+ * counts leave the stack. The key is CALL_ANALYTICS_HASH_KEY, from the secret store, required whenever
+ * records are built, whatever NODE_ENV is (audit N1). Only for a local stack, an explicit
+ * CALL_ANALYTICS_ALLOW_GENERATED_KEY=local lets a random key be generated once into
+ * <AUDIT_DIR>/caller-history.key; that opt-out is refused when NODE_ENV=production.
  * See docs/drawbridge/CALL_ANALYTICS.md.
  */
 
@@ -98,10 +100,12 @@ export interface CallAnalyticsRecord {
    *  app can upsert by it, but it can't be used to open the call at the vendor. */
   call_id: string;
   practice_id: string;
-  agent_id: string;
+  /** The vendor's agent ID (agent_ + 20..40 lowercase hex), or null when it sent none or anything else. */
+  agent_id: string | null;
   agent_version: number | null;
-  /** Start of the hour the call began, in clinic local time, with its UTC offset (e.g. 2026-10-14T10:00:00-06:00). */
-  started_at: string;
+  /** Start of the hour the call began, in clinic local time, with its UTC offset (e.g. 2026-10-14T10:00:00-06:00);
+   *  null when the platform sent no start time. */
+  started_at: string | null;
   duration_s: number | null;
   direction: 'inbound' | 'outbound' | 'web' | '';
   disconnection_reason: string;
@@ -119,6 +123,24 @@ export interface CallAnalyticsRecord {
   prior_calls_7d: number | null;
   tools: { name: string; calls: number; failed: number }[];
 }
+
+/**
+ * Wire contract, the same rules as the admin app's schema (veradigmai-repo lib/call-records/schema.ts; a
+ * mismatch there is a 400 and the forwarder drops the record). Checked on both sides by the contract test
+ * (npm run contract:call-records here, lib/call-records/contract.test.ts there):
+ *   call_id      ^cr_[0-9a-f]{32}$
+ *   agent_id     ^agent_[0-9a-f]{20,40}$ (the vendor's exact format; set by the platform, never by a
+ *                caller, so no digit-run rule: random hex often has one), else null
+ *   started_at   clinic-local hour start with offset (^\d{4}-\d{2}-\d{2}T\d{2}:00:00[+-]\d{2}:\d{2}$), else null
+ *   tools[].name ^[a-z][a-z0-9_]{0,48}$ with no run of 7+ digits; anything else is left out
+ */
+export const AGENT_ID_RE = /^agent_[0-9a-f]{20,40}$/;
+export const TOOL_NAME_RE = /^[a-z][a-z0-9_]{0,48}$/;
+const LONG_DIGITS = /\d{7,}/;
+export const contractAgentId = (v: unknown): string | null =>
+  typeof v === 'string' && AGENT_ID_RE.test(v) ? v : null;
+export const contractToolName = (v: unknown): string =>
+  typeof v === 'string' && TOOL_NAME_RE.test(v) && !LONG_DIGITS.test(v) ? v : '';
 
 const DAY_MS = 86_400_000;
 const HISTORY_DAYS = 8;
@@ -207,16 +229,32 @@ export function writePrivateFile(file: string, data: string): void {
 }
 const writePrivate = writePrivateFile;
 
-/** CALL_ANALYTICS_HASH_KEY is set (32+ characters). Production requires it; nothing is generated there. */
+/** CALL_ANALYTICS_HASH_KEY is set (32+ characters). */
 export function hashKeyFromEnv(): boolean {
   return String(process.env.CALL_ANALYTICS_HASH_KEY || '').trim().length >= 32;
+}
+
+/**
+ * How the hash key is provided (audit N1: the gate must not depend on NODE_ENV, because servers may run
+ * with NODE_ENV=sandbox in a real deployment):
+ *   env           CALL_ANALYTICS_HASH_KEY is set: the only option for any real deployment;
+ *   generated     no key, CALL_ANALYTICS_ALLOW_GENERATED_KEY=local and NODE_ENV is not production;
+ *   refused-production  the local opt-out was set with NODE_ENV=production;
+ *   missing       no key and no opt-out.
+ */
+export function hashKeySource(): 'env' | 'generated' | 'refused-production' | 'missing' {
+  if (hashKeyFromEnv()) return 'env';
+  if (String(process.env.CALL_ANALYTICS_ALLOW_GENERATED_KEY || '').trim().toLowerCase() !== 'local') return 'missing';
+  return isProduction() ? 'refused-production' : 'generated';
 }
 
 function hashKey(): string {
   const env = String(process.env.CALL_ANALYTICS_HASH_KEY || '').trim();
   if (env.length >= 32) return env;
-  // In production the key comes from the secret store, never from a file next to the hashes.
-  if (isProduction()) throw new Error('CALL_ANALYTICS_HASH_KEY is required in production');
+  // The key comes from the secret store, never from a file next to the hashes, unless a local stack opts out.
+  const src = hashKeySource();
+  if (src === 'refused-production') throw new Error('CALL_ANALYTICS_ALLOW_GENERATED_KEY=local is refused when NODE_ENV=production');
+  if (src !== 'generated') throw new Error('CALL_ANALYTICS_HASH_KEY is required');
   try {
     const k = fs.readFileSync(keyFile(), 'utf8').trim();
     if (k.length >= 32) return k;
@@ -280,7 +318,7 @@ export function toolsForCall(entries: AuditEntry[], callId: string): CallAnalyti
   const by = new Map<string, { name: string; calls: number; failed: number }>();
   for (const e of entries) {
     if (e.call_id !== callId || (e.kind && e.kind !== 'tool')) continue;
-    const name = safeId(e.tool);
+    const name = contractToolName(e.tool);
     if (!name) continue;
     const t = by.get(name) || { name, calls: 0, failed: 0 };
     t.calls++;
@@ -329,9 +367,9 @@ export async function buildCallRecord(event: string, call: any, now: Date = new 
     schema: RECORD_SCHEMA,
     call_id: callRef(callId),
     practice_id: practiceId(),
-    agent_id: safeId(call.agent_id),
+    agent_id: contractAgentId(call.agent_id),
     agent_version: Number.isInteger(version) && version >= 0 ? version : null,
-    started_at: Number.isFinite(startMs) ? hourStartLocal(startMs) : '',
+    started_at: Number.isFinite(startMs) ? hourStartLocal(startMs) : null,
     duration_s: Number.isFinite(durationMs) ? Math.round(durationMs / 1000) : null,
     direction,
     disconnection_reason: disconnectionReason(call.disconnection_reason),

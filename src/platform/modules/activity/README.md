@@ -70,7 +70,8 @@ Until one of these is set up, call events don't arrive. The audit log and the Ac
 
 | `CALL_ANALYTICS_FORWARD` | off | `on` sends call analytics records to the admin app (`docs/drawbridge/CALL_ANALYTICS.md`). |
 | `DRAWBRIDGE_PRACTICE_ID` | empty | Practice slug on each call analytics record. |
-| `CALL_ANALYTICS_HASH_KEY` | required in production; generated into `AUDIT_DIR` elsewhere | Key for the repeat-caller hash and the call reference. It stays in this stack. In production, set it from the secret store; without it forwarding refuses to start. |
+| `CALL_ANALYTICS_HASH_KEY` | required when forwarding is on | Key for the repeat-caller hash and the call reference (32+ characters, from the secret store), whatever `NODE_ENV` is. Without it forwarding refuses to start. It stays in this stack. |
+| `CALL_ANALYTICS_ALLOW_GENERATED_KEY` | unset | `local`: a local stack may generate the key into `AUDIT_DIR` instead. Refused with `NODE_ENV=production`. |
 | `CALL_ANALYTICS_HTTP_HOSTS` | empty | Host names allowed over plain http besides loopback (for example `admin`). |
 
 Secrets go in `.env` only.

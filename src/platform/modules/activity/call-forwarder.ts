@@ -2,15 +2,17 @@ import * as fs from 'fs';
 import * as path from 'path';
 import axios from 'axios';
 import { auditBaseDir } from '../../audit';
-import { buildCallRecord, CallAnalyticsRecord, hashKeyFromEnv, writePrivateFile } from './call-analytics';
+import { buildCallRecord, CallAnalyticsRecord, hashKeySource, writePrivateFile } from './call-analytics';
 
 /**
  * Forwards one minimum-necessary call analytics record per call (call-analytics.ts; handled as PHI under
  * the BAA, not de-identified) to the MOATiT admin app:
  *   POST ${ADMIN_PORTAL_URL}/api/call-records   x-api-key: ADMIN_API_KEY
  *
- * Off unless CALL_ANALYTICS_FORWARD=on and ADMIN_PORTAL_URL and ADMIN_API_KEY are set. In production
- * (NODE_ENV=production) CALL_ANALYTICS_HASH_KEY must also be set, or forwarding stays off.
+ * Off unless CALL_ANALYTICS_FORWARD=on and ADMIN_PORTAL_URL and ADMIN_API_KEY are set, and
+ * CALL_ANALYTICS_HASH_KEY (32+ characters) is set too, whatever NODE_ENV is (audit N1). The only
+ * exception is a local stack with CALL_ANALYTICS_ALLOW_GENERATED_KEY=local, which is refused when
+ * NODE_ENV=production.
  * The URL must be https. Plain http is accepted only for loopback (localhost, 127.0.0.1, ::1) and for host
  * names listed exactly in CALL_ANALYTICS_HTTP_HOSTS (for example "admin" on the deploy/local network).
  * Records wait in an outbox, <AUDIT_DIR>/call-records-outbox.json (mode 0600), so a restart or an admin
@@ -48,7 +50,7 @@ export function httpHosts(): Set<string> {
 
 export type ForwardStatus =
   | { ok: true; url: string; key: string }
-  | { ok: false; reason: 'off' | 'not configured' | 'insecure url' | 'hash key required in production' };
+  | { ok: false; reason: 'off' | 'not configured' | 'insecure url' | 'hash key required' | 'generated key refused in production' };
 
 /** Whether forwarding may run, and why not. */
 export function forwardStatus(): ForwardStatus {
@@ -66,7 +68,9 @@ export function forwardStatus(): ForwardStatus {
   // needs an explicit allow-list, never a guess.
   const httpOk = u.protocol === 'http:' && (LOOPBACK.has(u.hostname) || httpHosts().has(u.hostname.toLowerCase()));
   if (u.protocol !== 'https:' && !httpOk) return { ok: false, reason: 'insecure url' };
-  if (process.env.NODE_ENV === 'production' && !hashKeyFromEnv()) return { ok: false, reason: 'hash key required in production' };
+  const src = hashKeySource();
+  if (src === 'missing') return { ok: false, reason: 'hash key required' };
+  if (src === 'refused-production') return { ok: false, reason: 'generated key refused in production' };
   return { ok: true, url: `${base}/api/call-records`, key };
 }
 
