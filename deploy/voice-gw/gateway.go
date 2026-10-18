@@ -7,7 +7,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"log/slog"
 	"net"
 	"strconv"
@@ -324,6 +323,7 @@ func (g *Gateway) greetingEcho(in *diago.DialogServerSession, ref string) {
 		return
 	}
 	cm := NewCallMedia(ref, med, 8000, g.log)
+	cm.gate = nil // the echo test plays the caller back as received
 	g.log.Info("answered", "call", ref, "codec", cm.CodecName(), "srtp", srtp, "mode", "greeting-echo")
 	cm.onEvent = func(ev Event) {
 		switch ev.Type {
@@ -345,189 +345,14 @@ func (g *Gateway) greetingEcho(in *diago.DialogServerSession, ref string) {
 	cm.onCaller = func(pcm []int16) {
 		if greetingDone.Load() || cm.play.QueuedMs() == 0 {
 			greetingDone.Store(true)
+			cm.NoteQueue(cm.play.QueuedMs())
 			cm.play.Push("echo", pcm)
 		}
 	}
 	start := time.Now()
 	_ = cm.Run(ctx)
 	in1, out1, first := cm.Stats()
-	g.log.Info("call ended", "call", ref, "secs", int(time.Since(start).Seconds()), "pkts_in", in1, "pkts_out", out1, "first_in_ms", first)
-}
-
-type outMsg struct {
-	bin  bool
-	data []byte
-}
-
-// bridge connects the call to the Drawbridge harness: the harness decides (accept with its minted call ID, or
-// reject so the PBX's no-answer route takes the call), then audio and control flow until either side hangs up.
-func (g *Gateway) bridge(in *diago.DialogServerSession, ref string, offer Offer, caller, callerName string) {
-	ctx := in.Context()
-	conn, err := DialHarness(ctx, g.cfg, "call")
-	if err != nil {
-		g.log.Error("harness unreachable; call refused (480)", "call", ref, "err", err.Error())
-		_ = in.Respond(sip.StatusTemporarilyUnavailable, "Temporarily Unavailable", nil)
-		return
-	}
-	defer conn.CloseNow()
-	to := ""
-	if t := in.InviteRequest.To(); t != nil {
-		to = cleanNumber(t.Address.User)
-	}
-	if err := writeJSON(ctx, conn, CallStart{
-		Type: "call_start", CallRef: ref, From: caller, FromName: callerName, To: to,
-		SRTP: offer.SRTP, Codecs: offer.Codecs, MediaRule: g.cfg.MediaPolicy, Registered: g.st.Snapshot().Registered,
-	}); err != nil {
-		_ = in.Respond(sip.StatusTemporarilyUnavailable, "Temporarily Unavailable", nil)
-		return
-	}
-	actx, cancel := context.WithTimeout(ctx, 6*time.Second)
-	typ, data, err := conn.Read(actx)
-	cancel()
-	var ctl Control
-	if err != nil || typ != websocket.MessageText || json.Unmarshal(data, &ctl) != nil {
-		g.log.Error("no decision from harness; call refused (480)", "call", ref)
-		_ = in.Respond(sip.StatusTemporarilyUnavailable, "Temporarily Unavailable", nil)
-		return
-	}
-	if ctl.Type != "accept" {
-		code := ctl.Code
-		if code != 480 && code != 486 && code != 503 && code != 603 {
-			code = 480
-		}
-		g.log.Info("harness rejected call", "call", ref, "code", code)
-		_ = in.Respond(code, reasonPhrase(code), nil)
-		return
-	}
-	if ctl.PCMRate != 8000 && ctl.PCMRate != 16000 && ctl.PCMRate != 24000 {
-		ctl.PCMRate = 16000
-	}
-	callID := ctl.CallID
-
-	med, srtp, err := g.answer(in)
-	if err != nil {
-		g.log.Error("answer failed", "call", ref, "err", err.Error())
-		return
-	}
-	cm := NewCallMedia(ref, med, ctl.PCMRate, g.log)
-	g.log.Info("answered", "call", ref, "voice_call", callID, "codec", cm.CodecName(), "srtp", srtp, "pcm_rate", ctl.PCMRate)
-
-	out := make(chan outMsg, 256)
-	done := make(chan struct{})
-	var dropped atomic.Int64
-	send := func(m outMsg) {
-		select {
-		case out <- m:
-		default:
-			dropped.Add(1)
-		}
-	}
-	sendEv := func(ev Event) {
-		b, _ := json.Marshal(ev)
-		send(outMsg{data: b})
-	}
-	go func() { // single writer: frames stay in order
-		defer close(done)
-		for m := range out {
-			typ := websocket.MessageText
-			if m.bin {
-				typ = websocket.MessageBinary
-			}
-			wctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-			err := conn.Write(wctx, typ, m.data)
-			cancel()
-			if err != nil {
-				return
-			}
-		}
-	}()
-	sendEv(Event{Type: "answered", At: nowMs(), Codec: cm.CodecName(), SRTP: boolp(srtp)})
-	cm.onEvent = sendEv
-	cm.onCaller = func(pcm []int16) { send(outMsg{bin: true, data: pcmToBytes(pcm)}) }
-	cm.onDTMF = func(d rune) { sendEv(Event{Type: "dtmf", At: nowMs(), Digit: string(d)}) }
-
-	mediaDone := make(chan struct{})
-	go func() {
-		_ = cm.Run(ctx)
-		close(mediaDone)
-	}()
-
-	var weHungUp atomic.Bool
-	transferring := atomic.Bool{}
-	seg := ""
-	harnessLost := false
-	for {
-		typ, data, err := conn.Read(ctx)
-		if err != nil {
-			harnessLost = ctx.Err() == nil
-			break
-		}
-		if typ == websocket.MessageBinary {
-			cm.PushAgent(seg, bytesToPCM(data))
-			continue
-		}
-		var c Control
-		if json.Unmarshal(data, &c) != nil {
-			continue
-		}
-		switch c.Type {
-		case "segment":
-			seg = c.Segment
-		case "segment_end":
-			cm.play.End(c.Segment)
-		case "clear":
-			if ev := cm.play.Clear(); ev != nil {
-				sendEv(Event{Type: "cleared", At: nowMs(), Segment: ev.Segment, PlayedMs: intp(ev.PlayedMs)})
-			} else {
-				sendEv(Event{Type: "cleared", At: nowMs(), PlayedMs: intp(0)})
-			}
-		case "transfer":
-			if transferring.CompareAndSwap(false, true) {
-				go func(target string) {
-					defer transferring.Store(false)
-					g.transfer(ctx, in, ref, target, sendEv)
-				}(c.Target)
-			}
-		case "hangup":
-			weHungUp.Store(true)
-			// Let queued audio (a closing line) finish, at most 15 s.
-			deadline := time.Now().Add(15 * time.Second)
-			for cm.play.QueuedMs() > 0 && time.Now().Before(deadline) && ctx.Err() == nil {
-				time.Sleep(100 * time.Millisecond)
-			}
-			time.Sleep(300 * time.Millisecond)
-			hctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			_ = in.Hangup(hctx)
-			cancel()
-		case "ping":
-			sendEv(Event{Type: "pong", At: nowMs()})
-		}
-	}
-	if harnessLost {
-		g.log.Error("harness connection lost mid-call", "call", ref)
-		if g.cfg.FallbackTarget != "" {
-			g.transfer(ctx, in, ref, g.cfg.FallbackTarget, func(Event) {})
-		}
-		hctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		_ = in.Hangup(hctx)
-		cancel()
-	}
-	<-mediaDone
-	by := "remote"
-	if weHungUp.Load() {
-		by = "agent"
-	}
-	pin, pout, first := cm.Stats()
-	ev := Event{Type: "hangup", At: nowMs(), By: by, PktsIn: pin, PktsOut: pout, FirstInMs: intp(first)}
-	b, _ := json.Marshal(ev)
-	send(outMsg{data: b})
-	close(out)
-	select {
-	case <-done:
-	case <-time.After(3 * time.Second):
-	}
-	_ = conn.Close(websocket.StatusNormalClosure, "call ended")
-	g.log.Info("call ended", "call", ref, "voice_call", callID, "by", by, "pkts_in", pin, "pkts_out", pout, "first_in_ms", first, "ws_dropped", dropped.Load())
+	g.log.Info("call ended", "call", ref, "secs", int(time.Since(start).Seconds()), "pkts_in", in1, "pkts_out", out1, "first_in_ms", first, "quality", cm.Quality())
 }
 
 func reasonPhrase(code int) string {
@@ -540,63 +365,6 @@ func reasonPhrase(code int) string {
 		return "Decline"
 	default:
 		return "Temporarily Unavailable"
-	}
-}
-
-// transfer: blind transfer by SIP REFER to a target on our own PBX (second allow-list check here).
-func (g *Gateway) transfer(ctx context.Context, in *diago.DialogServerSession, ref, target string, emit func(Event)) {
-	clean, err := ValidateReferTarget(target, g.cfg.Realm)
-	if err != nil {
-		g.log.Warn("transfer target refused", "call", ref, "why", err.Error())
-		emit(Event{Type: "transfer_result", At: nowMs(), Code: 0, Reason: "target_refused"})
-		return
-	}
-	var u sip.Uri
-	if err := sip.ParseUri(clean, &u); err != nil {
-		emit(Event{Type: "transfer_result", At: nowMs(), Code: 0, Reason: "target_unparsable"})
-		return
-	}
-	notified := make(chan int, 4)
-	rctx, cancel := context.WithTimeout(ctx, 8*time.Second)
-	err = in.ReferOptions(rctx, u, diago.ReferServerOptions{OnNotify: func(code int) {
-		emit(Event{Type: "transfer_progress", At: nowMs(), Code: code})
-		select {
-		case notified <- code:
-		default:
-		}
-	}})
-	cancel()
-	if err != nil {
-		code := 0
-		var de sipgo.ErrDialogResponse
-		if errors.As(err, &de) && de.Res != nil {
-			code = de.Res.StatusCode
-		}
-		g.log.Warn("REFER failed", "call", ref, "code", code)
-		emit(Event{Type: "transfer_result", At: nowMs(), Code: code, Reason: fmt.Sprintf("refer_failed_%d", code)})
-		return
-	}
-	g.log.Info("REFER accepted", "call", ref)
-	emit(Event{Type: "transfer_result", At: nowMs(), Code: 202, Reason: "accepted"})
-	// Final NOTIFY (2xx = connected to the target). The PBX normally ends our leg; if not, we do.
-	deadline := time.After(30 * time.Second)
-	for {
-		select {
-		case code := <-notified:
-			if code >= 200 {
-				if code < 300 {
-					time.Sleep(1500 * time.Millisecond)
-					hctx, c := context.WithTimeout(context.Background(), 5*time.Second)
-					_ = in.Hangup(hctx)
-					c()
-				}
-				return
-			}
-		case <-deadline:
-			return
-		case <-ctx.Done():
-			return
-		}
 	}
 }
 

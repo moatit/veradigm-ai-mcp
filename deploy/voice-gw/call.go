@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"math"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -20,6 +21,8 @@ import (
 // NAT bindings open and lets the PBX's media relay latch on our address, symmetric RTP).
 type CallMedia struct {
 	ref    string
+	leg    int
+	mix    *Mixer // local conference (nil = none)
 	med    *diago.DialogMedia
 	codec  media.Codec
 	rate   int
@@ -41,7 +44,17 @@ type CallMedia struct {
 	onEvent    func(Event)
 	onDTMF     func(digit rune)
 	agentAudio atomic.Bool // agent audio currently going out
+
+	gate   *EchoGate
+	statMu sync.Mutex
+	jit    ArrivalJitter
+	qSum   int // echo test: playout queue depth when a frame was queued (internal loopback latency)
+	qN     int
+	qMax   int
 }
+
+// EchoMarginDB is VOICE_ECHO_GATE_DB (0 = off).
+var EchoMarginDB = 10.0
 
 func NewCallMedia(ref string, med *diago.DialogMedia, rate int, log *slog.Logger) *CallMedia {
 	m := &CallMedia{
@@ -55,6 +68,7 @@ func NewCallMedia(ref string, med *diago.DialogMedia, rate int, log *slog.Logger
 		vad:        NewVAD(),
 		log:        log,
 		answeredAt: time.Now(),
+		gate:       NewEchoGate(EchoMarginDB, 800*time.Millisecond),
 		onCaller:   func([]int16) {},
 		onEvent:    func(Event) {},
 		onDTMF:     func(rune) {},
@@ -132,17 +146,24 @@ func (m *CallMedia) readLoop(ctx context.Context, r io.Reader) error {
 			m.firstInMs.Store(ms)
 			m.onEvent(Event{Type: "media_in", At: nowMs(), FirstInMs: intp(int(ms))})
 		}
+		now := time.Now()
+		m.statMu.Lock()
+		m.jit.Note(now)
+		m.statMu.Unlock()
 		k, err := m.decode(lpcm, buf[:n])
 		if err != nil || k == 0 {
 			continue
 		}
 		pcm := bytesToPCM(lpcm[:k])
+		if m.mix != nil {
+			m.mix.Feed(m.leg, pcm)
+		}
 		if m.vad.Push(pcm, time.Now()) {
 			m.mu.Lock()
 			m.turnArmed = true
 			m.mu.Unlock()
 		}
-		m.onCaller(m.up.Process(pcm))
+		m.onCaller(m.up.Process(m.gate.Filter(pcm)))
 	}
 	return nil
 }
@@ -184,6 +205,16 @@ func (m *CallMedia) writeLoop(ctx context.Context, w io.Writer) {
 			m.onEvent(Event{Type: "playout_idle", At: nowMs()})
 		}
 		wasActive = active
+		if active {
+			m.gate.Played(frameDBFS(frame))
+		} else {
+			m.gate.Played(-120)
+		}
+		if m.mix != nil {
+			if other := m.mix.Pull(m.leg, n); other != nil {
+				AddInto(frame, other)
+			}
+		}
 		k, err := m.encode(enc, pcmToBytes(frame))
 		if err != nil || k != n {
 			continue
@@ -200,4 +231,53 @@ func (m *CallMedia) writeLoop(ctx context.Context, w io.Writer) {
 
 func (m *CallMedia) Stats() (in, out int, firstInMs int) {
 	return int(m.pktsIn.Load()), int(m.pktsOut.Load()), int(m.firstInMs.Load())
+}
+
+// NoteQueue records the playout queue depth (ms) at the moment an echo-test frame is queued.
+func (m *CallMedia) NoteQueue(ms int) {
+	m.statMu.Lock()
+	m.qSum += ms
+	m.qN++
+	if ms > m.qMax {
+		m.qMax = ms
+	}
+	m.statMu.Unlock()
+}
+
+// Quality: RTP loss (from sequence numbers), arrival jitter, RTCP round trip (when the far end sends
+// receiver reports), echo-gate counts and the echo-test queue depth.
+type Quality struct {
+	Expected    int     `json:"expected"`
+	Received    int     `json:"received"`
+	LossPct     float64 `json:"loss_pct"`
+	JitterMs    float64 `json:"jitter_ms"`
+	JitterMaxMs float64 `json:"jitter_max_ms"`
+	RTTMs       int     `json:"rtt_ms"`
+	EchoGated   int     `json:"echo_gated_frames"`
+	EchoPassed  int     `json:"echo_passed_frames"`
+	QueueAvgMs  int     `json:"loopback_queue_avg_ms"`
+	QueueMaxMs  int     `json:"loopback_queue_max_ms"`
+}
+
+func (m *CallMedia) Quality() Quality {
+	q := Quality{}
+	if rs := m.med.RTPSession(); rs != nil {
+		st := rs.ReadStats()
+		q.Received = int(st.PacketsCount)
+		q.Expected = int(uint16(st.LastSequenceNumber-st.FirstPktSequenceNumber)) + 1
+		if q.Expected > 0 && q.Expected >= q.Received {
+			q.LossPct = math.Round(float64(q.Expected-q.Received)*1000/float64(q.Expected)) / 10
+		}
+		q.RTTMs = int(st.RTT.Milliseconds())
+	}
+	m.statMu.Lock()
+	q.JitterMs = math.Round(m.jit.J*10) / 10
+	q.JitterMaxMs = math.Round(m.jit.Max*10) / 10
+	if m.qN > 0 {
+		q.QueueAvgMs = m.qSum / m.qN
+	}
+	q.QueueMaxMs = m.qMax
+	m.statMu.Unlock()
+	q.EchoGated, q.EchoPassed = m.gate.Suppressed, m.gate.Passed
+	return q
 }

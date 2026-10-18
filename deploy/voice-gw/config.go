@@ -43,6 +43,7 @@ type Config struct {
 
 	StatusFile string
 	UserAgent  string
+	EchoGateDB float64
 }
 
 const (
@@ -100,6 +101,7 @@ func LoadConfig() (*Config, error) {
 		FallbackTarget: env("VOICE_GW_FALLBACK_TARGET", ""),
 		StatusFile:     env("VOICE_GW_STATUS_FILE", "/tmp/voice-gw-status.json"),
 		UserAgent:      env("VOICE_GW_USER_AGENT", "Drawbridge-voice-gw/0.1"),
+		EchoGateDB:     float64(envInt("VOICE_ECHO_GATE_DB", 10)),
 	}
 	for _, p := range strings.Split(env("VOICE_SIP_PROXIES", ""), ",") {
 		if p = strings.TrimSpace(p); p != "" {
@@ -143,6 +145,9 @@ func (c *Config) Validate() error {
 	}
 	if c.RTPMin < 1024 || c.RTPMax <= c.RTPMin || c.RTPMax > 65535 || (c.RTPMax-c.RTPMin) < 8 {
 		errs = append(errs, "VOICE_RTP_PORT_MIN/MAX invalid")
+	}
+	if c.EchoGateDB < 0 || c.EchoGateDB > 40 {
+		errs = append(errs, "VOICE_ECHO_GATE_DB must be 0..40")
 	}
 	if c.MaxCalls < 1 || c.MaxCalls > 50 {
 		errs = append(errs, "VOICE_MAX_CALLS must be 1..50")

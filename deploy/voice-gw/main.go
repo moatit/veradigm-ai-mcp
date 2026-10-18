@@ -67,6 +67,10 @@ func main() {
 		}
 	}
 
+	EchoMarginDB = cfg.EchoGateDB
+	// Outbound calls (stage 4): with srtp-required we offer RTP/SAVP (the PBX must accept SRTP); with the
+	// synthetic-only rule we offer RTP/AVP plus SDES keys (encrypted if the PBX takes them, plain otherwise).
+	media.RTPProfileSAVPDisable = cfg.MediaPolicy == PolicySRTPPreferred
 	media.RTPPortStart = cfg.RTPMin
 	media.RTPPortEnd = cfg.RTPMax
 
