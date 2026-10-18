@@ -149,4 +149,4 @@ writeFileSync(
 );
 writeFileSync(join(DIST, "csp.txt"), CSP + "\n");
 
-console.log(`built ${pages.length} pages → dist/ (assets v${assetVersion}${preview ? ", preview robots" : ""})`);
+console.log(`built ${pages.length} pages → ${process.env.DRAWBRIDGE_OUT ? DIST : "dist/"} (assets v${assetVersion}${preview ? ", preview robots" : ""})`);
