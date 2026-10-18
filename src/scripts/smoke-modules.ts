@@ -55,7 +55,7 @@ async function main(): Promise<void> {
   // 3. Unknown name: clear error, nothing registered.
   assert.throws(
     () => loadPlatformModules({ ENABLED_MODULES: 'intake,fax-intake' }),
-    (e: any) => /ENABLED_MODULES: unknown module name\(s\) "fax-intake"\. Known modules: oncall, scheduling, outreach, huddle, activity, intake, veradigm, compliance\./.test(e.message)
+    (e: any) => /ENABLED_MODULES: unknown module name\(s\) "fax-intake"\. Known modules: oncall, scheduling, outreach, huddle, activity, intake, veradigm, compliance, voice./.test(e.message)
   );
   assert.strictEqual(platformModules().length, 0, 'nothing registered after the error');
   ok('unknown name → startup error naming it and listing the known modules; nothing registered');

@@ -132,8 +132,8 @@
       "plain": "Drawbridge raises security events for repeated failed sign-ins, lockouts, emergency access, rejected connection keys, documents that no longer match what was received, and unusually many downloads or patient records opened by one person.",
       "technical": "security-events.ts: [SECURITY] server-log lines plus audit lines; throttled tool_key_rejected / webhook_rejected; integrity_failed; export_volume_alert and view_volume_alert (DRAWBRIDGE_EXPORT_ALERT_PER_HOUR 20, DRAWBRIDGE_VIEW_ALERT_PER_HOUR 200).",
       "evidence": [
-        "src/platform/security-events.ts:98",
-        "src/platform/security-events.ts:153"
+        "src/platform/security-events.ts:110",
+        "src/platform/security-events.ts:165"
       ],
       "status": "FIXED",
       "status_label": "In place",
@@ -509,7 +509,7 @@
       "plain": "Security events help detect a possible breach, the tamper-evident audit log and the access report show which patients were affected, and MOATiT notifies the clinic under the BAA.",
       "technical": "Detection (security events, alerts), scoping (access report per patient / per user), tamper evidence (hash chain); notification is organizational.",
       "evidence": [
-        "src/platform/security-events.ts:184"
+        "src/platform/security-events.ts:196"
       ],
       "status": "FIXED",
       "status_label": "In place",
