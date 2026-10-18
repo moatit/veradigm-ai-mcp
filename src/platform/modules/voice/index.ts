@@ -153,7 +153,10 @@ export const voiceModule: PlatformModule = {
           return `<tr><td class="muted">${(e.ms / 1000).toFixed(1)} s</td><td><strong>${who}</strong>${e.script ? ` <span class="muted">[${esc(e.script)}]</span>` : ''}${e.truncated ? ' <span class="muted">(cut off)</span>' : ''}</td><td>${body}</td></tr>`;
         })
         .join('');
-      const lat = rec.turns.filter((t) => typeof t.e2e_ms === 'number').map((t) => `${t.kind} ${t.e2e_ms} ms${t.tools.length ? ` (${t.tools.map((x) => `${esc(x.name)} ${x.ms} ms`).join(', ')})` : ''}`);
+      const lat = rec.turns.map(
+        (t) =>
+          `${t.kind}: first audio ${t.e2e_ms ?? '-'} ms (model ${t.provider_ms ?? '-'} ms)${typeof t.answer_ms === 'number' ? `, answer ${t.answer_ms} ms` : ''}${t.tools.length ? ` [${t.tools.map((x) => `${esc(x.name)} ${x.ms} ms`).join(', ')}]` : ''}`
+      );
       res.send(
         page(
           'Voice call · Drawbridge',
