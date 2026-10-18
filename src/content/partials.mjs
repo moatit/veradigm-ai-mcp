@@ -92,7 +92,7 @@ const LEDGER = [
   ["7:42", "Lab result, 3 pages", "Rowan Ellery", "04/12/1961", "1", "ok", "Filed", "Lab Results. Review task to the ordering provider."],
   ["7:58", "Imaging report, 2 pages", "Jordan Pike", "09/30/1974", "1", "person", "To a person", "The address on the page differs from the chart."],
   ["8:05", "Referral letter, 4 pages", "Amara Quinn", "02/17/1988", "1", "person", "To a person", "Referrals always go to staff. Your practice set that rule."],
-  ["8:11", "Lab batch, 6 pages", "Two names on page 4", "Two dates", "2", "person", "To a person", "Two patients on one page. Staff split it."],
+  ["8:11", "Lab batch, 6 pages", "Two names on page 4", "Two dates", "2", "person", "To a person", "Two patients on one page. A person decides."],
   ["8:20", "Lab result, 1 page", "Dana Whitlock", "11/03/1956", "1", "ok", "Filed", "Critical flag: high-priority task, call required."],
 ];
 export const intakeLedger = () => `<div class="ledger" role="region" aria-labelledby="ledger-title" aria-describedby="ledger-sample">
@@ -119,7 +119,7 @@ export const gateCard = (id = "gate-demo") => `<figure class="gate-card" id="${i
     <div class="meta"><strong>Outside lab result · 3 pages</strong>Sender: reference lab (sample)<br>Patient: Rowan Ellery · DOB 04/12/1961</div>
   </div>
   <ol class="gate-steps">
-    <li><span class="ok">${icon("check")}</span><span><b>Read on MOATiT's servers</b><span class="d">Page by page. The fax stays with MOATiT.</span></span></li>
+    <li><span class="ok">${icon("check")}</span><span><b>Read on MOATiT's servers</b><span class="d">Page by page, with MOATiT's own OCR.</span></span></li>
     <li><span class="ok">${icon("check")}</span><span><b>Matched: full name + date of birth</b><span class="d">Exactly one patient, with every identifier in agreement.</span></span></li>
     <li><span class="ok">${icon("check")}</span><span><b>Category: Lab Results</b><span class="d">Your clinic's own category name.</span></span></li>
     <li><span class="ok">${icon("check")}</span><span><b>Review task → ordering provider</b><span class="d">Linked to the filed document in the EHR task list.</span></span></li>

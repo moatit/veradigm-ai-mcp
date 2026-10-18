@@ -137,7 +137,7 @@
       }).then(function (r) {
         if (!r.ok) throw new Error("status " + r.status);
         status.className = "form-status ok";
-        status.innerHTML = "<strong>Thank you — your request is in.</strong> A MOATiT team member will reply within one business day to set up your 20-minute walkthrough. Questions sooner? Call <a href=\"tel:+12089006628\">(208) 900-6628</a>.";
+        status.innerHTML = "<strong>Thank you. Your request is in.</strong> A MOATiT team member will reply within one business day to set up your 20-minute walkthrough. Questions sooner? Call <a href=\"tel:+12089006628\">(208) 900-6628</a>.";
         form.reset();
       }).catch(function () {
         status.className = "form-status err";

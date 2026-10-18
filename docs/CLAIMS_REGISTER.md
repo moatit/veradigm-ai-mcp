@@ -33,7 +33,7 @@ Status: **OK** = verified against a source; **CONFIRM** = Ali/Musab to confirm b
 | Phone: 911 line wording; no medical advice; transfer on request; read-back before change; reschedule books new before cancelling old | `retell-prompts/unity-healthcare-agent.md` (cert-hardening) | OK |
 | After hours: urgent → on-call provider with brief; routine → staff task | same prompt, "AFTER HOURS" | OK |
 | Call recordings: PII redaction post-call, 30-day retention | `VOICE_V7_EXPERIMENT.md` §3 ("PII redaction (post-call, 14 categories) … 30-day retention") | OK |
-| Records down → callers told, message taken, help desk alerted | `VOICE_V7_EXPERIMENT.md` §2.5 | OK (help-desk SMTP must be configured: **GATE**) |
+| Records down → callers told, message taken; status alerts by encrypted email to the practice's chosen contact | `VOICE_V7_EXPERIMENT.md` §2.5 | OK (help-desk SMTP must be configured: **GATE**) |
 | 24/7 answering | Business-hours and after-hours modes in the prompt | **CONFIRM** the clinic line routing is live 24/7 for each client |
 | Outreach only with a staff click or a schedule; opt-out list | `PLATFORM_PLAN.md` rule 6; `SECURITY_CONTROLS.md` §4 | OK |
 | Writes limited to appointments, appointment status, patient registration, tasks, scanned documents | `PLATFORM_PLAN.md` rule 3 + intake `SaveScanDocument` | OK |
@@ -42,6 +42,20 @@ Status: **OK** = verified against a source; **CONFIRM** = Ali/Musab to confirm b
 | "Built so the same team can serve many times more patients" / "imagine ten times the volume" | Ali's direction (Oct 16) | Aspirational copy only, framed as vision with an on-page note; never in proof blocks or stated as measured |
 | Single-tenant per clinic | System diagram ("MOATiT-hosted, single tenant per clinic") | OK |
 | No model training on practice data | No training code in the repo; OCR local; matching rule-based | **CONFIRM** with Ali (vendor terms for the voice platform) |
+
+## Site copy added Oct 17-18, 2026
+
+| Claim on site | Where | Source | Status |
+|---|---|---|---|
+| "Lab results filed. Calls answered. **Every one checked.**" | Home hero, OG image | Every document passes the two-identifier rule before filing or goes to a person; every caller is verified before any record is read (rows above) | OK: "checked" means the rules ran on every document and call, not that every document is filed |
+| Close calls go to a person, already read and explained, with the reason | Home, fax, FAQ | `FAX_INTAKE_ADDON.md` fallback §7, matching rules | OK |
+| Four steps: setup sheet; BAA + Veradigm® authorization; one-week shadow mode compared with staff decisions and used to align Drawbridge to the practice; switch on step by step (staff-click filing, then automatic for proven document types) | Home, FAQ, integrations, pricing, campaign docs | Ali's direction (Oct 17); `CLINIC_ONBOARDING.md`; `FAX_INTAKE_ADDON.md` shadow mode and filing modes | OK for the steps; queue-based intake still **CONFIRM** (row above) |
+| Synthetic intake ledger: five invented faxes, two filed and three to a person (address differs; referrals always to staff; two patients on one page; critical flag gives a high-priority task with a call required) | Home hero, `/lp/*`, OG image | Invented patients; each outcome matches a rule above | OK: labeled "Synthetic sample" in a full-width bar and in the footnote |
+| "Test a live call now": the test line (208) 904-3641 answers with the phone assistant on a Veradigm® sandbox; sample patients Ed Smith (12/06/1952) and Nichole Albanese (04/24/1928) are Veradigm sandbox test records | Home hero, phone page, `/lp/phone/` | `veradigm-ai-mcp/docs/handover/05_TEST_DATA.md`; `RETELL_SETUP.md` | **GATE 1B.2**: point the transfer at the help desk (today it reaches Ali's cell), cap the call length and set the cost limit before the site is public. The line depends on the host and tunnel being up |
+| "Your workflow stays exactly as it is" and "you can switch Drawbridge off at any time" | Home, integrations, pricing, FAQ | Ali's direction (Oct 17) | **CONFIRM** with engineering (row above) |
+| Drawbridge's working copies deleted 30 days after filing; the chart copy is the record | Fax page | `SECURITY_CONTROLS.md` §4 (originals deleted 30 days after filing) | OK |
+| "Clinical questions stay with your clinicians"; emergencies directed to 911 | Home `/lp/phone/`, phone page | Prompt: no medical advice, 911 line (row above) | OK |
+| The home-page note is signed "Ali Khan, CEO, MOATiT" | Home | Ali's direction (Oct 17) | OK |
 
 ## Security and compliance
 
@@ -52,12 +66,12 @@ Status: **OK** = verified against a source; **CONFIRM** = Ali/Musab to confirm b
 | Access & disclosure reports | `HIPAA_TECHNICAL_SAFEGUARDS.md` #33 | OK |
 | TLS 1.2+ in transit | `HIPAA_TECHNICAL_SAFEGUARDS.md` #28-29 | **GATE D6** (edge TLS) |
 | Encryption at rest | `HIPAA_TECHNICAL_SAFEGUARDS.md` #24 | **GATE D1/D6** (EBS/KMS encryption) |
-| US hosting on AWS | `HIPAA_TECHNICAL_SAFEGUARDS.md` organizational row; `VOICE_V7_EXPERIMENT.md` §10 | **GATE D2** (move PHI off the workstation tunnel to the BAA-covered AWS host) |
+| US hosting (site: "a US cloud region and MOATiT's data center"; vendor not named publicly) | `HIPAA_TECHNICAL_SAFEGUARDS.md` organizational row; `VOICE_V7_EXPERIMENT.md` §10 | **GATE D2** (move PHI off the workstation tunnel to the BAA-covered AWS host) |
 | Backups every 2 h, 6 months, encrypted, immutable | `HIPAA_TECHNICAL_SAFEGUARDS.md` backup section ("MOATiT policy") | **GATE** (deployment) |
-| BAA with every practice and with AWS (and the voice platform) | `HIPAA_TECHNICAL_SAFEGUARDS.md` remaining items | **CONFIRM** BAAs signed (AWS, Retell) |
-| SentinelOne EDR; patching within 7 days | same | OK (MOATiT policy) |
+| BAA with every practice and with every provider that handles patient information (site names no vendor) | `HIPAA_TECHNICAL_SAFEGUARDS.md` remaining items | **CONFIRM** BAAs signed (AWS, Retell) |
+| Managed endpoint detection and response; patching within 7 days (site names no vendor) | same | OK (MOATiT policy) |
 | Annual HIPAA training; incident response; DR/BCP | same | OK (MOATiT policy) |
-| Annual scans and pen tests by Garrison | same + Ali's brief | **CONFIRM** Garrison may be named publicly |
+| Annual scans and pen tests by an independent outside firm (site names no firm) | same + Ali's brief | OK (the firm is no longer named, so no permission is needed) |
 | Independent launch audit, PASS, all HIGH fixed | `LAUNCH_AUDIT_2026-10-16.md` | OK. Note: the audit asks for an independent re-review of fix commits `9232a3f..0805123` before production |
 | SOC 2 in process, completed before end of 2027 | `HIPAA_TECHNICAL_SAFEGUARDS.md`; Ali's brief | OK (worded "in process") |
 | Veradigm Connect certification in progress | Ali's brief; certification package Oct 15 | **CONFIRM** with Musab that naming the program is allowed under the Veradigm Connect agreement |
