@@ -4,7 +4,7 @@ import { auditPatient } from '../../app';
 import { PlatformModule } from '../../registry';
 import { recordExport, securityEvent, clientIp } from '../../security-events';
 import { APP_BASE, esc, fmtTime, page } from '../../shell';
-import { displayCode, displayText } from '../../display';
+import { displayCode, displayTokens } from '../../display';
 import { CsvDocTypes, DocTypeCache, FallbackDocTypes, type DocType, type DocTypeSource } from './doctypes';
 import type { Confidence, DocumentKind, Extracted } from './extract';
 import { fileToChart, filingStatus, IntakeFilingError, sendToIndexing, setFilingDeps, type FilingResult } from './file';
@@ -278,7 +278,7 @@ ${alwaysPersonType(x) ? `<dt>Always to staff</dt><dd>${pill('warn', ALWAYS_PERSO
 
   const match = m
     ? `<div class="card"><dl>
-<dt>Result</dt><dd>${pill(DECISION_PILL[m.decision], DECISION_LABEL[m.decision])} ${esc(displayText(m.reason))}</dd>
+<dt>Result</dt><dd>${pill(DECISION_PILL[m.decision], DECISION_LABEL[m.decision])} ${esc(displayTokens(m.reason))}</dd>
 ${m.patient ? `<dt>Patient</dt><dd>${esc(m.patient.name)} · DOB ${esc(m.patient.dateOfBirth)}${m.patient.mrn ? ` · MRN ${esc(m.patient.mrn)}` : ''}</dd>
 <dt>Veradigm® EHR chart</dt><dd>${m.patient.chartPatientId ? esc(m.patient.chartPatientId) : '<span class="muted">none</span>'}</dd>` : ''}
 ${m.second_identifier ? `<dt>Second identifier</dt><dd>${esc(ID_LABEL[m.second_identifier] || m.second_identifier)}</dd>` : ''}
@@ -312,7 +312,7 @@ ${criticalUntold(i) ? actionButton(i.id, 'notified', 'Provider was told', true, 
 
   const history = `<div class="card scroll"><table><thead><tr><th>When</th><th>What</th><th>Who</th></tr></thead><tbody>${[...i.history]
     .reverse()
-    .map((h) => `<tr><td>${esc(fmtTime(h.ts))}</td><td>${esc(displayText(h.action))}</td><td>${esc(h.by)}</td></tr>`)
+    .map((h) => `<tr><td>${esc(fmtTime(h.ts))}</td><td>${esc(displayTokens(h.action))}</td><td>${esc(h.by)}</td></tr>`)
     .join('')}</tbody></table></div>`;
 
   return `<p><a href="${APP_BASE}/intake">← Document intake</a></p>${flash}

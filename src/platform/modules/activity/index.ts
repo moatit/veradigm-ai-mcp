@@ -2,7 +2,7 @@ import express, { Express, Request, Response, Router } from 'express';
 import { auditPatient } from '../../app';
 import { PlatformModule } from '../../registry';
 import { APP_BASE, esc, fmtTime, page, requireAdmin } from '../../shell';
-import { displayChannel, displayCode, displayText } from '../../display';
+import { displayChannel, displayCode, displayTokens } from '../../display';
 import { AuditEntry, auditDays, dayKey, isDayKey, pruneAudit, readAuditDay, readAuditRange, retentionDays, safeId, safeUser, toolMetrics } from '../../audit';
 import { clientIp, recordExport, throttledSecurityEvent } from '../../security-events';
 import { callRecords } from '../../../unity/oncall/call-records';
@@ -101,8 +101,8 @@ async function activityPage(req: Request): Promise<string> {
         .reverse()
         .slice(0, 200)
         .map(
-          (e) => `<tr><td>${esc(fmtTime(e.ts, 'time'))}</td><td>${e.success ? esc(displayText(e.tool).replace(/_/g, ' ')) : `<span class="pill urgent">${esc(displayText(e.tool).replace(/_/g, ' '))}</span>`}</td>
-<td>${esc(e.user || '') || '<span class="muted">—</span>'}</td><td>${esc(e.ip || '') || '—'}</td><td class="muted" style="font-size:12px">${esc([displayCode(e.error_code), displayText(e.object)].filter(Boolean).join(' · '))}</td></tr>`
+          (e) => `<tr><td>${esc(fmtTime(e.ts, 'time'))}</td><td>${e.success ? esc(displayTokens(e.tool).replace(/_/g, ' ')) : `<span class="pill urgent">${esc(displayTokens(e.tool).replace(/_/g, ' '))}</span>`}</td>
+<td>${esc(e.user || '') || '<span class="muted">—</span>'}</td><td>${esc(e.ip || '') || '—'}</td><td class="muted" style="font-size:12px">${esc([displayCode(e.error_code), displayTokens(e.object)].filter(Boolean).join(' · '))}</td></tr>`
         )
         .join('')}</tbody></table></div>`
     : '<div class="card empty muted">No security events for this day.</div>';
@@ -167,8 +167,8 @@ function reportTable(rows: AuditEntry[]): string {
     .reverse()
     .slice(0, 2000)
     .map(
-      (e) => `<tr><td>${esc(fmtTime(e.ts))}</td><td>${esc(KIND_LABEL[e.kind || 'tool'] || e.kind)}</td><td>${esc(e.user || displayChannel(e.channel || ''))}</td><td>${esc(!e.kind || e.kind === 'tool' ? toolLabel(e.tool) : displayText(e.tool).replace(/_/g, ' '))}</td>
-<td class="muted" style="font-size:12px">${esc(displayText(e.object || ''))}</td><td>${e.success ? '<span class="pill ok">ok</span>' : `<span class="pill urgent">failed</span> <span class="muted" style="font-size:12px">${esc(displayCode(e.error_code))}</span>`}</td><td style="font-size:12px">${esc(e.call_id) || '—'}</td><td>${esc(e.patient_id) || '—'}</td></tr>`
+      (e) => `<tr><td>${esc(fmtTime(e.ts))}</td><td>${esc(KIND_LABEL[e.kind || 'tool'] || e.kind)}</td><td>${esc(e.user || displayChannel(e.channel || ''))}</td><td>${esc(!e.kind || e.kind === 'tool' ? toolLabel(e.tool) : displayTokens(e.tool).replace(/_/g, ' '))}</td>
+<td class="muted" style="font-size:12px">${esc(displayTokens(e.object || ''))}</td><td>${e.success ? '<span class="pill ok">ok</span>' : `<span class="pill urgent">failed</span> <span class="muted" style="font-size:12px">${esc(displayCode(e.error_code))}</span>`}</td><td style="font-size:12px">${esc(e.call_id) || '—'}</td><td>${esc(e.patient_id) || '—'}</td></tr>`
     )
     .join('')}</tbody></table>${rows.length > 2000 ? `<p class="muted" style="font-size:13px">Showing the latest 2000 of ${esc(rows.length)}. Download the CSV for all of them.</p>` : ''}</div>`;
 }

@@ -5,7 +5,7 @@ import { getUnityDiagnostics, LastLogsRecord, ServerInfoSummary } from '../../..
 import { AuthLatch, getUnityAuth } from '../../../unity/services/unity-auth.service';
 import { getSystemStatus } from '../../system-status';
 import { statusCard } from '../../status-ui';
-import { displayCode, displayText } from '../../display';
+import { displayCode, displayTokens } from '../../display';
 
 /**
  * Drawbridge module: Veradigm connection (staff screen /app/veradigm, read only except "Retry sign-in").
@@ -32,13 +32,13 @@ function infoCard(i: ServerInfoSummary): string {
 
 function latchCard(l: AuthLatch): string {
   return `<div class="card" style="border-color:var(--urgent)"><div class="row"><strong>${esc(SYSTEM_LABEL[l.target] || l.target)}: sign-in stopped</strong><span class="pill urgent">STOPPED</span></div>
-<p style="margin:8px 0">${l.stage === 'unknown' ? `The sign-in latch file was unreadable at ${esc(fmtTime(l.at))}, so every sign-in was stopped (fail closed).` : `Veradigm refused ${esc(l.stage)} at ${esc(fmtTime(l.at))} (${esc(displayText(l.reason))}).`} Drawbridge sends nothing more for this system, so the account can't be locked out. Fix the credentials (a server restart loads new ones and clears this), or retry once Veradigm has unlocked the account.</p>
+<p style="margin:8px 0">${l.stage === 'unknown' ? `The sign-in latch file was unreadable at ${esc(fmtTime(l.at))}, so every sign-in was stopped (fail closed).` : `Veradigm refused ${esc(l.stage)} at ${esc(fmtTime(l.at))} (${esc(displayTokens(l.reason))}).`} Drawbridge sends nothing more for this system, so the account can't be locked out. Fix the credentials (a server restart loads new ones and clears this), or retry once Veradigm has unlocked the account.</p>
 <form method="post" action="${APP_BASE}/veradigm/retry-sign-in" style="margin:0"><input type="hidden" name="target" value="${esc(l.target)}"><button>Retry sign-in</button> <span class="muted" style="font-size:13px">Administrators only. The next Veradigm call signs in once.</span></form></div>`;
 }
 
 function logRow(r: LastLogsRecord): string {
   const entries = r.entries.length
-    ? `<ul>${r.entries.map((e) => `<li><span class="muted">${esc(e.timestamp)}</span> ${esc(displayText(e.action))} ${esc(displayText(e.message))}</li>`).join('')}</ul>`
+    ? `<ul>${r.entries.map((e) => `<li><span class="muted">${esc(e.timestamp)}</span> ${esc(displayTokens(e.action))} ${esc(displayTokens(e.message))}</li>`).join('')}</ul>`
     : `<span class="muted">${r.status === 'ok' ? 'No entries returned' : `Troubleshooting log unavailable (${esc(displayCode(r.error_code))})`}</span>`;
   return `<tr><td>${esc(fmtTime(r.at))}</td><td>${esc(SYSTEM_LABEL[r.target] || r.target)}</td><td>${esc(r.trigger_action)}<br><span class="muted">${esc(displayCode(r.trigger_code))}</span></td><td>${entries}</td></tr>`;
 }

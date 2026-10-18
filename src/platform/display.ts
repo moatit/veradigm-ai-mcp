@@ -1,8 +1,15 @@
 /**
  * Display-time wording for staff screens: no vendor or subprocessor names and no internal system names
  * (MCP, FHIR, Unity) on screen. Only what is shown changes: stored values, audit and log fields, API payloads,
- * error codes, tool names and settings keep their raw form. Use these on system-generated text only (codes,
- * tool names, error details, Veradigm log lines), never on what a patient or staff member wrote.
+ * error codes, tool names and settings keep their raw form.
+ *
+ * Two levels, so a person's name is never rewritten (audit M1, Oct 18):
+ *  - displayTokens: exact system tokens only (codes, identifiers, settings, tool names, the "UnityService" endpoint).
+ *    Safe on text that can carry names: intake history, Veradigm log lines, security-event objects.
+ *  - displayText: displayTokens plus unambiguous vendor brand words (Retell, ElevenLabs, OpenAI, ChatGPT, AWS,
+ *    Cloudflare, Twilio, SentinelOne, FHIR) for system-generated text only (error details, outreach reasons).
+ * Words that are also people's names (Garrison, Google, Amazon, Azure, Unity, GPT, MCP) are never mapped as words.
+ * Neither is ever applied to what a patient or staff member wrote.
  */
 
 /** Codes that name an internal system or vendor, or that staff asked to read in plain words. Others show as they are. */
@@ -37,50 +44,56 @@ const NAME_RE = new RegExp(
   'g'
 );
 
-/** Vendor, subprocessor and internal names in free text, with neutral, truthful replacements. */
-const WORDS: Array<[RegExp, string]> = [
+/** Exact system tokens: settings, tool names and the Veradigm endpoint name. No dictionary words. */
+const TOKENS: Array<[RegExp, string]> = [
   [/\bRETELL_FROM_NUMBER is not set\b/g, 'The outbound caller number is not set'],
   [/\bRETELL_[A-Z0-9_]+\b/g, 'phone assistant setting'],
   [/\b(?:unity|fhir)_([a-z0-9]+(?:_[a-z0-9]+)*)\b/g, '$1'], // tool names: unity_search_patients → search_patients
-  [/\bRetell(?:\s?AI)?\b/gi, 'voice platform'],
-  [/\bElevenLabs\b/gi, 'voice platform'],
-  [/\b(?:OpenAI|ChatGPT|GPT(?:-[\w.]+)?)\b/gi, 'language model'],
-  [/\bAmazon Web Services\b|\bAWS\b|\bAmazon\b/g, 'US cloud hosting'],
-  [/\bAzure\b/gi, 'cloud hosting'],
-  [/\bGoogle\b/g, 'outside service'],
-  [/\bCloudflare\b/gi, 'network provider'],
-  [/\bTwilio\b/gi, 'phone carrier'],
-  [/\bSentinelOne\b/gi, 'endpoint protection'],
-  [/\bGarrison\b/g, 'outside testing firm'],
-  [/\bUnity(?=[A-Z]|\b)/g, 'Veradigm'],
-  [/\bunity\b/g, 'Veradigm'],
-  [/\bFHIR\b/gi, 'Veradigm EHR'],
-  [/\bMCP\b/gi, 'Drawbridge'],
+  [/\bUnity(?=Service\b)/g, 'Veradigm'], // Veradigm's own endpoint name in its log lines (UnityService.svc)
 ];
 
-/** System-generated free text (error details, event names, Veradigm log lines) as staff should read it. */
-export function displayText(text: unknown): string {
+/** Vendor brand words that are not people's names, for system-generated text only. */
+const BRANDS: Array<[RegExp, string]> = [
+  [/\bRetell(?:\s?AI)?\b/g, 'voice platform'],
+  [/\bElevenLabs\b/g, 'voice platform'],
+  [/\b(?:OpenAI|ChatGPT)\b/g, 'language model'],
+  [/\bAWS\b/g, 'US cloud hosting'],
+  [/\bCloudflare\b/g, 'network provider'],
+  [/\bTwilio\b/g, 'phone carrier'],
+  [/\bSentinelOne\b/g, 'endpoint protection'],
+  [/\bFHIR\b/g, 'Veradigm EHR'],
+];
+
+/** Codes, identifiers, settings and tool names only. Safe on text that may contain a person's name. */
+export function displayTokens(text: unknown): string {
   let s = String(text ?? '');
   if (!s) return s;
   s = s.replace(CODE_RE, (c) => CODE_LABEL[c]).replace(NAME_RE, (n) => NAME_LABEL[n]);
-  for (const [re, to] of WORDS) s = s.replace(re, to);
+  for (const [re, to] of TOKENS) s = s.replace(re, to);
+  return s;
+}
+
+/** System-generated free text (error details, outreach reasons): tokens plus vendor brand words. */
+export function displayText(text: unknown): string {
+  let s = displayTokens(text);
+  for (const [re, to] of BRANDS) s = s.replace(re, to);
   return s;
 }
 
 /** An error code as staff should read it: a plain label for the codes above, the code itself otherwise. */
 export function displayCode(code: unknown): string {
   const c = String(code ?? '');
-  return CODE_LABEL[c] || displayText(c);
+  return CODE_LABEL[c] || displayTokens(c);
 }
 
 /** A call's transcript reference ("retell:<call id>") without the vendor name. */
 export function displayTranscriptRef(ref: unknown): string {
   const r = String(ref ?? '');
-  return /^retell:/i.test(r) ? 'kept on the voice platform' : displayText(r);
+  return /^retell:/i.test(r) ? 'kept on the voice platform' : displayTokens(r);
 }
 
 /** The audit channel of a request ("retell", "RETELL", module names, ...) as staff should read it. */
 export function displayChannel(channel: unknown): string {
   const c = String(channel ?? '');
-  return /^(retell|mcp)$/i.test(c) ? 'phone assistant' : displayText(c);
+  return /^(retell|mcp)$/i.test(c) ? 'phone assistant' : displayTokens(c);
 }
