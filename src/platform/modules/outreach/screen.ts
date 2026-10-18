@@ -39,7 +39,7 @@ const user = (req: Request) => ((req as any).drawbridgeUser as string) || 'staff
 
 function statusPill(j: OutreachJob): string {
   const cls =
-    j.status === 'completed' ? 'ok' : j.status === 'failed' ? 'urgent' : j.status === 'approved' || j.status === 'calling' ? 'warn' : '';
+    j.status === 'completed' ? 'ok' : j.status === 'failed' ? 'urgent' : j.status === 'proposed' ? 'warn' : '';
   return `<span class="pill ${cls}">${esc(j.status)}</span>`;
 }
 

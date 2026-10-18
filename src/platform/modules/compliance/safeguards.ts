@@ -417,7 +417,7 @@ export const SECURITY_CONTACT = { email: 'help@moatit.com', phone: '(208) 900-66
 /** Badge on the clinic-facing page. */
 export function statusBadge(s: SafeguardStatus): { label: string; kind: 'ok' | 'warn' | '' } {
   if (s === 'PASS' || s === 'FIXED') return { label: 'In place', kind: 'ok' };
-  if (s === 'DEPLOYMENT') return { label: 'Deployment', kind: 'warn' };
+  if (s === 'DEPLOYMENT') return { label: 'Deployment', kind: '' };
   return { label: 'Organizational', kind: '' };
 }
 

@@ -213,7 +213,7 @@ export function flagsFor(v: Omit<HuddleVisit, 'flags'>): HuddleFlag[] {
   if (!v.balance.ok) f.push({ key: 'balance_failed', label: `Balance: ${COULDNT_CHECK}`, tone: 'unknown' });
   else if (v.balance.value > 0) f.push({ key: 'balance_due', label: `Balance due ${money(v.balance.value)}`, tone: 'warn' });
   if (!v.insurance.ok) f.push({ key: 'insurance_failed', label: `Insurance: ${COULDNT_CHECK}`, tone: 'unknown' });
-  else if (v.insurance.value.policies === 0) f.push({ key: 'no_insurance', label: 'No insurance on file', tone: 'urgent' });
+  else if (v.insurance.value.policies === 0) f.push({ key: 'no_insurance', label: 'No insurance on file', tone: 'warn' });
   if (!v.allergies.ok) f.push({ key: 'allergies_failed', label: `Allergies: ${COULDNT_CHECK}`, tone: 'unknown' });
   else if (v.allergies.value > 0) f.push({ key: 'allergies', label: `Allergies on file (${v.allergies.value})`, tone: 'warn' });
   if (!v.problems.ok) f.push({ key: 'problems_failed', label: `Problems: ${COULDNT_CHECK}`, tone: 'unknown' });

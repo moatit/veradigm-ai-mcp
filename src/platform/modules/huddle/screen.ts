@@ -49,7 +49,7 @@ function tiles(b: HuddleBrief): string {
   return `<div class="grid hd-tiles">
 ${tile(s.visits, 'Visits')}${tile(s.providers, 'Providers')}
 ${tile(s.balancesDue, 'Balances due', s.balancesDue ? 'warn' : '')}
-${tile(s.missingInsurance, 'Missing insurance', s.missingInsurance ? 'urgent' : '')}
+${tile(s.missingInsurance, 'Missing insurance', s.missingInsurance ? 'warn' : '')}
 ${tile(s.failedChecks, "Checks that couldn't run", s.failedChecks ? 'urgent' : '')}
 ${s.newPatients ? tile(s.newPatients, 'New patients') : ''}</div>`;
 }

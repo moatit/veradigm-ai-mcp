@@ -30,7 +30,7 @@ function detail(r: CallRecord): string {
   return `<p><a href="${APP_BASE}/oncall">← All calls</a></p>
 <div class="card"><div class="row">
 <strong style="font-size:17px">${who(r)}</strong>
-<span class="pill ${r.urgency === 'urgent' ? 'urgent' : ''}">${esc(r.urgency)}</span>
+<span class="pill ${r.urgency === 'urgent' ? 'warn' : ''}">${esc(r.urgency)}</span>
 <span class="pill ${r.verified ? 'ok' : ''}">${r.verified ? 'identity verified' : 'not verified'}</span>
 ${r.kind === 'message' ? `<span class="pill warn">message${r.records_down ? ' · records system was down' : ''}</span>` : ''}
 <span class="pill">${r.mode === 'after_hours' ? 'after hours' : 'business hours'}</span></div>
@@ -75,7 +75,7 @@ export const onCallModule: PlatformModule = {
       const override = getOverride();
       const rows = callRecords.list();
       const modeBar = `<div class="card row"><strong>Line mode:</strong>
-<span class="pill ${mode === 'after_hours' ? 'urgent' : 'ok'}">${mode === 'after_hours' ? 'After hours' : 'Business hours'}</span>
+<span class="pill ${mode === 'after_hours' ? '' : 'ok'}">${mode === 'after_hours' ? 'After hours' : 'Business hours'}</span>
 <span class="muted" style="font-size:13px">${override ? 'manual override' : `by schedule (${esc(process.env.CLINIC_HOURS || 'Mon-Fri 08:00-17:00')})`}</span><span style="flex:1"></span>
 <form method="post" action="${APP_BASE}/oncall/mode" style="margin:0"><input type="hidden" name="mode" value="${mode === 'after_hours' ? 'business_hours' : 'after_hours'}">
 <button>Switch to ${mode === 'after_hours' ? 'business hours' : 'after hours'}</button></form>
@@ -84,7 +84,7 @@ ${override ? `<form method="post" action="${APP_BASE}/oncall/mode" style="margin
         ? rows
             .map(
               (r) => `<a class="card row" href="${APP_BASE}/oncall/call/${encodeURIComponent(r.call_id)}">
-<span class="pill ${r.urgency === 'urgent' ? 'urgent' : ''}">${esc(r.urgency)}</span>
+<span class="pill ${r.urgency === 'urgent' ? 'warn' : ''}">${esc(r.urgency)}</span>
 <strong>${who(r)}</strong>${r.kind === 'message' ? `<span class="pill warn">message${r.records_down ? ' · records down' : ''}</span>` : ''}
 <span class="muted" style="flex:1;min-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(r.reason_verbatim.slice(0, 120))}</span>
 <span class="muted" style="font-size:13px">${esc(fmtTime(r.started_at))}</span></a>`
