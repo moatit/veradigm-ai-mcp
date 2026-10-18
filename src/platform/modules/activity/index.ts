@@ -8,6 +8,8 @@ import { clientIp, recordExport, throttledSecurityEvent } from '../../security-e
 import { callRecords } from '../../../unity/oncall/call-records';
 import { handleRetellEvent, recentCalls, verifyWebhook } from './retell-events';
 import { startDailyRetention } from '../../retention';
+import { forwardCallEvent, startForwarder } from './call-forwarder';
+import { pruneCallerHistory } from './call-analytics';
 
 /**
  * Drawbridge module: activity.
@@ -16,6 +18,8 @@ import { startDailyRetention } from '../../retention';
  *    user for a date range, HTML or CSV; supports the accounting of disclosures, HIPAA 164.528, and breach scoping)
  *  - POST /webhooks/retell (Retell call events; verified, see README) via mountRetellWebhook(app)
  *  - POST /api/activity/retell-events (same events, behind the Drawbridge tool key, for relays/tests)
+ *  - call_ended / call_analyzed also queue one de-identified analytics record for the admin app when
+ *    CALL_ANALYTICS_FORWARD is on (call-analytics.ts, call-forwarder.ts; docs/drawbridge/CALL_ANALYTICS.md)
  */
 const LIST_MAX = 500;
 
@@ -200,6 +204,10 @@ function eventResponse(res: Response, body: unknown): void {
     console.log(`[Drawbridge] call event ${out.event} ${out.call_id}${out.record_updated ? ' (call record updated)' : ''}`);
   }
   res.status(out.status).end();
+  if (out.status === 204 && out.call_id) {
+    const b = body as any;
+    void forwardCallEvent(out.event, b?.call || b?.data);
+  }
 }
 
 /**
@@ -308,5 +316,7 @@ export const activityModule: PlatformModule = {
   start() {
     // Also pruned at the first write of each day (audit.ts); this covers days without traffic.
     startDailyRetention('audit day files', () => pruneAudit());
+    startDailyRetention('caller history', () => pruneCallerHistory());
+    startForwarder();
   },
 };
