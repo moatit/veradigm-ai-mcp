@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
-	"regexp"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -28,8 +27,6 @@ const (
 	maxLegsPerSession = 3
 	allConferenceLegs = 255
 )
-
-var dialUserRe = regexp.MustCompile(`^[0-9]{2,8}$`)
 
 // ValidateDialTarget: the agent may only dial internal extensions, ring groups or queues on our own PBX:
 // digits only (no +, no star codes, no external or international numbers), same realm.
