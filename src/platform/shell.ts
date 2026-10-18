@@ -3,6 +3,7 @@ import * as fs from 'fs';
 import express, { NextFunction, Request, Response, Router } from 'express';
 import { FAVICON_SVG, LOCKUP_SVG } from './brand/marks';
 import { brandFont } from './brand/fonts';
+import { FONT_LICENSES } from './brand/licenses';
 import { shellCss } from './brand/styles';
 import { clinicLabel } from './clinic';
 import { clientIp, securityEvent, throttledSecurityEvent } from './security-events';
@@ -444,16 +445,25 @@ export function shellRouter(): Router {
   router.get('/assets/drawbridge.js', (_req, res) => {
     res.type('application/javascript').send(APP_JS);
   });
-  // Brand assets for every page, the sign-in page included: self-hosted fonts (CSP default-src 'self') and the favicon.
+  // Brand assets for every page, the sign-in page included: self-hosted fonts (CSP default-src 'self'), their OFL
+  // license, and the favicon. Fixed bytes with no patient data, so these three routes (and only these) may be cached:
+  // fonts and license for a year (a new font gets a new file name), the favicon for a week (it can change with the logo).
+  const FONT_CACHE = 'public, max-age=31536000, immutable';
+  router.get('/assets/fonts/LICENSE.txt', (_req, res) => {
+    res.setHeader('Cache-Control', FONT_CACHE);
+    res.type('text/plain').send(FONT_LICENSES);
+  });
   router.get('/assets/fonts/:name.woff2', (req, res) => {
     const font = brandFont(req.params.name);
     if (!font) {
       res.status(404).type('text/plain').send('Not found');
       return;
     }
+    res.setHeader('Cache-Control', FONT_CACHE);
     res.type('font/woff2').send(font);
   });
   router.get('/assets/favicon.svg', (_req, res) => {
+    res.setHeader('Cache-Control', 'public, max-age=604800');
     res.type('image/svg+xml').send(FAVICON_SVG);
   });
 
