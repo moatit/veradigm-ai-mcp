@@ -31,6 +31,19 @@ Handles `call_started`, `call_ended` and `call_analyzed` (other events get a 204
 - On-call notebook: **only if a record for that call ID already exists**, the module sets `transcript_ref: "retell:<call_id>"` and `call_meta` (end time, duration, disconnection reason, `call_analysis.call_summary` cut to 1,000 characters). Events never create records.
 - Transcripts are never stored. They stay in Retell.
 
+### Call analytics records (admin app)
+
+When `CALL_ANALYTICS_FORWARD=on`, `call_ended` and `call_analyzed` also queue **one de-identified record per call** for the admin app (`POST ${ADMIN_PORTAL_URL}/api/call-records`, `x-api-key: ADMIN_API_KEY`). The record holds:
+- call ID, practice ID, agent version, start, duration, direction, disconnection reason;
+- the post-call analysis enums (call reason, request category, resolved, transferred, sentiment, call successful);
+- repeat-caller counts computed in this stack;
+- the tools used, with call and failure counts.
+
+It never holds a transcript, summary text, phone number or patient ID. Records wait in an outbox (`<AUDIT_DIR>/call-records-outbox.json`, 0600) and are retried. The repeat-caller history (`caller-history.json`, keyed hashes only, 8 days) never leaves the stack.
+
+- Code: `call-analytics.ts` (the allow-listed record), `call-forwarder.ts` (outbox and retry).
+- Setup, including the analysis fields to add on the agent: `docs/drawbridge/CALL_ANALYTICS.md`.
+
 ## Webhook verification: what to configure
 
 Both Retell webhooks (`/webhooks/retell` call events and `/webhooks/retell-inbound`) use the same check (`retell-signature.ts`, Retell's documented scheme, no SDK needed). A request is accepted when either of these holds:
@@ -55,8 +68,14 @@ Until one of these is set up, call events don't arrive. The audit log and the Ac
 | `RETELL_WEBHOOK_SECRET` | unset | Optional shared secret expected in `x-drawbridge-webhook-secret` (relays, tests). |
 | `CLINIC_TIMEZONE` | `America/Boise` | Decides which day file a call lands in. Set it the same in both containers. |
 
+| `CALL_ANALYTICS_FORWARD` | off | `on` sends call analytics records to the admin app (`docs/drawbridge/CALL_ANALYTICS.md`). |
+| `DRAWBRIDGE_PRACTICE_ID` | empty | Practice slug on each call analytics record. |
+| `CALL_ANALYTICS_HASH_KEY` | generated into `AUDIT_DIR` | Key for the repeat-caller hash. It stays in this stack. |
+
 Secrets go in `.env` only.
 
 ## Tests
 
 `npm run smoke:activity` runs offline. It checks that audit lines carry no arguments or PHI, the metrics math, retention, webhook accept/reject (shared secret, and the SDK path with a stand-in verifier), that events update only existing records, and that the index holds no transcript, summary text or full phone numbers. The webhook route itself is exercised over 127.0.0.1.
+
+`npm run smoke:call-records` (also offline) checks the call analytics record and the forwarder; see `docs/drawbridge/CALL_ANALYTICS.md`.

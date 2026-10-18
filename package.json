@@ -29,6 +29,7 @@
     "smoke:outreach": "ts-node src/scripts/smoke-outreach.ts",
     "smoke:huddle": "ts-node src/scripts/smoke-huddle.ts",
     "smoke:activity": "ts-node src/scripts/smoke-activity.ts",
+    "smoke:call-records": "ts-node src/scripts/smoke-call-records.ts",
     "smoke:unity-auth": "ts-node src/scripts/smoke-unity-auth.ts",
     "smoke:endpoints": "ts-node src/scripts/smoke-endpoints.ts",
     "smoke:staff-login": "ts-node src/scripts/smoke-staff-login.ts",

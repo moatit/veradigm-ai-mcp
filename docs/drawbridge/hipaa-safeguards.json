@@ -33,7 +33,7 @@
       "evidence": [
         "src/platform/audit.ts:140",
         "src/platform/app.ts:27",
-        "src/platform/modules/activity/index.ts:94"
+        "src/platform/modules/activity/index.ts:98"
       ],
       "status": "FIXED",
       "status_label": "In place",
@@ -435,7 +435,7 @@
       "plain": "Security events and the access report give MOATiT what it needs to tell a clinic quickly what happened and which patients were involved.",
       "technical": "Security events + access report per patient / per staff user support the report; the reporting duty is organizational.",
       "evidence": [
-        "src/platform/modules/activity/index.ts:125"
+        "src/platform/modules/activity/index.ts:129"
       ],
       "status": "FIXED",
       "status_label": "In place",
@@ -464,7 +464,7 @@
       "plain": "Administrators can list every Drawbridge record that touched one patient (or everything one staff member did) for any date range, on screen or as a spreadsheet, to prepare an accounting of disclosures.",
       "technical": "Access and disclosure report (admin, POST, HTML/CSV), backed by the 6-year audit log.",
       "evidence": [
-        "src/platform/modules/activity/index.ts:265"
+        "src/platform/modules/activity/index.ts:273"
       ],
       "status": "FIXED",
       "status_label": "In place",
