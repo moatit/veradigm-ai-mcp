@@ -23,7 +23,8 @@ No runtime dependencies. The npm dev-dependencies are only the font packages the
 | `src/assets/` | CSS (inlined at build; all styling lives here because the CSP blocks inline `style` attributes), JS, self-hosted Poppins and Barlow (OFL), brand SVGs, the Open Graph image |
 | `scripts/build.mjs` | Build: pages, sitemap, robots, manifest, security.txt, `_headers` with CSP |
 | `scripts/serve.mjs` | Local preview server with production headers and a placeholder form endpoint |
-| `scripts/brand/` | Logo generator (`make_logo.py`: Ledger mark and drawn-path wordmark, no dependencies) and icon/OG exporter (`make_icons.py`: Playwright + local Chrome) |
+| `scripts/brand/` | Logo generator (`make_logo.py` + `ledger_type.py`: Ledger mark and outlined wordmark, no dependencies), icon/OG exporter (`make_icons.py`: Playwright + local Chrome) and `export_final.py` (copies the final set to `concepts/ledger/logo-final/`) |
+| `scripts/check.mjs` | `npm run check`: build, design-ban CSS check, copy rules (banned words, vendor names, MCP/FHIR/Unity, em dashes) and internal link/anchor check |
 | `scripts/campaign/segment.mjs` | Company-list import and segmentation (sends nothing) |
 | `brand/` | Brand kit (`BRAND_KIT.md`) and logo files (SVG + PNG) |
 | `concepts/` | The three Oct 17 brand concepts (Gatehouse, Ledger, Night Watch) and the tools that built them; Ledger was chosen |

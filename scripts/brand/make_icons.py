@@ -66,10 +66,12 @@ def main() -> None:
         b = p.chromium.launch(channel="chrome", args=["--allow-file-access-from-files"])
         page = b.new_page(viewport={"width": 512, "height": 512})
         fav = (BRAND / "favicon.svg").read_text(encoding="utf-8")
-        for size, out in [(512, BRAND / "icon-512.png"), (192, BRAND / "icon-192.png"), (180, STATIC / "apple-touch-icon.png"),
-                          (64, KIT / "favicon-64.png"), (32, KIT / "favicon-32.png")]:
+        app = (BRAND / "drawbridge-app-icon.svg").read_text(encoding="utf-8")
+        for size, out in [(512, BRAND / "icon-512.png"), (192, BRAND / "icon-192.png"), (180, STATIC / "apple-touch-icon.png")]:
+            out.write_bytes(svg_png(page, app, size))
+        for size, out in [(64, KIT / "favicon-64.png"), (48, KIT / "favicon-48.png"), (32, KIT / "favicon-32.png"), (16, KIT / "favicon-16.png")]:
             out.write_bytes(svg_png(page, fav, size))
-        # favicon.ico: each size rendered from the pixel-snapped 32-grid SVG, not downsampled from 512
+        # favicon.ico: each size rendered from the 16-grid SVG (exact at 16, 32 and 48), not downsampled
         ico = [Image.open(BytesIO(svg_png(page, fav, s))).convert("RGBA") for s in (48, 32, 16)]
         ico[0].save(STATIC / "favicon.ico", sizes=[(16, 16), (32, 32), (48, 48)], append_images=ico[1:])
         # transparent PNG exports of the lockups for docs and email signatures (reverse on MOATiT ink)

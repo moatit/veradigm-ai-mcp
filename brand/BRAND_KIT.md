@@ -4,7 +4,7 @@ Drawbridge is MOATiT's AI technology and product for healthcare practices. The b
 
 The current identity is **Ledger** (concept B, chosen by Ali on Oct 17, 2026; it replaced the Oct 16 launch look). The product's own record is the brand: a white, structured page, hairline rules, tabular figures, MOATiT blue as the lead accent, and the intake ledger as the hero.
 
-Preview page (local build): `/brand/` (noindex). Source files: `brand/logo/`. Generators: `scripts/brand/make_logo.py` (every letter is a drawn path, so the SVGs need no fonts and no dependencies) and `scripts/brand/make_icons.py` (PNG, ICO and Open Graph exports; Playwright with local Chrome).
+Preview page (local build): `/brand/` (noindex). Source files: `brand/logo/`. Generators: `scripts/brand/make_logo.py` with `ledger_type.py` (every letter is an outline, so the SVGs need no fonts and no dependencies), `scripts/brand/export_final.py` (the clean set in `concepts/ledger/logo-final/` for the portal and admin) and `scripts/brand/make_icons.py` (PNG, ICO and Open Graph exports; Playwright with local Chrome).
 
 ## 1. The idea
 
@@ -21,12 +21,14 @@ Ledger shows that behavior instead of illustrating it: a morning's synthetic fax
 | `drawbridge-lockup-stacked.svg` / `-stacked-reverse.svg` | Square-ish spaces: social avatars, slide title pages, signage. |
 | `drawbridge-lockup-mono-indigo.svg` / `-mono-white.svg` | One-color printing (ink, or white out of a dark ground), fax cover sheets, embossing. The filename is kept from the launch kit; the color is now MOATiT Ink. |
 | `drawbridge-mark.svg` / `-reverse.svg` / `-mono.svg` | The mark alone, only where "Drawbridge, A MOATiT Service" also appears nearby (app icon, favicon, footer of a page that already shows the lockup). |
-| `favicon.svg`, `favicon-32.png`, `favicon-64.png` | Browser icon, redrawn on a 32 px grid so it stays crisp at 16 px. |
+| `favicon.svg`, `favicon-16/32/48/64.png`, `favicon.ico` | Browser icon, drawn on a 16 px grid so every straight edge lands on a whole pixel at 16, 32 and 48 px. |
+| `drawbridge-app-icon.svg`, `icon-192.png`, `icon-512.png`, `apple-touch-icon.png` | Home-screen and app icons: the full mark on a padded white tile. |
+| `drawbridge-wordmark.svg` / `-reverse.svg` | The wordmark alone, where the mark already appears nearby. |
 | `*@4x.png` | Raster exports for email signatures and documents. |
 
 **The mark.** A D drawn with MOATiT's rings: a navy post, an outer MOATiT-blue ring, and an inner gold ring for the one controlled crossing. The concentric arcs come straight from the MOATiT logo, so the family tie shows even without the endorsement.
 
-**The wordmark.** A light geometric skeleton in MOATiT Ink, on a thin MOATiT-blue rule, with "A MOATiT Service" beneath (MOATiT in navy). The letters are hand-drawn paths; never retype the wordmark in a font.
+**The wordmark.** A light geometric sans in MOATiT Ink, on a thin MOATiT-blue rule, with "A MOATiT Service" beneath (MOATiT in navy). Type-design pass, Oct 18, 2026: every letter is an outline with stroke contrast (horizontals about 87% of verticals), overshoot on round letters, lighter joins where bowls meet stems, radius-cut terminals and kerned spacing; the endorsement uses a heavier, wider cut for its small size. Never retype the wordmark in a font.
 
 **The endorsement.** "A MOATiT Service" is part of the lockup: never remove it from the primary lockup, and never re-typeset it. "MOATiT" keeps its lowercase *i*: never write "MOATIT" or "Moatit". In text, write the name as **"Drawbridge, A MOATiT Service"** (a comma, never a dash).
 

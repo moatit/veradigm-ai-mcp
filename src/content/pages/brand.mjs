@@ -35,7 +35,7 @@ export const brand = {
       <div class="logo-tile"><img src="/assets/brand/drawbridge-lockup-stacked.svg" width="240" height="130" alt="Stacked lockup"></div>
       <div class="logo-tile dark"><img src="/assets/brand/drawbridge-lockup-stacked-reverse.svg" width="240" height="130" alt="Stacked reverse lockup"></div>
       <div class="logo-tile"><img src="/assets/brand/drawbridge-mark.svg" width="120" height="120" alt="Mark"></div>
-      <div class="logo-tile"><img src="/assets/brand/favicon.svg" width="96" height="96" alt="App icon"></div>
+      <div class="logo-tile"><img src="/assets/brand/drawbridge-app-icon.svg" width="96" height="96" alt="App icon"></div>
     </div>
     <h2 class="mt-3">Palette</h2>
     <div class="brand-swatches">
