@@ -2,19 +2,21 @@ import * as fs from 'fs';
 import * as path from 'path';
 import axios from 'axios';
 import { auditBaseDir } from '../../audit';
-import { buildCallRecord, CallAnalyticsRecord } from './call-analytics';
+import { buildCallRecord, CallAnalyticsRecord, hashKeyFromEnv, writePrivateFile } from './call-analytics';
 
 /**
- * Forwards one de-identified analytics record per call (call-analytics.ts) to the MOATiT admin app:
+ * Forwards one minimum-necessary call analytics record per call (call-analytics.ts; handled as PHI under
+ * the BAA, not de-identified) to the MOATiT admin app:
  *   POST ${ADMIN_PORTAL_URL}/api/call-records   x-api-key: ADMIN_API_KEY
  *
- * Off unless CALL_ANALYTICS_FORWARD=on and ADMIN_PORTAL_URL and ADMIN_API_KEY are set. The URL must be
- * https; plain http is accepted only for localhost / 127.0.0.1 and single-label hosts on the stack's own
- * container network (for example http://admin:5001 in deploy/local). Records wait in an outbox, <AUDIT_DIR>/call-records-outbox.json
- * (mode 0600), so a restart or an admin outage loses nothing. The admin app upserts by call ID, so a retry
- * or a later event for the same call replaces the earlier record. Retry: 30 s, doubling to 1 h; a record
- * the admin app rejects as invalid (4xx other than 401/408/429) is dropped with a warning; anything older
- * than 7 days is dropped.
+ * Off unless CALL_ANALYTICS_FORWARD=on and ADMIN_PORTAL_URL and ADMIN_API_KEY are set. In production
+ * (NODE_ENV=production) CALL_ANALYTICS_HASH_KEY must also be set, or forwarding stays off.
+ * The URL must be https. Plain http is accepted only for loopback (localhost, 127.0.0.1, ::1) and for host
+ * names listed exactly in CALL_ANALYTICS_HTTP_HOSTS (for example "admin" on the deploy/local network).
+ * Records wait in an outbox, <AUDIT_DIR>/call-records-outbox.json (mode 0600), so a restart or an admin
+ * outage loses nothing. The admin app upserts by the call reference, so a retry or a later event for the
+ * same call replaces the earlier record. Retry: 30 s, doubling to 1 h; a record the admin app rejects as
+ * invalid (4xx other than 401/408/429) is dropped with a warning; anything older than 7 days is dropped.
  */
 
 interface OutboxItem {
@@ -32,21 +34,45 @@ const TICK_MS = 60_000;
 
 const outboxFile = () => path.join(auditBaseDir(), 'call-records-outbox.json');
 
-export function forwardConfig(): { url: string; key: string } | null {
-  if (!/^(1|true|on|yes)$/i.test(String(process.env.CALL_ANALYTICS_FORWARD || '').trim())) return null;
+const LOOPBACK = new Set(['localhost', '127.0.0.1', '[::1]']);
+
+/** Host names allowed over plain http besides loopback (CALL_ANALYTICS_HTTP_HOSTS, comma or space separated). */
+export function httpHosts(): Set<string> {
+  return new Set(
+    String(process.env.CALL_ANALYTICS_HTTP_HOSTS || '')
+      .split(/[\s,]+/)
+      .map((h) => h.trim().toLowerCase())
+      .filter(Boolean)
+  );
+}
+
+export type ForwardStatus =
+  | { ok: true; url: string; key: string }
+  | { ok: false; reason: 'off' | 'not configured' | 'insecure url' | 'hash key required in production' };
+
+/** Whether forwarding may run, and why not. */
+export function forwardStatus(): ForwardStatus {
+  if (!/^(1|true|on|yes)$/i.test(String(process.env.CALL_ANALYTICS_FORWARD || '').trim())) return { ok: false, reason: 'off' };
   const base = String(process.env.ADMIN_PORTAL_URL || '').trim().replace(/\/+$/, '');
   const key = String(process.env.ADMIN_API_KEY || '').trim();
-  if (!base || !key) return null;
+  if (!base || !key) return { ok: false, reason: 'not configured' };
   let u: URL;
   try {
     u = new URL(base);
   } catch {
-    return null;
+    return { ok: false, reason: 'not configured' };
   }
-  // Internal: loopback, or a single-label container name (no dot), which never resolves on the internet.
-  const internal = u.hostname === 'localhost' || u.hostname === '127.0.0.1' || u.hostname === '[::1]' || /^[a-z0-9-]+$/i.test(u.hostname);
-  if (u.protocol !== 'https:' && !(u.protocol === 'http:' && internal)) return null;
-  return { url: `${base}/api/call-records`, key };
+  // A single-label name can still resolve outside the stack through a DNS search domain, so plain http
+  // needs an explicit allow-list, never a guess.
+  const httpOk = u.protocol === 'http:' && (LOOPBACK.has(u.hostname) || httpHosts().has(u.hostname.toLowerCase()));
+  if (u.protocol !== 'https:' && !httpOk) return { ok: false, reason: 'insecure url' };
+  if (process.env.NODE_ENV === 'production' && !hashKeyFromEnv()) return { ok: false, reason: 'hash key required in production' };
+  return { ok: true, url: `${base}/api/call-records`, key };
+}
+
+export function forwardConfig(): { url: string; key: string } | null {
+  const st = forwardStatus();
+  return st.ok ? { url: st.url, key: st.key } : null;
 }
 
 function readOutbox(): Record<string, OutboxItem> {
@@ -59,11 +85,7 @@ function readOutbox(): Record<string, OutboxItem> {
 }
 
 function writeOutbox(o: Record<string, OutboxItem>): void {
-  const file = outboxFile();
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  const tmp = `${file}.tmp`;
-  fs.writeFileSync(tmp, JSON.stringify(o), { mode: 0o600 });
-  fs.renameSync(tmp, file);
+  writePrivateFile(outboxFile(), JSON.stringify(o));
 }
 
 export function outboxSize(): number {
@@ -162,7 +184,13 @@ export function forwardCallEvent(event: string, call: unknown): Promise<void> {
 let timer: NodeJS.Timeout | null = null;
 /** Retry loop for queued records (module start). */
 export function startForwarder(): void {
-  if (timer || !forwardConfig()) return;
+  if (timer) return;
+  const st = forwardStatus();
+  if (!st.ok) {
+    // Asked for but refused: say why once at startup (never the URL's credentials or the key).
+    if (st.reason !== 'off') console.error(`[Drawbridge] call analytics forwarding refused: ${st.reason}`);
+    return;
+  }
   timer = setInterval(() => void flushOutbox(), TICK_MS);
   timer.unref?.();
   void flushOutbox();

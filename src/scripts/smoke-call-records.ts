@@ -1,8 +1,11 @@
 /**
  * Offline checks for call analytics records (no network beyond 127.0.0.1, no credentials, synthetic data).
- * The record is allow-listed (no transcript, summary, free text or phone number in any form), enums are
- * enforced, repeat-caller counts stay in the stack, tools come from the audit log, and the forwarder
- * queues, retries, drops invalid records and sends nothing when it is off.
+ * The record is allow-listed (no transcript, summary, free text or phone number in any form), carries a
+ * keyed call reference instead of the vendor call ID and only the start hour, enums (including the
+ * disconnection reason) are enforced, repeat-caller counts stay in the stack, tools come from the audit
+ * log, private files are 0600 in 0700 directories, production needs the hash key and https (or an
+ * explicit http host list), and the forwarder queues, retries, drops invalid records and sends nothing
+ * when it is off.
  *
  *   npm run smoke:call-records
  */
@@ -20,6 +23,8 @@ delete process.env.RETELL_API_KEY;
 delete process.env.RETELL_WEBHOOK_API_KEY;
 delete process.env.CALL_ANALYTICS_FORWARD;
 delete process.env.CALL_ANALYTICS_HASH_KEY;
+delete process.env.CALL_ANALYTICS_HTTP_HOSTS;
+process.env.NODE_ENV = 'test';
 
 import assert from 'assert';
 import type { AddressInfo } from 'net';
@@ -101,8 +106,12 @@ async function main(): Promise<void> {
   const json = JSON.stringify(r);
   assertNoPhi(json, 'record');
   assert.ok(!json.includes('56500'), 'no patient ID');
+  assert.ok(!json.includes('call_syn001'), 'the vendor call ID is not in the record');
+  assert.match(r!.call_id, /^cr_[0-9a-f]{32}$/);
+  assert.strictEqual(r!.call_id, ca.callRef('call_syn001'), 'the reference is stable per call');
+  assert.notStrictEqual(ca.callRef('call_syn001'), ca.callRef('call_syn002'));
   assert.strictEqual(r!.practice_id, 'sagebrush-kidney');
-  assert.strictEqual(r!.started_at, '2026-10-14T16:00:00.000Z');
+  assert.strictEqual(r!.started_at, '2026-10-14T10:00:00-06:00', '16:00:00Z is the 10:00 hour in Boise (MDT)');
   assert.strictEqual(r!.duration_s, 185);
   assert.strictEqual(r!.direction, 'inbound');
   assert.strictEqual(r!.agent_version, 7);
@@ -110,7 +119,18 @@ async function main(): Promise<void> {
     [r!.call_reason, r!.request_category, r!.resolved, r!.transferred_to_staff, r!.caller_sentiment, r!.call_successful, r!.in_voicemail],
     ['prescription_refill', 'action_request', true, false, 'negative', true, false]
   );
-  ok('record holds only allow-listed fields: no transcript, summary, free text, phone number or patient ID');
+  ok('record holds only allow-listed fields: no vendor call ID, exact time, transcript, summary, free text, phone number or patient ID');
+
+  // 1b. Start hour in clinic local time (M3), across offsets and DST
+  assert.strictEqual(ca.hourStartLocal(Date.parse('2026-10-14T16:59:59.999Z'), 'America/Boise'), '2026-10-14T10:00:00-06:00');
+  assert.strictEqual(ca.hourStartLocal(Date.parse('2026-12-01T16:30:00Z'), 'America/Boise'), '2026-12-01T09:00:00-07:00', 'MST in winter');
+  assert.strictEqual(ca.hourStartLocal(Date.parse('2026-10-14T16:10:00Z'), 'Asia/Kolkata'), '2026-10-14T21:00:00+05:30', 'half-hour offset');
+  assert.strictEqual(ca.hourStartLocal(Date.parse('2026-10-14T23:45:00Z'), 'UTC'), '2026-10-14T23:00:00+00:00');
+  for (const v of ['2026-10-14T10:00:00-06:00', '2026-10-14T21:00:00+05:30']) {
+    assert.ok(!Number.isNaN(Date.parse(v)), 'parses as a date');
+  }
+  assert.strictEqual(Date.parse('2026-10-14T10:00:00-06:00'), Date.parse('2026-10-14T16:00:00Z'), 'same instant as the UTC hour start');
+  ok('start time is coarsened to the hour in clinic local time, with the offset');
 
   // 2. Tools from the audit log, this call only
   assert.deepStrictEqual(r!.tools, [
@@ -130,7 +150,17 @@ async function main(): Promise<void> {
   assert.strictEqual(odd!.call_reason, 'appointment_new', 'spaces normalized');
   const xfer = await ca.buildCallRecord('call_analyzed', analyzedCall('call_syn004', { disconnection_reason: 'call_transfer' }, { transferred_to_staff: undefined }));
   assert.strictEqual(xfer!.transferred_to_staff, true, 'a platform transfer counts when the field is empty');
-  ok('analysis values are fixed enums and booleans; anything else becomes "other" or null');
+  assert.strictEqual(ca.disconnectionReason('user_hangup'), 'user_hangup');
+  assert.strictEqual(ca.disconnectionReason('Call_Transfer'), 'call_transfer', 'case-insensitive');
+  assert.strictEqual(ca.disconnectionReason('error_llm_websocket_open'), 'error_llm_websocket_open');
+  assert.strictEqual(ca.disconnectionReason('error_new_thing_2027'), 'other', 'undocumented reason');
+  assert.strictEqual(ca.disconnectionReason('Zelda hung up 5550142'), 'other', 'free text');
+  assert.strictEqual(ca.disconnectionReason(''), '');
+  assert.strictEqual(ca.disconnectionReason(42), '');
+  const weird = await ca.buildCallRecord('call_analyzed', analyzedCall('call_syn006', { disconnection_reason: 'hangup_by_Zelda_0142' }));
+  assert.strictEqual(weird!.disconnection_reason, 'other');
+  assertNoPhi(JSON.stringify(weird), 'record with an odd disconnection reason');
+  ok('analysis values are fixed enums and booleans; the disconnection reason is allow-listed; anything else becomes "other" or null');
 
   // 4. call_ended before analysis: no analysis values
   const ended = await ca.buildCallRecord('call_ended', analyzedCall('call_syn005'));
@@ -162,6 +192,7 @@ async function main(): Promise<void> {
     assert.strictEqual(fs.statSync(path.join(TMP, 'caller-history.json')).mode & 0o777, 0o600);
     assert.strictEqual(fs.statSync(path.join(TMP, 'caller-history.key')).mode & 0o777, 0o600);
   }
+  assert.ok(!fs.existsSync(path.join(TMP, 'caller-history.json.tmp')), 'no temp file left behind');
   assert.strictEqual(ca.pruneCallerHistory(new Date(T0 + 40 * 86_400_000)), 4, 'history older than 8 days pruned');
   ok('repeat-caller counts computed in the stack from keyed hashes; no number or hash in the record');
 
@@ -172,13 +203,96 @@ async function main(): Promise<void> {
   process.env.ADMIN_PORTAL_URL = 'http://admin.example.test';
   assert.strictEqual(fw.forwardConfig(), null, 'plain http to a remote host refused');
   process.env.ADMIN_PORTAL_URL = 'http://admin:5001';
-  assert.strictEqual(fw.forwardConfig()?.url, 'http://admin:5001/api/call-records', 'http to a container on the stack network');
+  assert.strictEqual(fw.forwardConfig(), null, 'a single-label host is not trusted over http by default');
+  assert.deepStrictEqual(fw.forwardStatus(), { ok: false, reason: 'insecure url' });
+  process.env.CALL_ANALYTICS_HTTP_HOSTS = 'admin, metrics';
+  assert.strictEqual(fw.forwardConfig()?.url, 'http://admin:5001/api/call-records', 'http to a host on the explicit list');
+  process.env.ADMIN_PORTAL_URL = 'http://other:5001';
+  assert.strictEqual(fw.forwardConfig(), null, 'a host not on the list');
+  process.env.ADMIN_PORTAL_URL = 'http://admin.evil.example:5001';
+  assert.strictEqual(fw.forwardConfig(), null, 'exact names only, no suffix match');
+  process.env.ADMIN_PORTAL_URL = 'http://127.0.0.1:5001';
+  assert.ok(fw.forwardConfig(), 'loopback is always allowed');
+  process.env.NODE_ENV = 'production';
+  process.env.CALL_ANALYTICS_HASH_KEY = 'synthetic-smoke-hash-key-0123456789abcdef';
+  process.env.ADMIN_PORTAL_URL = 'http://admin:5001';
+  assert.ok(fw.forwardConfig(), 'production: http only to a listed host');
+  process.env.ADMIN_PORTAL_URL = 'http://admin.example.test';
+  assert.strictEqual(fw.forwardConfig(), null, 'production: plain http to anything else refused');
+  delete process.env.CALL_ANALYTICS_HTTP_HOSTS;
+  process.env.ADMIN_PORTAL_URL = 'http://admin:5001';
+  assert.strictEqual(fw.forwardConfig(), null, 'production: no list, no http');
+  process.env.NODE_ENV = 'test';
+  delete process.env.CALL_ANALYTICS_HASH_KEY;
   process.env.ADMIN_PORTAL_URL = 'https://admin.example.test/';
   assert.strictEqual(fw.forwardConfig()?.url, 'https://admin.example.test/api/call-records');
   delete process.env.CALL_ANALYTICS_FORWARD;
   await fw.forwardCallEvent('call_analyzed', analyzedCall('call_off'));
   assert.ok(!fs.existsSync(path.join(TMP, 'call-records-outbox.json')), 'nothing queued when off');
-  ok('forwarding is off by default and needs https (http only to localhost or the stack network)');
+  ok('forwarding is off by default and needs https (http only to loopback or hosts in CALL_ANALYTICS_HTTP_HOSTS)');
+
+  // 6b. Production requires CALL_ANALYTICS_HASH_KEY: no key file is generated, forwarding refuses to start (L4)
+  const PROD = fs.mkdtempSync(path.join(os.tmpdir(), 'drawbridge-call-records-prod-'));
+  process.env.AUDIT_DIR = PROD;
+  process.env.NODE_ENV = 'production';
+  process.env.CALL_ANALYTICS_FORWARD = 'on';
+  assert.deepStrictEqual(fw.forwardStatus(), { ok: false, reason: 'hash key required in production' });
+  const errors: string[] = [];
+  const origError = console.error;
+  console.error = (...a: unknown[]) => void errors.push(a.join(' '));
+  try {
+    fw.startForwarder();
+  } finally {
+    console.error = origError;
+  }
+  assert.ok(errors.some((e) => /forwarding refused: hash key required in production/.test(e)), 'refusal is logged');
+  assert.ok(!errors.some((e) => /vdm_|synthetic-smoke/.test(e)), 'the log carries no key');
+  await fw.forwardCallEvent('call_analyzed', analyzedCall('call_prod1'));
+  assert.throws(() => ca.callRef('call_prod1'), /CALL_ANALYTICS_HASH_KEY is required in production/);
+  await assert.rejects(ca.buildCallRecord('call_analyzed', analyzedCall('call_prod2')), /required in production/);
+  assert.ok(!fs.existsSync(path.join(PROD, 'caller-history.key')), 'no key generated next to the hashes');
+  assert.ok(!fs.existsSync(path.join(PROD, 'call-records-outbox.json')), 'nothing queued');
+  process.env.CALL_ANALYTICS_HASH_KEY = 'short';
+  assert.strictEqual(fw.forwardStatus().ok, false, 'a key under 32 characters does not count');
+  process.env.CALL_ANALYTICS_HASH_KEY = 'synthetic-smoke-hash-key-0123456789abcdef';
+  assert.strictEqual(fw.forwardStatus().ok, true);
+  const prodRec = await ca.buildCallRecord('call_analyzed', analyzedCall('call_prod3'));
+  assert.match(prodRec!.call_id, /^cr_[0-9a-f]{32}$/);
+  assert.ok(!fs.existsSync(path.join(PROD, 'caller-history.key')), 'the env key is used; still no key file');
+  process.env.CALL_ANALYTICS_HASH_KEY = 'another-synthetic-hash-key-0123456789abcd';
+  assert.notStrictEqual(ca.callRef('call_prod3'), prodRec!.call_id, 'the reference depends on the stack key');
+  delete process.env.CALL_ANALYTICS_HASH_KEY;
+  delete process.env.CALL_ANALYTICS_FORWARD;
+  process.env.NODE_ENV = 'test';
+  process.env.AUDIT_DIR = TMP;
+  fs.rmSync(PROD, { recursive: true, force: true });
+  ok('production: no hash key means no forwarding, no generated key file and no record');
+
+  // 6c. Private files: a stale loose temp file never leaks its mode; new directories are 0700 (L3)
+  const L3 = path.join(TMP, 'l3', 'nested');
+  const target = path.join(L3, 'private.json');
+  fs.mkdirSync(L3, { recursive: true });
+  fs.writeFileSync(`${target}.tmp`, 'stale', { mode: 0o644 });
+  if (process.platform !== 'win32') fs.chmodSync(`${target}.tmp`, 0o644);
+  ca.writePrivateFile(target, '{"a":1}');
+  assert.strictEqual(fs.readFileSync(target, 'utf8'), '{"a":1}');
+  assert.ok(!fs.existsSync(`${target}.tmp`));
+  const fresh = path.join(TMP, 'l3-new', 'deep', 'f.json');
+  const oldMask = process.platform !== 'win32' ? process.umask(0) : 0;
+  try {
+    ca.writePrivateFile(fresh, 'x');
+  } finally {
+    if (process.platform !== 'win32') process.umask(oldMask);
+  }
+  if (process.platform !== 'win32') {
+    assert.strictEqual(fs.statSync(target).mode & 0o777, 0o600, 'stale 0644 temp file did not leak its mode');
+    assert.strictEqual(fs.statSync(fresh).mode & 0o777, 0o600, '0600 even with umask 0');
+    assert.strictEqual(fs.statSync(path.dirname(fresh)).mode & 0o777, 0o700, 'new directory is 0700 even with umask 0');
+    assert.strictEqual(fs.statSync(path.join(TMP, 'l3-new')).mode & 0o777, 0o700);
+  } else {
+    console.log('  (file modes are not checked on Windows; run this smoke on Linux for the mode assertions)');
+  }
+  ok('private files are written 0600 via a fresh temp file, in 0700 directories');
 
   // 7. Stub admin app on 127.0.0.1: queue, retry on 5xx, drop on 400, idempotent per call
   const received: { key: string; body: any }[] = [];
@@ -212,11 +326,21 @@ async function main(): Promise<void> {
   assert.strictEqual(received[0].key, 'vdm_synthetic_smoke_key');
   assert.strictEqual(received[0].body.analyzed, true, 'the newest snapshot was sent');
   assertNoPhi(JSON.stringify(received[0].body), 'forwarded body');
+  assert.strictEqual(received[0].body.call_id, ca.callRef('call_fw1'));
+  assert.ok(!JSON.stringify(received[0].body).includes('call_fw1'), 'no vendor call ID in the forwarded body');
+  if (process.platform !== 'win32') {
+    fs.writeFileSync(path.join(TMP, 'call-records-outbox.json.tmp'), 'stale', { mode: 0o644 });
+    fs.chmodSync(path.join(TMP, 'call-records-outbox.json.tmp'), 0o644);
+  }
   mode = 'bad';
   await fw.forwardCallEvent('call_analyzed', analyzedCall('call_fw2'));
   assert.strictEqual(fw.outboxSize(), 0, 'a record the admin app rejects as invalid is dropped');
   const outboxText = fs.readFileSync(path.join(TMP, 'call-records-outbox.json'), 'utf8');
   assertNoPhi(outboxText, 'outbox');
+  assert.ok(!outboxText.includes('call_fw2'), 'no vendor call ID in the outbox');
+  if (process.platform !== 'win32') {
+    assert.strictEqual(fs.statSync(path.join(TMP, 'call-records-outbox.json')).mode & 0o777, 0o600, 'outbox stays 0600 over a stale temp file');
+  }
   ok('forwarder: outbox survives an outage, retries, replaces per call, drops invalid records');
 
   // 8. End to end through the verified webhook
@@ -239,7 +363,8 @@ async function main(): Promise<void> {
   assert.strictEqual((await post({ event: 'call_analyzed', call: analyzedCall('call_e2e') })).status, 204);
   for (let i = 0; i < 50 && !received.length; i++) await new Promise((r) => setTimeout(r, 20));
   assert.strictEqual(received.length, 1, 'only call_ended / call_analyzed are forwarded; a rejected webhook sends nothing');
-  assert.strictEqual(received[0].body.call_id, 'call_e2e');
+  assert.strictEqual(received[0].body.call_id, ca.callRef('call_e2e'));
+  assert.ok(!JSON.stringify(received[0].body).includes('call_e2e'), 'vendor call ID never forwarded');
   assert.strictEqual(received[0].body.call_reason, 'prescription_refill');
   assertNoPhi(JSON.stringify(received[0].body), 'webhook-forwarded body');
   const index = fs.readFileSync(path.join(TMP, 'calls.json'), 'utf8');

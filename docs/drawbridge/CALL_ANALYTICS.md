@@ -2,18 +2,25 @@
 
 Internal operations doc (it names the voice vendor; client-facing screens say "Voice"). Oct 18, 2026.
 
-Drawbridge sends the MOATiT admin app **one de-identified record per phone call**. The admin reports (Reports, Call Analytics) use it to show:
+Drawbridge sends the MOATiT admin app **one minimum-necessary call analytics record per phone call, handled as PHI under the BAA**. The admin reports (Reports, Call Analytics) use it to show:
 - the call reasons ranked;
 - resolution and transfer rates;
 - caller sentiment over time;
 - repeat callers within 24 hours.
 
-There's no transcript, summary text, phone number (full, partial or hashed) or patient ID in it. Anything with PHI stays in this practice's Drawbridge stack or with the voice vendor, under the BAA.
+There's no vendor call ID, exact call time, transcript, summary text, phone number (full, partial or hashed) or patient ID in it.
+
+**It is not de-identified under HIPAA Safe Harbor.** It keeps the date and hour of each call, and with the practice and call reason it could be linked back to a person by someone with access to the stack or the vendor. So the admin app must treat `call_records` as PHI: role-restricted reads, an audit trail, a retention period and encryption at rest (independent audit of Oct 18, 2026, finding M3). Calling it de-identified would need an Expert Determination.
+
+To keep it minimal:
+- the vendor call ID is replaced by a keyed hash under the stack-only key, so the admin app can update the same call but can't open it at the vendor;
+- the start time is cut to the hour in clinic local time;
+- every value is a fixed enum, boolean, count or pattern-checked ID.
 
 ```
 Retell  ──call_ended / call_analyzed──▶  Drawbridge stack (per practice)  ──1 record per call──▶  admin app
          (verified webhook)              activity module:                    POST /api/call-records
-                                          call-analytics.ts  builds it        (x-api-key, upsert by call ID)
+                                          call-analytics.ts  builds it        (x-api-key, upsert by call reference)
                                           call-forwarder.ts  outbox + retry
 ```
 
@@ -64,12 +71,13 @@ Built by `buildCallRecord()` in `src/platform/modules/activity/call-analytics.ts
 | Field | From | Notes |
 |---|---|---|
 | `schema` | constant `1` | |
-| `call_id` | `call.call_id` | Opaque vendor ID. Opening the transcript needs a vendor login. |
+| `call_id` | `call.call_id` | **Not the vendor ID:** `"cr_"` + the first 32 hex characters of `HMAC-SHA256(CALL_ANALYTICS_HASH_KEY, "drawbridge-call\|" + vendor call ID)`. It's the same for every event of a call, so the admin app can upsert. Without the stack key it can't be turned back into the vendor ID. To look a call up in the stack, compute `callRef(<vendor call ID>)` there. |
 | `practice_id` | `DRAWBRIDGE_PRACTICE_ID` | Lowercase slug, for example `sagebrush-kidney`. |
 | `agent_id`, `agent_version` | `call.agent_id`, `call.agent_version` | For comparing prompt versions. |
-| `started_at`, `duration_s` | `start_timestamp`, `duration_ms` | UTC ISO time; seconds. |
+| `started_at` | `start_timestamp` | **The start of the hour** in clinic local time (`CLINIC_TIMEZONE`), with its offset, for example `2026-10-14T10:00:00-06:00`. The exact time stays in the stack. |
+| `duration_s` | `duration_ms` | Seconds. |
 | `direction` | `call_type` / `direction` | `inbound`, `outbound` or `web`. |
-| `disconnection_reason` | `disconnection_reason` | The vendor's enum token, for example `user_hangup` or `call_transfer`. |
+| `disconnection_reason` | `disconnection_reason` | One of the vendor's documented reasons (`DISCONNECTION_REASONS` in `call-analytics.ts`, for example `user_hangup` or `call_transfer`), `other` for anything else, or empty. Check the list against the vendor's API reference when it adds reasons. |
 | `analyzed` | event | True only on `call_analyzed`. |
 | `call_reason`, `request_category` | custom analysis | Enums (section 1). |
 | `resolved`, `transferred_to_staff` | custom analysis | Booleans. A `call_transfer` disconnection counts as transferred when the field is empty. |
@@ -84,16 +92,22 @@ The admin app never gets a number or a hash of one. When a record is built, the 
 2. writes that value and the start time to `<AUDIT_DIR>/caller-history.json` (mode 0600, entries kept 8 days and pruned daily);
 3. sends only the two counts.
 
-The key is `CALL_ANALYTICS_HASH_KEY`. When that's empty, a random key is generated once into `<AUDIT_DIR>/caller-history.key` (0600) on the encrypted data volume. A new key restarts the counts (repeat calls are then counted from zero for up to 7 days); nothing else changes.
+The key is `CALL_ANALYTICS_HASH_KEY`, which also keys the call reference.
+- **Production** (`NODE_ENV=production`): set it from the secret store (SSM), 32+ characters. Without it, forwarding refuses to start and logs `call analytics forwarding refused: hash key required in production`. No key file is ever generated there, because a key next to the hashes would let anyone with the volume brute-force the numbers.
+- **Outside production:** when it's empty, a random key is generated once into `<AUDIT_DIR>/caller-history.key` (0600).
+
+A new key restarts the repeat counts (they are counted from zero for up to 7 days) and gives every call a new reference. Records already in the admin app keep their old reference, so a call in flight during the change could appear twice.
+
+All private files (`caller-history.json`, `caller-history.key`, `call-records-outbox.json`) are written through a fresh temp file opened exclusively with mode 0600, chmod 0600 whatever the umask, then renamed. New directories are created 0700.
 
 ## 3. Forwarding
 
 `src/platform/modules/activity/call-forwarder.ts`:
 - **Trigger:** on `call_ended` and `call_analyzed`, after the webhook has answered 204. It's never on the request path.
-- **Outbox:** `<AUDIT_DIR>/call-records-outbox.json` (0600), one entry per call ID. A later event replaces the queued snapshot.
+- **Outbox:** `<AUDIT_DIR>/call-records-outbox.json` (0600), one entry per call reference. A later event replaces the queued snapshot.
 - **Send:** `POST ${ADMIN_PORTAL_URL}/api/call-records` with `x-api-key: ADMIN_API_KEY` (the stack's admin client key, the same one the tool-call logs use).
 - **Retry:** every minute for anything due. Backoff starts at 30 s and doubles up to 1 h. A record is dropped after 7 days, or right away if the admin app rejects it with any 4xx other than 401, 408 or 429.
-- **Transport:** `https` only. Plain `http` is allowed only to localhost and to single-label container names on the stack network (`http://admin:5001` in `deploy/local`).
+- **Transport:** `https`. Plain `http` is allowed only to loopback (`localhost`, `127.0.0.1`, `::1`) and to host names listed exactly in `CALL_ANALYTICS_HTTP_HOSTS`, for example `admin` for `http://admin:5001` in `deploy/local`. A single-label name isn't trusted on its own, because a DNS search domain can resolve it outside the stack.
 
 | Variable | Default | Purpose |
 |---|---|---|
@@ -101,23 +115,27 @@ The key is `CALL_ANALYTICS_HASH_KEY`. When that's empty, a random key is generat
 | `ADMIN_PORTAL_URL` | unset | Admin app base URL (already used for tool-call logs). |
 | `ADMIN_API_KEY` | unset | The stack's admin client key. |
 | `DRAWBRIDGE_PRACTICE_ID` | empty | Practice slug on each record. |
-| `CALL_ANALYTICS_HASH_KEY` | generated | Repeat-caller hash key (in the stack only). |
+| `CALL_ANALYTICS_HASH_KEY` | required in production; generated elsewhere | Key for the repeat-caller hash and the call reference. It stays in the stack; in production it comes from the secret store. |
+| `CALL_ANALYTICS_HTTP_HOSTS` | empty | Host names allowed over plain http besides loopback, comma separated. Use it only for a container network you control. |
 
 The admin app side (`veradigmai-repo`):
 - the `call_records` table;
-- `POST /api/call-records`: a strict schema, so unknown fields are a 400; upsert by call ID;
-- `GET /api/reports/call-analytics`: needs a signed-in session, and any role may read.
+- `POST /api/call-records`: a strict schema, so unknown fields are a 400; upsert by `call_id` (the call reference);
+- `GET /api/reports/call-analytics`: needs a signed-in session. It is PHI, so reads should be role-restricted and audited (M3; for the admin-dashboard audit to confirm).
 
 ## 4. Tests
 
 `npm run smoke:call-records` runs offline with synthetic data. It checks:
 - the record carries only allow-listed fields, even when the transcript, summary, dynamic variables and a free-text custom field hold synthetic PHI;
-- enum enforcement;
+- the call reference in place of the vendor call ID, and the start hour in clinic local time (including a half-hour offset and DST);
+- enum enforcement, including the disconnection reason allow-list;
 - tools from the audit log;
 - repeat counts (idempotent per call; null for outbound and web);
 - the history holds no numbers;
 - forwarding is off by default;
-- https only;
+- https, or http only to loopback and `CALL_ANALYTICS_HTTP_HOSTS`;
+- production without `CALL_ANALYTICS_HASH_KEY`: no forwarding, no generated key file, no record;
+- private files stay 0600 over a stale 0644 temp file, and new directories are 0700. These mode assertions run on Linux; on Windows they are skipped, and the run says so;
 - outbox, retry and drop behavior against a stub admin app on 127.0.0.1;
 - the verified webhook end to end.
 

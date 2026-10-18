@@ -18,7 +18,7 @@ import { pruneCallerHistory } from './call-analytics';
  *    user for a date range, HTML or CSV; supports the accounting of disclosures, HIPAA 164.528, and breach scoping)
  *  - POST /webhooks/retell (Retell call events; verified, see README) via mountRetellWebhook(app)
  *  - POST /api/activity/retell-events (same events, behind the Drawbridge tool key, for relays/tests)
- *  - call_ended / call_analyzed also queue one de-identified analytics record for the admin app when
+ *  - call_ended / call_analyzed also queue one minimum-necessary call analytics record (PHI under the BAA) for the admin app when
  *    CALL_ANALYTICS_FORWARD is on (call-analytics.ts, call-forwarder.ts; docs/drawbridge/CALL_ANALYTICS.md)
  */
 const LIST_MAX = 500;
