@@ -5,6 +5,8 @@
  *   OUTREACH_RETENTION_DAYS       outreach jobs (default 30), by last update; the opt-out list is kept
  *   INTAKE_RETENTION_DAYS         intake originals of filed / sent-to-indexing documents (default 30)
  *   INTAKE_RECORD_RETENTION_DAYS  patient details on those intake records (default 90; IDs, hash and history stay)
+ *   INTAKE_SHADOW_RETENTION_DAYS  shadow-week copies never filed (shadow decisions, documents read from the Veradigm
+ *                                 EHR indexing queue): original, text and patient details (default 30; keys for the report stay)
  *   AUDIT_RETENTION_DAYS          audit day files (default 2190 = 6 years; audit.ts, at the first write of each day)
  * Deletion is a file unlink on the encrypted data volume; the media itself is disposed of by destroying the volume
  * and its key (crypto-erase; docs/drawbridge/HIPAA_TECHNICAL_SAFEGUARDS.md).

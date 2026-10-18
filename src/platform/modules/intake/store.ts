@@ -56,6 +56,8 @@ export interface IntakeItem {
   /** MOATiT Fax job ID (fax items only). */
   job_id?: string;
   received_at: string;
+  /** Items read from the Veradigm® EHR indexing queue: when the document arrived in the queue (its SortDate), not when Drawbridge read it. */
+  queue_at?: string;
   updated_at: string;
   status: IntakeStatus;
   file?: IntakeFile;
@@ -461,6 +463,48 @@ export class IntakeStore {
       item.has_text = false;
       item.purged_at = ts;
       item.history.push({ ts, action: `patient details removed after ${days} days (retention)`, by: 'drawbridge' });
+      purged++;
+    }
+    if (purged) this.persist();
+    return purged;
+  }
+
+  /**
+   * Shadow-week retention (HIPAA 164.310(d)(2)(i) disposal): items from shadow mode (a shadow decision, or read
+   * from the Veradigm® EHR indexing queue) that were never filed are PHI copies with no chart record behind them.
+   * Once received more than `days` ago, their original and text are deleted and their patient details removed,
+   * like purgeRecords. What the shadow report needs stays, by ID only: the decision (code, patient key, category)
+   * and staff's answer and observed filing (patient key, category). `days` = 0 purges every such item now (go-live
+   * or switch-off: `npm run intake:purge-shadow`). Filed items are left to purgeRecords. Returns records purged.
+   */
+  purgeShadow(days: number): number {
+    const cutoff = this.now().getTime() - Math.max(0, days) * 86_400_000;
+    const ts = this.now().toISOString();
+    const keyOnly = (p?: { key: string }) => (p ? ({ key: p.key, name: '', dateOfBirth: '', mrn: '' } as any) : undefined);
+    let purged = 0;
+    for (const item of this.load()) {
+      if (item.purged_at) continue;
+      if (!item.shadow && item.source !== 'veradigm_queue') continue;
+      if (item.status === 'filed' || item.status === 'sent_to_indexing' || item.filed?.document_id) continue;
+      if (Date.parse(item.received_at) > cutoff) continue;
+      for (const name of [item.file?.stored_as, `${item.id}.txt`]) {
+        if (!name || !/^[\w.-]+$/.test(name)) continue;
+        try {
+          fs.unlinkSync(path.join(this.filesDir, name));
+        } catch {
+          // already gone
+        }
+      }
+      const p = item.match?.patient;
+      for (const k of ['extracted', 'note', 'sender_fax', 'pages_check'] as const) delete item[k];
+      if (item.match) item.match = { ...item.match, reason: '', patient: p ? ({ patientId: p.patientId, chartPatientId: p.chartPatientId } as any) : undefined };
+      if (item.shadow) item.shadow = { ...item.shadow, reason: '' };
+      if (item.truth) item.truth = { ...item.truth, patient: keyOnly(item.truth.patient), parts: item.truth.parts?.map((x) => ({ ...x, patient: keyOnly(x.patient) })) };
+      if (item.observed) item.observed = { ...item.observed, patient: keyOnly(item.observed.patient) };
+      if (item.file) item.file = { ...item.file, name: 'document' };
+      item.has_text = false;
+      item.purged_at = ts;
+      item.history.push({ ts, action: days > 0 ? `shadow-week copy deleted after ${days} days (retention)` : 'shadow-week copy deleted (shadow week ended)', by: 'drawbridge' });
       purged++;
     }
     if (purged) this.persist();

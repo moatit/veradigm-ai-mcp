@@ -592,6 +592,9 @@ export const intakeModule: PlatformModule = {
       // Documents straight from the clinic's Veradigm EHR indexing queue (read-only; nothing changes for the clinic).
       stopQueueSource?.();
       stopQueueSource = queueSourceState() === 'on' && deps.unity ? new QueueSource({ store: intakeStore, unity: deps.unity, onAdded: (id) => intakePipeline.enqueue(id) }).start() : null;
+      if (queueSourceState() === 'refused_mixed') {
+        console.error('[Intake] INTAKE_QUEUE_SOURCE refused: another source of the same documents is configured (INTAKE_WATCH_DIRS or the MOATiT Fax webhook). Use one source for the shadow week.');
+      }
       console.log(
         `[Intake] shadow mode: nothing is filed; patients from ${rosterPath() ? 'the local patient list' : 'the Veradigm search (read-only)'}; staff filing observer ${stopObserver ? 'on' : 'off'}; indexing queue as a source ${stopQueueSource ? 'on' : 'off'}`
       );
@@ -615,5 +618,7 @@ export const intakeModule: PlatformModule = {
     startDailyRetention('intake originals', () => intakeStore().pruneFiled(retentionDaysFrom('INTAKE_RETENTION_DAYS')));
     // Patient details on the records of filed documents (INTAKE_RECORD_RETENTION_DAYS, default 90).
     startDailyRetention('intake records', () => intakeStore().purgeRecords(retentionDaysFrom('INTAKE_RECORD_RETENTION_DAYS', 90)));
+    // Shadow-week copies that were never filed (shadow decisions, documents read from the indexing queue): 30 days.
+    startDailyRetention('intake shadow copies', () => intakeStore().purgeShadow(retentionDaysFrom('INTAKE_SHADOW_RETENTION_DAYS', 30)));
   },
 };

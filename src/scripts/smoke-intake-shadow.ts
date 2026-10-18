@@ -723,7 +723,8 @@ async function main(): Promise<void> {
   const vr1 = await vqSrc.run();
   assert.deepStrictEqual([vr1.queue, vr1.added, vr1.deferred, vr1.known, vr1.errors], [3, 2, 1, 0, 0]);
   const lst = qCalls.find((c) => c.action === 'GetDocumentsByDocumentType')!;
-  assert.deepStrictEqual([lst.params, lst.pid], [{ Parameter1: '-1000999', Parameter2: '', Parameter3: '10/11/2026', Parameter4: '10/14/2026' }, ''], 'queue listing: the queue type, a 3-day window, PatientID blank');
+  assert.deepStrictEqual([lst.params, lst.pid], [{ Parameter1: '-1000999', Parameter2: '', Parameter3: '09/30/2026', Parameter4: '10/14/2026' }, ''], 'queue listing: the queue type, the shared (observer) 14-day window, PatientID blank');
+  assert.strictEqual(qCalls.filter((c) => c.action === 'GetDocumentsByDocumentType').length, 1);
   const img = qCalls.find((c) => c.action === 'GetDocumentImage')!;
   assert.deepStrictEqual([img.params.Parameter1, img.params.Parameter2, img.params.Parameter3, img.params.Parameter4], ['V1', 'Scan', 'PDF', 'N']);
   const v1 = vqStore.findBySourceRef(queueRef('V1'))!;
@@ -771,9 +772,111 @@ async function main(): Promise<void> {
   await (gSrc as any).unity.executeAction('SaveScanDocument', {}, '7001');
   await (gSrc as any).unity.executeAction('SaveTask', {}, '7001');
   assert.deepStrictEqual(gCalls, []);
+  // The queue time is kept (not just when Drawbridge read it), and the shadow runs shared one queue listing.
+  assert.strictEqual(vqStore.get(v1.id)!.queue_at, '2026-10-14T15:10:00.000Z', 'queue_at = SortDate (09:10 Boise)');
+  assert.strictEqual(qCalls.filter((c) => c.action === 'GetDocumentsByDocumentType' && c.params.Parameter1 === '-1000999').length, 2, 'source runs 1-3 reuse one listing; the observer an hour later lists again');
+
+  // One source per document: refused while a lab folder or the fax webhook also brings documents.
+  process.env.INTAKE_WATCH_DIRS = path.join(TMP, 'lab');
+  assert.strictEqual(qsrc.queueSourceState(), 'refused_mixed');
+  assert.strictEqual((await vqSrc.run()).error_code, 'QUEUE_SOURCE_MIXED_SOURCES');
+  delete process.env.INTAKE_WATCH_DIRS;
+  process.env.MOATIT_FAX_WEBHOOK_SECRET = 'smoke-secret';
+  assert.strictEqual(qsrc.queueSourceState(), 'refused_mixed');
+  delete process.env.MOATIT_FAX_WEBHOOK_SECRET;
+
+  // M1: a copy of the same document from another source never hands the queue item someone else's filing.
+  let mClock = Date.parse('2026-10-15T16:00:00Z');
+  const mStore = new IntakeStore(path.join(TMP, 'queue-copy'), () => new Date(mClock));
+  const copyBytes = Buffer.from('%PDF-1.4 fax copy of D');
+  const mEhr: Record<string, any> = { D: q('D', '10/15/2026 10:00:00 AM', 1), D2: q('D2', '10/15/2026 10:01:00 AM', 1) };
+  const mImages: Record<string, Buffer> = { D: copyBytes, D2: Buffer.from('%PDF-1.4 another fax') };
+  const mUnity = {
+    async executeAction(action: string, params: any = {}, pid = '') {
+      const rows = Object.values(mEhr);
+      if (action === 'GetDocumentsByDocumentType') {
+        const want = params.Parameter1 === '-1000999' ? rows.filter((r) => r.DocumentSubType === '-1000999') : rows.filter((r) => r.DocumentType === params.Parameter1 && r.PatientID);
+        return { success: true, data: [{ getdocumentsbydocumenttypeinfo: want }] };
+      }
+      if (action === 'GetDocuments') return { success: true, data: [{ getdocumentsinfo: rows.filter((r) => r.PatientID === pid).map(({ PatientID, ...r }) => r) }] };
+      if (action === 'GetDocumentImage') return { success: true, data: [{ getdocumentimageinfo: [{ base64image: mImages[params.Parameter1].toString('base64') }] }] };
+      return { success: false, error: 'not expected' };
+    },
+  };
+  const decided = (id: string, key: string) =>
+    mStore.update(id, {
+      status: 'matched',
+      page_count: 1,
+      match: { decision: 'auto', reason: '', candidates: 1, patient: { patientId: '', chartPatientId: key, name: 'Synthetic Patient', dateOfBirth: '01/01/1970', mrn: '' }, checked_at: new Date(mClock).toISOString() },
+      shadow: { at: new Date(mClock).toISOString(), would: 'auto_file', code: 'auto', reason: '', patient_key: key, category: 'Labs/Procedures' },
+    });
+  const fId = mStore.addDocument({ source: 'folder', source_ref: 'watch:/lab:D.pdf', name: 'D.pdf', mime: 'application/pdf', data: copyBytes }).item.id;
+  decided(fId, '7001');
+  const mObs = new observe.StaffFilingObserver({ store: () => mStore, unity: mUnity, runTool: liveSearch, now: () => new Date(mClock) });
+  mClock += 2 * 3_600_000;
+  await mObs.run();
+  assert.strictEqual(mStore.get(fId)!.observed?.document_id, 'D', 'the copy is first linked to D (same file)');
+  mClock += 600_000;
+  const qId = mStore.addDocument({ source: 'veradigm_queue', source_ref: queueRef('D'), name: 'queue-D.pdf', mime: 'application/pdf', data: Buffer.from('%PDF-1.4 queue rendering of D') }).item.id;
+  decided(qId, '7001');
+  mClock += 3_600_000;
+  await mObs.run();
+  const mLedger = JSON.parse(fs.readFileSync(path.join(mStore.dir, 'observer.json'), 'utf8')).docs;
+  assert.deepStrictEqual([mLedger.D.item, mLedger.D2.item], [qId, undefined], 'the queue item takes its own DocumentID; nobody is guessed onto D2');
+  assert.deepStrictEqual([mStore.get(fId)!.observed?.status, mStore.get(fId)!.observed?.signals], ['ambiguous', [observe.SAME_AS_QUEUE]], 'the copy is set aside, not re-paired');
+  Object.assign(mEhr.D, { PatientID: '7001', DocumentType: 'Labs/Procedures', DocumentSubType: 'LAB' });
+  Object.assign(mEhr.D2, { PatientID: '9999', DocumentType: 'Labs/Procedures', DocumentSubType: 'LAB' });
+  mClock += 3_600_000;
+  await mObs.run();
+  const mo = mStore.get(qId)!.observed!;
+  assert.deepStrictEqual([mo.status, mo.document_id, mo.patient?.key, mo.confidence], ['found', 'D', '7001', 'high'], 'the queue item gets D\'s filing, never D2\'s');
+  assert.deepStrictEqual([mStore.get(fId)!.observed?.status, Object.values(JSON.parse(fs.readFileSync(path.join(mStore.dir, 'observer.json'), 'utf8')).docs).filter((d: any) => d.item).length], ['ambiguous', 1]);
+
+  // L1: a document whose image keeps failing is retried with backoff, then passed over (remembered across restarts).
+  let fClock = Date.parse('2026-10-16T16:00:00Z');
+  const fStore = new IntakeStore(path.join(TMP, 'queue-fail'), () => new Date(fClock));
+  let fImageCalls = 0;
+  const fUnity = {
+    async executeAction(action: string) {
+      if (action === 'GetDocumentsByDocumentType') return { success: true, data: [{ getdocumentsbydocumenttypeinfo: [q('E1', '10/16/2026 09:00:00 AM', 1)] }] };
+      if (action === 'GetDocumentImage') {
+        fImageCalls++;
+        return { success: false, error: 'conversion failed' };
+      }
+      return { success: false, error: 'not expected' };
+    },
+  };
+  const fSrc = () => new qsrc.QueueSource({ store: () => fStore, unity: fUnity, onAdded: () => undefined, now: () => new Date(fClock) });
+  const f1 = await fSrc().run();
+  assert.deepStrictEqual([f1.errors, f1.added, fImageCalls], [1, 0, 1]);
+  fClock += 5 * 60_000;
+  assert.deepStrictEqual([(await fSrc().run()).known, fImageCalls], [1, 1], 'waiting for the retry: not fetched (a new process remembers it)');
+  for (let i = 0; i < 4; i++) {
+    fClock += 3 * 3_600_000;
+    await fSrc().run();
+  }
+  assert.strictEqual(fImageCalls, qsrc.MAX_FETCH_TRIES, `${qsrc.MAX_FETCH_TRIES} tries, then passed over`);
+  fClock += 3 * 3_600_000;
+  await fSrc().run();
+  assert.strictEqual(fImageCalls, qsrc.MAX_FETCH_TRIES, 'never fetched again');
+  const fState = JSON.parse(fs.readFileSync(path.join(fStore.dir, 'queue-source.json'), 'utf8'));
+  assert.deepStrictEqual([Object.keys(fState.passed), Object.keys(fState.failures)], [['E1'], []], 'the state file holds DocumentIDs and reason codes only');
+  assert.ok(/^fetch_failed_/.test(fState.passed.E1));
+  assert.strictEqual(fs.statSync(path.join(fStore.dir, 'queue-source.json')).mode & 0o777 & (process.platform === 'win32' ? 0 : 0o077), 0, 'state file 0600');
+
+  // M2: shadow-week copies are deleted by retention (30 days) or at once when the shadow week ends.
+  assert.strictEqual(vqStore.purgeShadow(30), 0, 'nothing is 30 days old yet');
+  const v1File = path.join(vqStore.filesDir, vqStore.get(v1.id)!.file!.stored_as);
+  assert.ok(fs.existsSync(v1File));
+  const purgedNow = vqStore.purgeShadow(0);
+  const pv1 = vqStore.get(v1.id)!;
+  assert.deepStrictEqual([purgedNow, fs.existsSync(v1File), pv1.has_text, pv1.file?.name, pv1.observed?.patient?.name, pv1.observed?.patient?.key, pv1.shadow?.patient_key, pv1.match?.patient?.chartPatientId], [2, false, false, 'document', '', '7001', '7001', '7001'], 'original and details removed; IDs for the report stay');
+  assert.strictEqual(shadow.agreement(pv1, (id) => vqStore.get(id)), 'agrees', 'the report still works from the keys');
+  assert.strictEqual(vqStore.purgeShadow(0), 0, 'idempotent');
+
   delete process.env.INTAKE_QUEUE_SOURCE;
   delete process.env.INTAKE_QUEUE_PER_RUN;
-  ok('indexing queue as the shadow source: off by default, refused in live mode, one item per DocumentID (cap, no refetch, duplicates remembered), listing failure is an error, exact high-confidence truth by DocumentID, never filed (chart or indexing), reads only');
+  ok('indexing queue as the shadow source: off by default, refused in live mode, one item per DocumentID (cap, no refetch, duplicates remembered), listing failure is an error, exact high-confidence truth by DocumentID, never filed (chart or indexing), reads only; one listing shared with the observer; queue time kept; one source per document; a copy never mislabels the queue item; failed fetches back off and stop; shadow copies purged by retention or at once');
 
   await intake.intakePipeline.idle();
   ocrSrv.srv.close();

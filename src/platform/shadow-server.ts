@@ -31,8 +31,9 @@ export function prepareShadowEnv(env: NodeJS.ProcessEnv = process.env): ShadowSt
     env.UNITY_UBIQUITY_ENDPOINT = 'https://veradigm-not-configured.invalid/UnityService.svc';
     delete env.UNITY_PM_USERNAME;
     delete env.UNITY_PM_PASSWORD;
-    // The staff filing observer reads Veradigm EHR: nothing to observe without it.
+    // The staff filing observer and the queue source read Veradigm EHR: nothing to observe or read without it.
     env.INTAKE_OBSERVE = 'off';
+    env.INTAKE_QUEUE_SOURCE = 'off';
   }
   return { veradigm, roster: !!String(env.INTAKE_ROSTER_CSV || '').trim() };
 }
@@ -85,7 +86,7 @@ export async function createShadowApp(startup: ShadowStartup) {
       console.error(`[Intake shadow] Veradigm ${l.target} sign-in still stopped (refused ${l.stage} at ${l.at}): live patient search refused locally until it is retried or the credentials change`);
     }
     unity = new UnityService(auth);
-    lockUnityReadOnly(unity); // SearchPatients and GetDocumentType only, whoever holds the service
+    lockUnityReadOnly(unity); // the read actions in SHADOW_READ_ACTIONS only, whoever holds the service
     const patients = new UnityPatientTools(unity);
     search = (args) => patients.searchPatients(args);
   }

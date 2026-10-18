@@ -182,9 +182,9 @@ export const SAFEGUARDS: Safeguard[] = [
     citation: '164.310(d)(2)(i)',
     section: 'Physical safeguards',
     requirement: 'Dispose of ePHI securely.',
-    plain: 'Drawbridge deletes its working copies on a schedule: call records and outreach lists after 30 days, received documents 30 days after they are filed, and patient details on filed document records after 90 days. Storage is encrypted, so destroying the encryption key erases everything for good.',
-    technical: 'Daily retention jobs (CALL_RECORDS_, OUTREACH_, INTAKE_ RETENTION_DAYS 30; INTAKE_RECORD_RETENTION_DAYS 90); crypto-erase of the encrypted volume at end of life.',
-    evidence: [E(STORE, 'purgeRecords(days: number): number {'), E('src/platform/retention.ts', 'export function startDailyRetention(')],
+    plain: 'Drawbridge deletes its working copies on a schedule: call records and outreach lists after 30 days, received documents 30 days after they are filed, patient details on filed document records after 90 days, and shadow-week copies that were never filed after 30 days (or at once when the shadow week ends). Storage is encrypted, so destroying the encryption key erases everything for good.',
+    technical: 'Daily retention jobs (CALL_RECORDS_, OUTREACH_, INTAKE_ RETENTION_DAYS 30; INTAKE_RECORD_RETENTION_DAYS 90; INTAKE_SHADOW_RETENTION_DAYS 30, and npm run intake:purge-shadow at go-live or switch-off); crypto-erase of the encrypted volume at end of life.',
+    evidence: [E(STORE, 'purgeRecords(days: number): number {'), E(STORE, 'purgeShadow(days: number): number {'), E('src/platform/retention.ts', 'export function startDailyRetention(')],
     status: 'FIXED',
   },
   {
