@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"log/slog"
 	"os"
@@ -24,7 +25,7 @@ func testGateway(t *testing.T, ctx context.Context, port int, policy string) *Ga
 	g := &Gateway{
 		cfg:      &Config{MediaPolicy: policy, MaxCalls: 2, Mode: ModeGreetingEcho, Realm: "pbx.example.test", UserAgent: "t"},
 		log:      slog.New(slog.NewTextHandler(io.Discard, nil)),
-		st:       NewStatus(filepath.Join(t.TempDir(), "st.json")),
+		st:       NewStatus(filepath.Join(os.TempDir(), fmt.Sprintf("gwtest-%d.json", port))), // written after the test returns; not t.TempDir
 		allowed:  map[string]bool{"127.0.0.1": true},
 		greeting: sine(InternalRate, 440, InternalRate, 8000), // 1 s
 	}
