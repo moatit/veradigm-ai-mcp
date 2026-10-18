@@ -25,15 +25,12 @@ import { isToolFailure, toToolFailure } from "./utils/tool-result";
 import { withIdempotency } from "./utils/idempotency";
 import { callRecords } from "./oncall/call-records";
 import { currentMode } from "./oncall/call-mode";
-import { loadPlatformModules } from "../platform/modules";
+import { loadPlatformModules, mountModuleWebhooks } from "../platform/modules";
 import { moduleForTool, platformTools, platformWriteTools, ToolContext } from "../platform/registry";
 import { mountPlatform, requireAgentKey, requireToolKey } from "../platform/app";
 import { corsFromEnv } from "../platform/cors";
 import { auditToolCall, flushAudit } from "../platform/audit";
 import { auditedUnity } from "../platform/audited-unity";
-import { mountRetellWebhook } from "../platform/modules/activity";
-import { mountRetellInbound } from "../platform/modules/activity/retell-inbound";
-import { mountFaxWebhook } from "../platform/modules/intake";
 import { failFastWhenDown, setSystemStatus, SystemStatus } from "../platform/system-status";
 import { setStatusBanner } from "../platform/shell";
 import { statusBanner } from "../platform/status-ui";
@@ -80,12 +77,11 @@ unityService.onOutcome((action, target, ok, code) => healthChecker.onActionOutco
 const keepWarm = new TokenKeepWarm(authService, configuredTargets);
 loadPlatformModules();
 
-// Retell call events: needs the raw body for verification, so it goes before express.json().
-mountRetellWebhook(app);
-// Retell inbound-call webhook: line mode + records status as dynamic variables; warms the Veradigm sessions.
-mountRetellInbound(app, () => void keepWarm.warmNow());
-// MOATiT Fax deliveries (document intake): HMAC over the raw body, so also before express.json().
-mountFaxWebhook(app);
+// Raw-body webhooks, before express.json(), each mounted only when its module runs (ENABLED_MODULES; otherwise 503):
+//  - Retell call events (/webhooks/retell) and the inbound-call webhook (/webhooks/retell-inbound: line mode + records
+//    status as dynamic variables; warms the Veradigm sessions), both module "activity"
+//  - MOATiT Fax deliveries (/webhooks/moatit-fax, HMAC over the raw body), module "intake"
+mountModuleWebhooks(app, { onCallStart: () => void keepWarm.warmNow() });
 
 // Middleware: CORS only for origins in DRAWBRIDGE_CORS_ORIGINS (default none: same origin only)
 app.disable("x-powered-by");
