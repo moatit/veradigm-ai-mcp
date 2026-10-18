@@ -7,6 +7,7 @@ import { activityModule } from './modules/activity';
 import { intakeModule } from './modules/intake';
 import { veradigmModule } from './modules/veradigm';
 import { complianceModule } from './modules/compliance';
+import { voiceModule } from './modules/voice';
 
 /**
  * Every Drawbridge platform module, registered once at startup.
@@ -24,4 +25,5 @@ export function loadPlatformModules(): void {
   registerModule(intakeModule);
   registerModule(veradigmModule);
   registerModule(complianceModule);
+  registerModule(voiceModule);
 }

@@ -60,6 +60,9 @@ services:
       - MCP_CHANNEL=RETELL
       # Document intake: local OCR for files without a text layer (the ocr service below)
       - INTAKE_OCR_URL=http://ocr:8090
+      # Voice harness (docs/drawbridge/VOICE_HARNESS.md): off unless VOICE_ENABLED=on in .env. Listens on the
+      # internal "voice" network only (port 3010, not published, not proxied by nginx).
+      - VOICE_HARNESS_PORT=3010
     volumes:
       - drawbridge-data:/app/data
       # Document intake drop folder (PHI; git-ignored): put files in ./intake/inbox
@@ -67,7 +70,7 @@ services:
       # Named staff logins (npm run staff:user); used when .env sets DRAWBRIDGE_USERS_FILE=/run/drawbridge/drawbridge-users
       - ./secrets:/run/drawbridge:ro
     restart: unless-stopped
-    networks: [drawbridge]
+    networks: [drawbridge, voice]
 
   # ---- Intake OCR (Tesseract 5, deploy/ocr): documents never leave this network ----
   # No host ports: only unity reaches it, at http://ocr:8090.

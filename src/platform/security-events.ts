@@ -18,7 +18,9 @@ import { auditToolCall, AuditServer, defaultAuditServer, safeUser } from './audi
  * refusals (src/platform/call-binding.ts): agent_not_verified, agent_verified_limit, agent_search_limit
  * (POSSIBLE_ENUMERATION) and agent_no_call_id, each with the call ID and the tool, never a name, and the
  * Veradigm sign-in latch (unity-auth.service.ts): unity_signin_latched (Veradigm refused a login; no more
- * logins for that system, code = PM/EHR) and unity_signin_retry (an operator cleared it, with the user).
+ * logins for that system, code = PM/EHR) and unity_signin_retry (an operator cleared it, with the user), and the
+ * voice harness: voice_gw_rejected (a connection to the gateway link without a valid HMAC), sip_registered,
+ * sip_registration_lost and sip_tls_failure (the extension's registration), srtp_refused (a call offered no SRTP).
  *
  *   DRAWBRIDGE_EXPORT_ALERT_PER_HOUR   exports (document downloads, disclosure reports) by one user in
  *                                      60 minutes before an export_volume_alert (default 20)
@@ -50,7 +52,13 @@ export type SecurityEvent =
   | 'agent_no_call_id'
   | 'cross_site_request'
   | 'unity_signin_latched'
-  | 'unity_signin_retry';
+  | 'unity_signin_retry'
+  // Drawbridge voice harness (src/platform/modules/voice): gateway link and SIP extension health
+  | 'voice_gw_rejected'
+  | 'sip_registered'
+  | 'sip_registration_lost'
+  | 'sip_tls_failure'
+  | 'srtp_refused';
 
 /** Events that are failures or alerts (success=false in the audit line, console.warn in the log). */
 const ALERTS = new Set<SecurityEvent>([
@@ -73,6 +81,10 @@ const ALERTS = new Set<SecurityEvent>([
   'agent_no_call_id',
   'cross_site_request',
   'unity_signin_latched',
+  'voice_gw_rejected',
+  'sip_registration_lost',
+  'sip_tls_failure',
+  'srtp_refused',
 ]);
 
 export interface SecurityDetails {

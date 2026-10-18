@@ -36,6 +36,7 @@
     "smoke:hipaa": "ts-node src/scripts/smoke-hipaa.ts",
     "smoke:voice": "ts-node src/scripts/smoke-voice.ts",
     "smoke:call-binding": "ts-node src/scripts/smoke-call-binding.ts",
+    "smoke:voice-harness": "ts-node src/scripts/smoke-voice-harness.ts",
     "smoke:intake": "ts-node src/scripts/smoke-intake.ts && ts-node src/scripts/smoke-intake-shadow.ts && ts-node src/scripts/smoke-intake-rules.ts",
     "smoke:intake-rules": "ts-node src/scripts/smoke-intake-rules.ts",
     "smoke:intake-shadow": "ts-node src/scripts/smoke-intake-shadow.ts",

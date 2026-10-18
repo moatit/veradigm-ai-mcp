@@ -40,6 +40,8 @@ import { statusBanner } from "../platform/status-ui";
 import { TokenKeepWarm, UnityHealthChecker } from "./services/unity-health";
 import { attachUpcomingVisits, needsVeradigm, recordsUnavailable } from "./agent-edge";
 import { callBindings, normalizeCallId, withCallBinding } from "../platform/call-binding";
+import { startVoiceHarness } from "../platform/modules/voice";
+import { callStartVariables } from "../platform/modules/activity/retell-inbound";
 
 const app = express();
 const PORT = process.env.UNITY_PORT || 3001;
@@ -482,6 +484,17 @@ mountPlatform(app, {
   runTool: (name, args, ctx) => executeTool(name, args, ctx?.callId, ctx?.callerPhone),
 });
 
+// Drawbridge voice harness (docs/drawbridge/VOICE_HARNESS.md): our own SIP extension's calls, in this process so the
+// call binding, audit chain, Veradigm sessions and system status are the same ones Retell's tool calls use.
+// Off unless VOICE_ENABLED=on; listens on the internal gateway link only (VOICE_HARNESS_PORT, never published).
+const voiceHarness = startVoiceHarness({
+  runAgentTool: (name, args, callId, callerPhone) => executeAgentTool(name, args, callId, callerPhone, "voice"),
+  toVoiceSummary,
+  toolDefinitions: () => getToolDefinitions() as any,
+  callStartVariables,
+  warm: () => void keepWarm.warmNow(),
+});
+
 // Start server
 const httpServer = app.listen(PORT, () => {
   // First token + login per configured system, then GetServerInfo (also pre-warms auth for the first Retell call).
@@ -552,6 +565,7 @@ async function shutdown(signal: string): Promise<void> {
   console.log(`[Unity] ${signal}: shutting down`);
   setTimeout(() => process.exit(0), 10_000).unref();
   httpServer.close();
+  voiceHarness?.close();
   await unityService.cleanup();
   await systemStatus.flush().catch(() => undefined);
   await flushAudit().catch(() => undefined);

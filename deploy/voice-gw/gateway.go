@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net"
 	"strconv"
@@ -35,6 +36,8 @@ type Gateway struct {
 
 	active   atomic.Int32
 	greeting []int16
+
+	probed sync.Map // proxy -> true once its TLS handshake was checked (once per process: no reconnect storms)
 }
 
 func newRef() string {
@@ -82,7 +85,7 @@ func (g *Gateway) probeTLS(proxy string) error {
 			code = "tls_certificate_rejected"
 		}
 		g.st.Update(func(s *StatusSnapshot) { s.LastError = code })
-		g.log.Error("TLS to proxy failed", "proxy", proxy, "code", code)
+		g.log.Error("TLS to proxy failed", "proxy", proxy, "code", code, "err", err.Error())
 		return err
 	}
 	st := c.ConnectionState()
@@ -118,10 +121,13 @@ func (g *Gateway) RegisterLoop(ctx context.Context) {
 	for i := 0; ctx.Err() == nil; i++ {
 		proxy := g.cfg.Proxies[i%len(g.cfg.Proxies)]
 		g.resolveAllowed(ctx)
-		if err := g.probeTLS(proxy); err != nil {
-			g.sleep(ctx, backoff)
-			backoff = minDur(backoff*2, 2*time.Minute)
-			continue
+		if _, done := g.probed.Load(proxy); !done {
+			if err := g.probeTLS(proxy); err != nil {
+				g.sleep(ctx, backoff)
+				backoff = minDur(backoff*2, 2*time.Minute)
+				continue
+			}
+			g.probed.Store(proxy, true)
 		}
 		t, err := g.dg.RegisterTransaction(ctx, g.recipient(), diago.RegisterOptions{
 			Username:  g.cfg.Username,
@@ -140,7 +146,7 @@ func (g *Gateway) RegisterLoop(ctx context.Context) {
 				reason = "register_rejected_" + strconv.Itoa(code)
 			}
 			g.st.Update(func(s *StatusSnapshot) { s.Registered = false; s.LastError = reason; s.Proxy = proxy })
-			g.log.Error("REGISTER failed", "proxy", proxy, "code", code, "reason", reason)
+			g.log.Error("REGISTER failed", "proxy", proxy, "code", code, "reason", reason, "err", err.Error())
 			if code == 401 || code == 403 || code == 407 {
 				// Credentials refused: wait 10 minutes (the owner rotates the password; avoid a lockout).
 				g.sleep(ctx, 10*time.Minute)
@@ -186,24 +192,26 @@ func (g *Gateway) keepRegistered(ctx context.Context, t *diago.RegisterTransacti
 	}
 	keep := time.NewTicker(25 * time.Second)
 	defer keep.Stop()
+	probe := time.NewTicker(5 * time.Minute)
+	defer probe.Stop()
 	refreshT := time.NewTimer(refresh)
 	defer refreshT.Stop()
-	fails := 0
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-keep.C:
+			// RFC 5626 keepalive: a double CRLF on the registration's own TLS connection, like a desk phone. It keeps
+			// our NAT binding and the proxy's connection alias alive; a write error means the connection is gone.
+			if err := g.crlfKeepalive(proxy); err != nil {
+				g.log.Warn("connection to proxy lost; registering again", "proxy", proxy, "err", err.Error())
+				g.st.Update(func(s *StatusSnapshot) { s.Registered = false; s.LastError = "connection_lost" })
+				return
+			}
+			g.st.Update(func(s *StatusSnapshot) { s.ActiveCalls = int(g.active.Load()) })
+		case <-probe.C:
 			if err := g.ping(ctx, proxy); err != nil {
-				fails++
-				g.log.Warn("keepalive failed", "proxy", proxy, "fails", fails)
-				if fails >= 2 {
-					g.st.Update(func(s *StatusSnapshot) { s.Registered = false; s.LastError = "keepalive_lost" })
-					return
-				}
-			} else {
-				fails = 0
-				g.st.Update(func(s *StatusSnapshot) { s.ActiveCalls = int(g.active.Load()) })
+				g.log.Warn("OPTIONS liveness check got no answer", "proxy", proxy)
 			}
 		case <-refreshT.C:
 			if err := t.Qualify(ctx); err != nil {
@@ -216,6 +224,33 @@ func (g *Gateway) keepRegistered(ctx context.Context, t *diago.RegisterTransacti
 			refreshT.Reset(refresh)
 		}
 	}
+}
+
+var crlf2 = []byte{'\r', '\n', '\r', '\n'}
+
+// crlfKeepalive writes a double CRLF on the pooled TLS connection to the proxy (no new connection is opened).
+func (g *Gateway) crlfKeepalive(proxy string) error {
+	host, port, err := net.SplitHostPort(proxy)
+	if err != nil {
+		return err
+	}
+	ips, err := net.LookupIP(host)
+	if err != nil {
+		return err
+	}
+	for _, ip := range ips {
+		c, err := g.ua.TransportLayer().GetConnection("tls", net.JoinHostPort(ip.String(), port))
+		if err != nil || c == nil {
+			continue
+		}
+		w, ok := c.(interface{ Write([]byte) (int, error) })
+		if !ok {
+			return nil
+		}
+		_, err = w.Write(crlf2)
+		return err
+	}
+	return fmt.Errorf("no open connection to the proxy")
 }
 
 func (g *Gateway) ping(ctx context.Context, proxy string) error {
