@@ -71,6 +71,8 @@ func main() {
 	// Outbound calls (stage 4): with srtp-required we offer RTP/SAVP (the PBX must accept SRTP); with the
 	// synthetic-only rule we offer RTP/AVP plus SDES keys (encrypted if the PBX takes them, plain otherwise).
 	media.RTPProfileSAVPDisable = cfg.MediaPolicy == PolicySRTPPreferred
+	// Answer with our codec order (G.722 first when the PBX offers it).
+	media.SDPCodecPreferLocalOrder = 1
 	media.RTPPortStart = cfg.RTPMin
 	media.RTPPortEnd = cfg.RTPMax
 
@@ -126,7 +128,7 @@ func main() {
 	}
 
 	if cfg.Mode == ModeGreetingEcho {
-		if pcm, err := LoadWAV8k(cfg.GreetingWAV); err == nil {
+		if pcm, err := LoadWAV(cfg.GreetingWAV, InternalRate); err == nil {
 			g.greeting = pcm
 		} else {
 			log.Warn("greeting clip not loaded; echo only", "err", err.Error())

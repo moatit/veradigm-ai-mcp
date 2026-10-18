@@ -6,6 +6,7 @@ require (
 	github.com/coder/websocket v1.8.14
 	github.com/emiago/diago v0.41.0
 	github.com/emiago/sipgo v1.6.0
+	github.com/gotranspile/g722 v0.0.0-20240123003956-384a1bb16a19
 	github.com/pion/stun/v3 v3.1.6
 )
 

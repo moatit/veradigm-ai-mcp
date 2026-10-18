@@ -2,10 +2,13 @@ package main
 
 import (
 	"encoding/binary"
+
 	"math"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/emiago/diago/media"
 )
 
 func sine(rate, hz, n int, amp float64) []int16 {
@@ -87,7 +90,7 @@ func TestParseOffer(t *testing.T) {
 }
 
 func TestPlayoutSegments(t *testing.T) {
-	p := NewPlayout(8000 * 10)
+	p := NewPlayout(8000*10, 8)
 	p.Push("a", make([]int16, 240)) // 30 ms
 	p.End("a")
 	p.Push("b", make([]int16, 400)) // 50 ms
@@ -220,5 +223,29 @@ func TestRedact(t *testing.T) {
 	}
 	if !strings.Contains(out, "1234") {
 		t.Fatalf("last 4 digits should stay: %q", out)
+	}
+}
+
+func TestG722RoundTrip(t *testing.T) {
+	enc, _ := NewCoder(CodecG722)
+	dec, _ := NewCoder(CodecG722)
+	in := sine(16000, 1000, 16000, 8000) // 1 s, 1 kHz (HD band)
+	var out []int16
+	for i := 0; i < len(in); i += 320 {
+		p := enc.Encode(in[i : i+320])
+		if len(p) != 160 {
+			t.Fatalf("G.722 20 ms frame is %d bytes, want 160", len(p))
+		}
+		out = append(out, dec.Decode(p)...)
+	}
+	if len(out) != len(in) {
+		t.Fatalf("decoded %d samples, want %d", len(out), len(in))
+	}
+	if g := rms(out[4000:]) / rms(in[4000:]); g < 0.8 || g > 1.2 {
+		t.Fatalf("G.722 round trip gain %.2f", g)
+	}
+	u, _ := NewCoder(media.CodecAudioUlaw)
+	if u.AudioRate != 8000 || len(u.Encode(make([]int16, 160))) != 160 {
+		t.Fatalf("PCMU coder")
 	}
 }

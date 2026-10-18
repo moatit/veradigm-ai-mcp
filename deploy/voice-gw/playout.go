@@ -2,7 +2,7 @@ package main
 
 import "sync"
 
-// Playout is the outbound (agent -> caller) audio queue at 8 kHz, paced out by the RTP writer every 20 ms.
+// Playout is the outbound (agent -> caller) audio queue at the internal rate, paced out by the RTP writer every 20 ms.
 // Audio arrives from the harness faster than real time in "segments" (one per agent response or scripted
 // clip). The harness learns what was actually played: segment_done when a segment's end marker is reached,
 // cleared (with the played milliseconds) when it flushes the queue for a barge-in.
@@ -24,10 +24,14 @@ type Playout struct {
 	queued int
 	played map[string]int
 	maxQ   int
+	perMs  int // samples per millisecond
 }
 
-func NewPlayout(maxSamples int) *Playout {
-	return &Playout{played: map[string]int{}, maxQ: maxSamples}
+func NewPlayout(maxSamples, samplesPerMs int) *Playout {
+	if samplesPerMs < 1 {
+		samplesPerMs = 8
+	}
+	return &Playout{played: map[string]int{}, maxQ: maxSamples, perMs: samplesPerMs}
 }
 
 // Push queues audio for a segment. Returns false if the queue is full (the audio is dropped).
@@ -59,7 +63,7 @@ func (p *Playout) Clear() *SegmentEvent {
 	var ev *SegmentEvent
 	for _, c := range p.q {
 		if c.seg != "" {
-			ev = &SegmentEvent{Type: "cleared", Segment: c.seg, PlayedMs: p.played[c.seg] / 8}
+			ev = &SegmentEvent{Type: "cleared", Segment: c.seg, PlayedMs: p.played[c.seg] / p.perMs}
 			break
 		}
 	}
@@ -80,7 +84,7 @@ func (p *Playout) Next(n int) (frame []int16, events []SegmentEvent, active bool
 	for len(p.q) > 0 && filled < n {
 		c := &p.q[0]
 		if c.end {
-			events = append(events, SegmentEvent{Type: "segment_done", Segment: c.seg, PlayedMs: p.played[c.seg] / 8})
+			events = append(events, SegmentEvent{Type: "segment_done", Segment: c.seg, PlayedMs: p.played[c.seg] / p.perMs})
 			delete(p.played, c.seg)
 			p.q = p.q[1:]
 			continue
@@ -98,7 +102,7 @@ func (p *Playout) Next(n int) (frame []int16, events []SegmentEvent, active bool
 	}
 	// An end marker right behind the last audio is reported in the same tick.
 	for len(p.q) > 0 && p.q[0].end {
-		events = append(events, SegmentEvent{Type: "segment_done", Segment: p.q[0].seg, PlayedMs: p.played[p.q[0].seg] / 8})
+		events = append(events, SegmentEvent{Type: "segment_done", Segment: p.q[0].seg, PlayedMs: p.played[p.q[0].seg] / p.perMs})
 		delete(p.played, p.q[0].seg)
 		p.q = p.q[1:]
 	}
@@ -108,5 +112,5 @@ func (p *Playout) Next(n int) (frame []int16, events []SegmentEvent, active bool
 func (p *Playout) QueuedMs() int {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	return p.queued / 8
+	return p.queued / p.perMs
 }

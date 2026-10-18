@@ -7,7 +7,7 @@ import "sync"
 // its own. Agent audio is not mixed here: the harness sends it to the legs it wants (one leg, or every leg in
 // the conference), and the harness feeds the model only the human legs, so the model never hears itself.
 //
-// Per (source, destination) FIFOs at 8 kHz, each capped at maxMs (oldest dropped) so a slow leg cannot build
+// Per (source, destination) FIFOs at the internal rate (16 kHz), each capped at maxMs (oldest dropped) so a slow leg cannot build
 // up delay.
 type Mixer struct {
 	mu    sync.Mutex
@@ -17,7 +17,7 @@ type Mixer struct {
 }
 
 func NewMixer(maxMs int) *Mixer {
-	return &Mixer{conf: map[int]bool{}, fifo: map[[2]int][]int16{}, maxSz: maxMs * 8}
+	return &Mixer{conf: map[int]bool{}, fifo: map[[2]int][]int16{}, maxSz: maxMs * InternalRate / 1000}
 }
 
 // Set replaces the conference membership (fewer than two legs = no conference). FIFOs are reset.
@@ -66,7 +66,7 @@ func (m *Mixer) InConference(leg int) bool {
 	return m.conf[leg]
 }
 
-// Feed: inbound audio (8 kHz) received on leg src.
+// Feed: inbound audio (internal rate) received on leg src.
 func (m *Mixer) Feed(src int, pcm []int16) {
 	m.mu.Lock()
 	defer m.mu.Unlock()

@@ -11,24 +11,28 @@ import (
 	"time"
 
 	"github.com/emiago/diago"
-	"github.com/emiago/diago/audio"
 	"github.com/emiago/diago/media"
 )
 
-// CallMedia moves audio between the RTP leg (G.711, 8 kHz, 20 ms) and the harness (PCM s16le at `rate`).
-// Inbound: decode -> energy VAD (metric only) -> resample -> onCaller. Outbound: harness PCM -> resample to
-// 8 kHz -> Playout queue -> one encoded frame every 20 ms (silence when idle, so RTP always flows: that keeps
-// NAT bindings open and lets the PBX's media relay latch on our address, symmetric RTP).
+// CallMedia moves audio between one RTP leg (G.722 or G.711, 20 ms) and the harness (PCM s16le at `rate`).
+// Everything inside runs at InternalRate (16 kHz). Inbound: decode -> 16 kHz -> energy VAD (metric only), local
+// conference feed, echo gate -> resample -> onCaller. Outbound: harness PCM -> 16 kHz -> Playout queue (+ the
+// other conference legs) -> codec rate -> one encoded frame every 20 ms (silence when idle, so RTP always flows:
+// that keeps NAT bindings open and lets the PBX's media relay latch on our address, symmetric RTP).
 type CallMedia struct {
 	ref    string
 	leg    int
 	mix    *Mixer // local conference (nil = none)
 	med    *diago.DialogMedia
 	codec  media.Codec
+	inC    *Coder     // inbound decoder (own state)
+	outC   *Coder     // outbound encoder (own state)
+	toIR   *Resampler // codec audio rate -> 16k
+	fromIR *Resampler // 16k -> codec audio rate
 	rate   int
-	up     *Resampler // 8k -> rate
+	up     *Resampler // 16k -> rate
 	downMu sync.Mutex
-	down   *Resampler // rate -> 8k
+	down   *Resampler // rate -> 16k
 	play   *Playout
 	vad    *VAD
 	log    *slog.Logger
@@ -57,14 +61,15 @@ type CallMedia struct {
 var EchoMarginDB = 10.0
 
 func NewCallMedia(ref string, med *diago.DialogMedia, rate int, log *slog.Logger) *CallMedia {
+	codec := media.CodecAudioFromSession(med.MediaSession())
 	m := &CallMedia{
 		ref:        ref,
 		med:        med,
-		codec:      media.CodecAudioFromSession(med.MediaSession()),
+		codec:      codec,
 		rate:       rate,
-		up:         NewResampler(8000, rate),
-		down:       NewResampler(rate, 8000),
-		play:       NewPlayout(8000 * 120), // at most 2 minutes queued
+		up:         NewResampler(InternalRate, rate),
+		down:       NewResampler(rate, InternalRate),
+		play:       NewPlayout(InternalRate*120, InternalRate/1000), // at most 2 minutes queued
 		vad:        NewVAD(),
 		log:        log,
 		answeredAt: time.Now(),
@@ -74,10 +79,21 @@ func NewCallMedia(ref string, med *diago.DialogMedia, rate int, log *slog.Logger
 		onDTMF:     func(rune) {},
 	}
 	m.firstInMs.Store(-1)
+	if in, ok := NewCoder(codec); ok {
+		out, _ := NewCoder(codec)
+		m.inC, m.outC = in, out
+		m.toIR = NewResampler(in.AudioRate, InternalRate)
+		m.fromIR = NewResampler(InternalRate, in.AudioRate)
+	}
 	return m
 }
 
-func (m *CallMedia) CodecName() string { return m.codec.Name }
+func (m *CallMedia) CodecName() string {
+	if m.inC != nil {
+		return m.inC.Name
+	}
+	return m.codec.Name
+}
 
 // PushAgent queues agent audio (PCM at m.rate) under a segment ID.
 func (m *CallMedia) PushAgent(seg string, pcm []int16) {
@@ -89,24 +105,10 @@ func (m *CallMedia) PushAgent(seg string, pcm []int16) {
 	}
 }
 
-func (m *CallMedia) decode(lpcm, payload []byte) (int, error) {
-	if m.codec.PayloadType == media.CodecAudioAlaw.PayloadType {
-		return audio.DecodeAlawTo(lpcm, payload)
-	}
-	return audio.DecodeUlawTo(lpcm, payload)
-}
-
-func (m *CallMedia) encode(payload, lpcm []byte) (int, error) {
-	if m.codec.PayloadType == media.CodecAudioAlaw.PayloadType {
-		return audio.EncodeAlawTo(payload, lpcm)
-	}
-	return audio.EncodeUlawTo(payload, lpcm)
-}
-
 // Run blocks until the media ends (hang-up) or ctx is cancelled.
 func (m *CallMedia) Run(ctx context.Context) error {
-	if m.codec.PayloadType != media.CodecAudioUlaw.PayloadType && m.codec.PayloadType != media.CodecAudioAlaw.PayloadType {
-		return errors.New("negotiated codec is not G.711")
+	if m.inC == nil {
+		return errors.New("negotiated codec is not G.722 or G.711")
 	}
 	dtmfR, err := m.med.AudioReaderDTMF()
 	if err != nil {
@@ -129,7 +131,6 @@ func (m *CallMedia) Run(ctx context.Context) error {
 
 func (m *CallMedia) readLoop(ctx context.Context, r io.Reader) error {
 	buf := make([]byte, 1500)
-	lpcm := make([]byte, 3000)
 	for ctx.Err() == nil {
 		n, err := r.Read(buf)
 		if err != nil {
@@ -150,11 +151,11 @@ func (m *CallMedia) readLoop(ctx context.Context, r io.Reader) error {
 		m.statMu.Lock()
 		m.jit.Note(now)
 		m.statMu.Unlock()
-		k, err := m.decode(lpcm, buf[:n])
-		if err != nil || k == 0 {
+		native := m.inC.Decode(buf[:n])
+		if len(native) == 0 {
 			continue
 		}
-		pcm := bytesToPCM(lpcm[:k])
+		pcm := m.toIR.Process(native)
 		if m.mix != nil {
 			m.mix.Feed(m.leg, pcm)
 		}
@@ -182,8 +183,7 @@ func (m *CallMedia) watchInbound(ctx context.Context) {
 }
 
 func (m *CallMedia) writeLoop(ctx context.Context, w io.Writer) {
-	const n = 160 // 20 ms at 8 kHz
-	enc := make([]byte, n)
+	const n = InternalRate / 50 // 20 ms
 	wasActive := false
 	for ctx.Err() == nil {
 		frame, evs, active := m.play.Next(n)
@@ -215,11 +215,11 @@ func (m *CallMedia) writeLoop(ctx context.Context, w io.Writer) {
 				AddInto(frame, other)
 			}
 		}
-		k, err := m.encode(enc, pcmToBytes(frame))
-		if err != nil || k != n {
+		enc := m.outC.Encode(m.fromIR.Process(frame))
+		if len(enc) == 0 {
 			continue
 		}
-		if _, err := w.Write(enc[:k]); err != nil { // paced: blocks until the next 20 ms tick
+		if _, err := w.Write(enc); err != nil { // paced: blocks until the next 20 ms tick
 			if ctx.Err() == nil {
 				m.log.Debug("rtp write ended", "call", m.ref)
 			}

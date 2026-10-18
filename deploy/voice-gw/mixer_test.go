@@ -55,12 +55,12 @@ func TestMixerOutsideConferenceAndRemoval(t *testing.T) {
 }
 
 func TestMixerBoundedDelay(t *testing.T) {
-	m := NewMixer(200) // 1600 samples
+	m := NewMixer(200) // 3200 samples at 16 kHz
 	m.Set([]int{0, 1})
 	for i := 0; i < 50; i++ { // 1 s of audio, nobody pulling
-		m.Feed(1, constFrame(int16(i), 160))
+		m.Feed(1, constFrame(int16(i), 320))
 	}
-	got := m.Pull(0, 1600)
+	got := m.Pull(0, 3200)
 	if got[0] != 40 { // only the newest 200 ms are kept
 		t.Fatalf("oldest audio not dropped: first sample %d", got[0])
 	}

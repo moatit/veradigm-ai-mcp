@@ -6,8 +6,8 @@ import (
 	"os"
 )
 
-// LoadWAV8k reads a PCM s16le mono WAV of any rate and returns it at 8 kHz.
-func LoadWAV8k(path string) ([]int16, error) {
+// LoadWAV reads a PCM s16le mono WAV of any rate and returns it at outRate.
+func LoadWAV(path string, outRate int) ([]int16, error) {
 	b, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
@@ -16,7 +16,7 @@ func LoadWAV8k(path string) ([]int16, error) {
 	if err != nil {
 		return nil, err
 	}
-	return NewResampler(rate, 8000).Process(append(pcm, make([]int16, 48)...)), nil
+	return NewResampler(rate, outRate).Process(append(pcm, make([]int16, 48)...)), nil
 }
 
 // ParseWAV returns the samples and sample rate of a 16-bit mono PCM WAV.

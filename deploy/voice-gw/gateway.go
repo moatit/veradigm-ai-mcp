@@ -130,6 +130,7 @@ func (g *Gateway) RegisterLoop(ctx context.Context) {
 			Expiry:    g.cfg.Expires,
 		})
 		if err == nil {
+			t.Origin.AppendHeader(sip.NewHeader("User-Agent", g.cfg.UserAgent))
 			err = t.Register(ctx)
 		}
 		if err != nil {
@@ -222,6 +223,7 @@ func (g *Gateway) ping(ctx context.Context, proxy string) error {
 	u.UriParams.Add("transport", "tls")
 	req := sip.NewRequest(sip.OPTIONS, u)
 	req.SetDestination(proxy)
+	req.AppendHeader(sip.NewHeader("User-Agent", g.cfg.UserAgent))
 	pctx, cancel := context.WithTimeout(ctx, 8*time.Second)
 	defer cancel()
 	_, err := g.cli.Do(pctx, req) // any final response means the connection is alive
@@ -267,8 +269,6 @@ func (g *Gateway) SourceGuard(next sipgo.RequestHandler) sipgo.RequestHandler {
 }
 
 // ── Calls ────────────────────────────────────────────────────────────────────────────────────────────────
-
-var answerCodecs = []media.Codec{media.CodecAudioUlaw, media.CodecAudioAlaw, media.CodecTelephoneEvent8000}
 
 func (g *Gateway) HandleCall(in *diago.DialogServerSession) {
 	ref := newRef()
@@ -322,7 +322,7 @@ func (g *Gateway) greetingEcho(in *diago.DialogServerSession, ref string) {
 		g.log.Error("answer failed", "call", ref, "err", err.Error())
 		return
 	}
-	cm := NewCallMedia(ref, med, 8000, g.log)
+	cm := NewCallMedia(ref, med, InternalRate, g.log)
 	cm.gate = nil // the echo test plays the caller back as received
 	g.log.Info("answered", "call", ref, "codec", cm.CodecName(), "srtp", srtp, "mode", "greeting-echo")
 	cm.onEvent = func(ev Event) {

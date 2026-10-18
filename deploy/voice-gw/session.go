@@ -496,7 +496,7 @@ func (s *Session) dial(c Control) {
 		Transport: "tls",
 		Username:  s.g.cfg.Username,
 		Password:  s.g.cfg.Password,
-		Headers:   []sip.Header{route},
+		Headers:   []sip.Header{route, sip.NewHeader("User-Agent", s.g.cfg.UserAgent)},
 		OnResponse: func(res *sip.Response) error {
 			if res.StatusCode == 180 || res.StatusCode == 183 {
 				s.emit(Event{Type: "leg_ringing", Leg: idx, RequestID: c.RequestID, Code: res.StatusCode})
@@ -535,7 +535,7 @@ func (s *Session) dial(c Control) {
 func (s *Session) refer(l *Leg, uri sip.Uri, referTo string, onNotify func(int)) error {
 	ctx, cancel := context.WithTimeout(s.ctx, 8*time.Second)
 	defer cancel()
-	var hdrs []sip.Header
+	hdrs := []sip.Header{sip.NewHeader("User-Agent", s.g.cfg.UserAgent)}
 	if referTo != "" {
 		hdrs = append(hdrs, sip.NewHeader("Refer-To", referTo))
 	}

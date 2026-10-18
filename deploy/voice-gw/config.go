@@ -100,7 +100,7 @@ func LoadConfig() (*Config, error) {
 		GreetingWAV:    env("VOICE_GW_GREETING_WAV", "/app/clips/stage2-greeting.wav"),
 		FallbackTarget: env("VOICE_GW_FALLBACK_TARGET", ""),
 		StatusFile:     env("VOICE_GW_STATUS_FILE", "/tmp/voice-gw-status.json"),
-		UserAgent:      env("VOICE_GW_USER_AGENT", "Drawbridge-voice-gw/0.1"),
+		UserAgent:      env("VOICE_GW_USER_AGENT", "Drawbridge-voice-gw/"+Version),
 		EchoGateDB:     float64(envInt("VOICE_ECHO_GATE_DB", 10)),
 	}
 	for _, p := range strings.Split(env("VOICE_SIP_PROXIES", ""), ",") {
