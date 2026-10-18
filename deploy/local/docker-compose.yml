@@ -138,6 +138,45 @@ services:
     restart: unless-stopped
     networks: [drawbridge]
 
+  # ---- Voice gateway (docs/drawbridge/VOICE_HARNESS.md): Drawbridge registers as a PBX extension ----
+  # Opt-in: docker compose --profile voice up -d voice-gw
+  # SIP user agent + media only (TLS signalling, SRTP when offered, G.711, REFER). No patient logic: tools,
+  # identity checks, audit and transcripts stay in the unity process (port 3010 on the internal "voice"
+  # network, never published, nginx never proxies it). No host ports. Only the variables it needs are passed
+  # (no env_file: it never sees the Veradigm or model keys).
+  voice-gw:
+    profiles: ["voice"]
+    build:
+      context: ../voice-gw
+    image: drawbridge-dev-voice-gw
+    environment:
+      - SIP_REALM=${SIP_REALM:?set SIP_REALM in .env}
+      - SIP_USERNAME=${SIP_USERNAME:?set SIP_USERNAME in .env}
+      - SIP_PASSWORD=${SIP_PASSWORD:?set SIP_PASSWORD in .env}
+      - SIP_EXPIRES=${SIP_EXPIRES:-300}
+      - VOICE_GW_SECRET=${VOICE_GW_SECRET:-}
+      - VOICE_GW_MODE=${VOICE_GW_MODE:-harness}
+      # Titan's TLS proxies (the SRV records only list UDP 7000; TLS 5061 answers on the same hosts). All of them
+      # present one GoDaddy certificate for kam001.phl.wlcomm.net: verified against that name, never skipped.
+      - VOICE_SIP_PROXIES=${VOICE_SIP_PROXIES:-kam001.z1.grr.voipproxy.net:5061,kam002.z1.grr.voipproxy.net:5061,kam002.z1.phl.voipproxy.net:5061}
+      - VOICE_SIP_TLS_SERVER_NAME=${VOICE_SIP_TLS_SERVER_NAME:-kam001.phl.wlcomm.net}
+      # srtp-required (default, patient calls) | srtp-preferred-synthetic-only (test calls, synthetic patients only)
+      - VOICE_MEDIA_ENCRYPTION=${VOICE_MEDIA_ENCRYPTION:-srtp-required}
+      - VOICE_STUN_SERVER=${VOICE_STUN_SERVER:-stun.cloudflare.com:3478}
+      - VOICE_PUBLIC_IP=${VOICE_PUBLIC_IP:-}
+      - VOICE_RTP_PORT_MIN=20000
+      - VOICE_RTP_PORT_MAX=20199
+      - VOICE_MAX_CALLS=${VOICE_MAX_CALLS:-4}
+      - VOICE_HARNESS_URL=ws://unity:3010/voice-gw
+      - VOICE_GW_FALLBACK_TARGET=${VOICE_GW_FALLBACK_TARGET:-}
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    restart: unless-stopped
+    networks: [voice, voice-egress]
+
   gateway:
     image: nginx:alpine
     volumes:
@@ -155,3 +194,8 @@ volumes:
 
 networks:
   drawbridge:
+  # unity <-> voice-gw only (call audio and control). internal: no route off the host.
+  voice:
+    internal: true
+  # voice-gw's way out to the PBX (SIP over TLS, RTP/SRTP)
+  voice-egress:
