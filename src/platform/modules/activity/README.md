@@ -33,13 +33,13 @@ Handles `call_started`, `call_ended` and `call_analyzed` (other events get a 204
 
 ### Call analytics records (admin app)
 
-When `CALL_ANALYTICS_FORWARD=on`, `call_ended` and `call_analyzed` also queue **one de-identified record per call** for the admin app (`POST ${ADMIN_PORTAL_URL}/api/call-records`, `x-api-key: ADMIN_API_KEY`). The record holds:
-- call ID, practice ID, agent version, start, duration, direction, disconnection reason;
+When `CALL_ANALYTICS_FORWARD=on`, `call_ended` and `call_analyzed` also queue **one minimum-necessary call analytics record per call** for the admin app (`POST ${ADMIN_PORTAL_URL}/api/call-records`, `x-api-key: ADMIN_API_KEY`). It is **handled as PHI under the BAA**; it isn't Safe Harbor de-identified. The record holds:
+- a call reference (keyed hash of the vendor call ID), practice ID, agent version, the start hour in clinic local time, duration, direction, disconnection reason (documented list, else `other`);
 - the post-call analysis enums (call reason, request category, resolved, transferred, sentiment, call successful);
 - repeat-caller counts computed in this stack;
 - the tools used, with call and failure counts.
 
-It never holds a transcript, summary text, phone number or patient ID. Records wait in an outbox (`<AUDIT_DIR>/call-records-outbox.json`, 0600) and are retried. The repeat-caller history (`caller-history.json`, keyed hashes only, 8 days) never leaves the stack.
+It never holds the vendor call ID, an exact start time, a transcript, summary text, a phone number or a patient ID. Records wait in an outbox (`<AUDIT_DIR>/call-records-outbox.json`, 0600) and are retried. The repeat-caller history (`caller-history.json`, keyed hashes only, 8 days) never leaves the stack.
 
 - Code: `call-analytics.ts` (the allow-listed record), `call-forwarder.ts` (outbox and retry).
 - Setup, including the analysis fields to add on the agent: `docs/drawbridge/CALL_ANALYTICS.md`.
@@ -70,7 +70,8 @@ Until one of these is set up, call events don't arrive. The audit log and the Ac
 
 | `CALL_ANALYTICS_FORWARD` | off | `on` sends call analytics records to the admin app (`docs/drawbridge/CALL_ANALYTICS.md`). |
 | `DRAWBRIDGE_PRACTICE_ID` | empty | Practice slug on each call analytics record. |
-| `CALL_ANALYTICS_HASH_KEY` | generated into `AUDIT_DIR` | Key for the repeat-caller hash. It stays in this stack. |
+| `CALL_ANALYTICS_HASH_KEY` | required in production; generated into `AUDIT_DIR` elsewhere | Key for the repeat-caller hash and the call reference. It stays in this stack. In production, set it from the secret store; without it forwarding refuses to start. |
+| `CALL_ANALYTICS_HTTP_HOSTS` | empty | Host names allowed over plain http besides loopback (for example `admin`). |
 
 Secrets go in `.env` only.
 
