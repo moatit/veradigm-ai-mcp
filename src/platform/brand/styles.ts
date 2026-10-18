@@ -31,7 +31,7 @@ body{margin:0;background:var(--white);color:var(--ink);font:500 16px/1.55 var(--
 header{display:flex;align-items:center;gap:10px 20px;flex-wrap:wrap;padding:14px var(--gutter);border-top:4px solid var(--blue);border-bottom:1px solid var(--line);background:var(--white)}
 header .brand{--h:46px;display:grid;flex:0 1 auto;min-width:0}
 header .brand>svg{grid-area:1/1;height:var(--h);width:auto}
-header .brand .org{grid-area:1/1;align-self:end;margin-left:calc(var(--h)*1.2023);font:500 calc(var(--h)*.262)/1 var(--display);letter-spacing:.01em;color:var(--slate);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:calc(100vw - 32px - var(--h)*1.2023)}
+header .brand .org{grid-area:1/1;align-self:end;margin-left:calc(var(--h)*1.2028);margin-bottom:-.15em;font:500 calc(var(--h)*.262)/1.3 var(--display);letter-spacing:.01em;color:var(--slate);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:calc(100vw - 32px - var(--h)*1.2028)}
 header .sp{flex:1}header .who{font-size:14px;color:var(--slate)}
 nav.tabs{display:flex;gap:0 24px;flex-wrap:wrap;padding:0 var(--gutter);background:var(--white);border-bottom:1px solid var(--line)}
 nav.tabs a{padding:13px 0 11px;color:var(--slate);text-decoration:none;border-bottom:2px solid transparent;font:500 14px/1.2 var(--display);transition:color .15s var(--ease),border-color .15s var(--ease)}
