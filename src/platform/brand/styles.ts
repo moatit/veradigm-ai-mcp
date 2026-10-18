@@ -68,9 +68,11 @@ button.secondary{background:transparent;color:var(--ink);box-shadow:inset 0 0 0 
 button.link{background:none;color:var(--slate);padding:0;min-height:0;text-decoration:underline;text-underline-offset:2px;font:500 14px/1.2 var(--text)}button.link:hover{color:var(--ink)}
 input,select,textarea{width:100%;margin-top:4px;padding:8px 10px;border:1px solid var(--field);border-radius:2px;background:var(--white);color:var(--ink);font:500 15px/1.4 var(--text)}
 input[type=checkbox],input[type=radio]{margin-top:0;accent-color:var(--blue-700)}
-a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible,summary:focus-visible{outline:3px solid var(--blue);outline-offset:3px}
+a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible,summary:focus-visible{outline:3px solid var(--blue-700);outline-offset:2px;box-shadow:0 0 0 2px #fff}
+button.secondary:focus-visible{box-shadow:inset 0 0 0 1.5px var(--ink),0 0 0 2px #fff}
 .empty{text-align:center;padding:40px 16px}.stat{font:500 30px/1.15 var(--display);letter-spacing:-.03em;font-variant-numeric:tabular-nums}
 .vh{position:absolute;width:1px;height:1px;margin:-1px;padding:0;border:0;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
-@media (max-width:640px){header .brand{--h:40px}main{padding:16px 16px 48px}h2{font-size:18px}main>h2:first-child,.signin h2{font-size:22px}nav.tabs{gap:0 18px}.signin{margin:24px auto;padding:20px}}
+@media (max-width:640px){header .brand{--h:40px}main{padding:16px 16px 48px}h2{font-size:18px}main>h2:first-child,.signin h2{font-size:22px}nav.tabs{gap:0 18px}.signin{margin:24px auto;padding:20px}
+header .brand .org{align-self:start;margin:calc(var(--h)*.70) 0 0 calc(var(--h)*1.2028);white-space:normal;overflow:visible;text-overflow:clip}}
 @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
 `;

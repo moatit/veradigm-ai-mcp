@@ -35,7 +35,7 @@ export function yourPartPage(): string {
     ],
   ];
   return `<h2 style="margin-top:4px">Your part</h2>
-<p>Drawbridge takes care of the technical side of HIPAA. These five things are up to you.</p>
+<p>MOATiT handles the technical safeguards inside Drawbridge. These five things are up to you.</p>
 <div class="card">${items.map(([h, p], i) => `<h3${i ? '' : ' style="margin-top:0"'}>${esc(h)}</h3><p${i === items.length - 1 ? ' style="margin-bottom:0"' : ''}>${p}</p>`).join('\n')}</div>
 <p class="muted" style="font-size:13px">Questions about your practice's own HIPAA policies go to your privacy officer.</p>`;
 }
