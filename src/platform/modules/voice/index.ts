@@ -68,6 +68,7 @@ function form(a: AgentConfig, errors: string[] = []): string {
   <label>Mode <select name="warm_mode">${opt('conference', a.warm_transfer.mode, 'Local conference')}${opt('attended_refer', a.warm_transfer.mode, 'Attended transfer (REFER/Replaces), conference if refused')}</select></label>
   <label>Ring timeout (s) <input name="ring_timeout_s" value="${a.warm_transfer.ring_timeout_s}" size="4"></label>
   <label>Hold timeout (s) <input name="hold_timeout_s" value="${a.warm_transfer.hold_timeout_s}" size="4"></label>
+  <label>Hold <select name="hold_method">${opt('local', a.warm_transfer.hold_method, 'Local hold (our hold line; default)')}${opt('reinvite', a.warm_transfer.hold_method, 'SIP hold (PBX music; local if refused)')}</select></label>
   <label>After staff joins <select name="agent_after_join">${opt('leave', a.warm_transfer.agent_after_join, 'Agent leaves')}${opt('stay_muted', a.warm_transfer.agent_after_join, 'Agent stays, muted')}</select></label>
   <label><input type="checkbox" name="transcribe_after" ${a.warm_transfer.transcribe_after_agent_leaves ? 'checked' : ''}> Keep transcribing after the agent leaves</label>
   <label>Turn detection <select name="vad">${opt('semantic_vad', a.turn.vad)}${opt('server_vad', a.turn.vad)}</select></label>
@@ -102,6 +103,7 @@ function fromForm(b: any, prev: AgentConfig): any {
       ring_timeout_s: b.ring_timeout_s,
       hold_timeout_s: b.hold_timeout_s,
       agent_after_join: b.agent_after_join,
+      hold_method: b.hold_method,
       transcribe_after_agent_leaves: !!b.transcribe_after,
     },
     turn: { vad: b.vad, eagerness: b.eagerness, silence_ms: b.silence_ms },

@@ -122,6 +122,12 @@ class ManualTimers {
   fire() {
     for (const h of this.fns.splice(0)) if (!h.dead) h.fn();
   }
+  /** Fire only the timers set for `ms` (e.g. the 20 s hold line, not the hold timeout). */
+  fireMs(ms: number) {
+    const due = this.fns.filter((h) => h.ms === ms && !h.dead);
+    this.fns = this.fns.filter((h) => !due.includes(h));
+    for (const h of due) h.fn();
+  }
 }
 
 /** Tag each audio chunk with the segment that was open on its leg (so tests can check exact clip bytes). */
@@ -468,7 +474,7 @@ async function main(): Promise<void> {
     const holdSeg = gw.last('segment').segment;
     assert.ok(gw.bytesOf(holdSeg).equals(clipBytes.get(texts.HOLD)!));
     segDone(holdSeg);
-    assert.strictEqual(gw.last('hold').leg, 0);
+    assert.ok(!gw.last('hold'), 'local hold by default: no re-INVITE');
     const dial = gw.last('dial');
     assert.strictEqual(dial.target, 'sip:4500@pbx.example.test');
     assert.deepStrictEqual(s.state().modelIn, [], 'caller on hold: nothing to the model');
@@ -480,8 +486,22 @@ async function main(): Promise<void> {
     s.onGwAudio(0, pcm(20, 24000, 111));
     s.onGwAudio(1, pcm(20, 24000, 222));
     assert.ok(provider.audioIn.every((b) => b.readInt16LE(0) === 222), 'only the staff leg reaches the model during the consult');
+    // The briefing is private: the model's audio goes to the staff leg only; the caller's leg gets nothing from it.
+    const leg0Before = gw.audio.filter((a) => a.leg === 0).length;
+    ev.responseStarted('brief1');
+    ev.audio(pcm(300, 24000, 4242), 'brief1');
+    ev.agentTranscript('I have a caller who is not verified, calling about a bill. Can you take the call?', true, 'brief1');
+    ev.responseDone('brief1', 'completed');
+    assert.ok(gw.audio.filter((a) => a.leg === 1).some((a) => a.pcm.readInt16LE(0) === 4242), 'briefing sent to the staff leg');
+    assert.strictEqual(gw.audio.filter((a) => a.leg === 0).length, leg0Before, 'nothing of the briefing reaches the caller');
+    assert.strictEqual(gw.last('segment').leg, 1);
+    // Local hold: the hold line repeats to the caller only while waiting.
+    timers.fireMs(20_000);
+    const holdAgain = gw.last('segment');
+    assert.strictEqual(holdAgain.leg, 0);
+    assert.ok(gw.bytesOf(holdAgain.segment).equals(clipBytes.get(texts.HOLD)!), 'hold line repeated to the held caller');
     s.onGwEvent({ type: 'dtmf', at: 0, leg: 1, digit: '1' });
-    assert.strictEqual(gw.last('resume').leg, 0);
+    assert.ok(!gw.last('resume'), 'nothing to resume after a local hold');
     assert.deepStrictEqual(gw.last('conference').legs, [0, 1]);
     assert.strictEqual(s.state().agentPresent, false);
     assert.ok(provider.closed, 'agent left the conference');
@@ -503,7 +523,7 @@ async function main(): Promise<void> {
     n.segDone(n.gw.last('segment').segment);
     const d2 = n.gw.last('dial');
     n.s.onGwEvent({ type: 'leg_failed', at: 0, leg: 1, request_id: d2.request_id, code: 0, reason: 'no_answer' });
-    assert.strictEqual(n.gw.last('resume').leg, 0);
+    assert.ok(!n.gw.last('resume'));
     const back = n.gw.last('segment').segment;
     assert.ok(n.gw.bytesOf(back).equals(clipBytes.get(texts.STAFF_UNAVAILABLE)!));
     n.segDone(back);
@@ -521,9 +541,32 @@ async function main(): Promise<void> {
     t.s.onGwEvent({ type: 'leg_answered', at: 0, leg: 1, request_id: d3.request_id });
     t.timers.fire(); // hold timeout
     assert.deepStrictEqual(t.gw.last('hangup'), { type: 'hangup', leg: 1 });
-    assert.strictEqual(t.gw.last('resume').leg, 0);
+    assert.strictEqual(t.s.state().modelIn[0], 0, 'caller back with the model');
     assert.strictEqual(t.s.state().warm, null);
     t.s.finish('test');
+
+    // SIP hold (re-INVITE): refused by the PBX (488) -> local hold; accepted -> resumed when staff joins.
+    const sh = makeSession({ warm_transfer: { ...config.activeAgent().warm_transfer, hold_method: 'reinvite' } });
+    sh.s.onGwEvent({ type: 'answered', at: 0, leg: 0, codec: 'PCMU', srtp: true });
+    sh.segDone(sh.gw.last('segment').segment);
+    sh.ev.toolCall({ id: 'h1', name: 'warm_transfer', args: { destination: 'front_desk', reason: 'x' } });
+    sh.segDone(sh.gw.last('segment').segment);
+    assert.strictEqual(sh.gw.last('hold').leg, 0);
+    sh.s.onGwEvent({ type: 'hold_result', at: 0, leg: 0, code: 488, reason: 'reinvite_failed' });
+    sh.timers.fireMs(20_000);
+    assert.strictEqual(sh.gw.last('segment').leg, 0, 'refused SIP hold falls back to the local hold line');
+    sh.s.finish('test');
+    const sa = makeSession({ warm_transfer: { ...config.activeAgent().warm_transfer, hold_method: 'reinvite' } });
+    sa.s.onGwEvent({ type: 'answered', at: 0, leg: 0, codec: 'PCMU', srtp: true });
+    sa.segDone(sa.gw.last('segment').segment);
+    sa.ev.toolCall({ id: 'h2', name: 'warm_transfer', args: { destination: 'front_desk', reason: 'x' } });
+    sa.segDone(sa.gw.last('segment').segment);
+    sa.s.onGwEvent({ type: 'hold_result', at: 0, leg: 0, code: 200, reason: 'ok' });
+    const d5 = sa.gw.last('dial');
+    sa.s.onGwEvent({ type: 'leg_answered', at: 0, leg: 1, request_id: d5.request_id });
+    sa.s.onGwEvent({ type: 'dtmf', at: 0, leg: 1, digit: '1' });
+    assert.strictEqual(sa.gw.last('resume').leg, 0, 'SIP hold resumed at the hand-off');
+    sa.s.finish('test');
 
     // Caller hangs up during the consult: staff leg hung up too.
     const c = makeSession();
@@ -537,7 +580,7 @@ async function main(): Promise<void> {
     assert.deepStrictEqual(c.gw.last('hangup'), { type: 'hangup', leg: 1 });
     c.s.finish('test');
     console.log = origLog;
-    ok('warm transfer: allow-list, hold line + hold + dial, model hears only staff, DTMF 1 -> resume + conference + agent leaves (audited); no answer and hold timeout bring the caller back; caller hang-up drops staff');
+    ok('warm transfer: allow-list, hold line + local hold (repeats) + dial, briefing private to staff, model hears only staff, DTMF 1 -> conference + agent leaves (audited); SIP hold 488 -> local hold, accepted -> resume; no answer and hold timeout bring the caller back; caller hang-up drops staff');
   }
 
   // ── 6b. Outside numbers: allow-list, guardrails, dial limits, masking ──────────────────────────────────

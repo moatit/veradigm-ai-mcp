@@ -83,19 +83,32 @@ func (e *EchoGate) Filter(frame []int16) []int16 {
 
 // ArrivalJitter: RFC 3550-style interarrival jitter estimate from packet arrival times alone (expected spacing
 // 20 ms). Good enough to spot a bad network path; diago keeps the timestamp-based value internally.
+//
+// A pause longer than 500 ms (the far end stopped sending: hold, re-INVITE, silence suppression) is not jitter: it
+// is counted as a gap (Gaps, MaxGap) and left out of J and Max.
 type ArrivalJitter struct {
-	last time.Time
-	J    float64 // ms
-	Max  float64 // ms, largest single deviation
+	last   time.Time
+	J      float64 // ms
+	Max    float64 // ms, largest single deviation (gaps excluded)
+	Gaps   int
+	MaxGap float64 // ms
 }
 
 func (a *ArrivalJitter) Note(now time.Time) {
 	if !a.last.IsZero() {
-		d := math.Abs(float64(now.Sub(a.last).Microseconds())/1000 - 20)
-		if d > a.Max {
-			a.Max = d
+		gap := float64(now.Sub(a.last).Microseconds()) / 1000
+		if gap > 500 {
+			a.Gaps++
+			if gap > a.MaxGap {
+				a.MaxGap = gap
+			}
+		} else {
+			d := math.Abs(gap - 20)
+			if d > a.Max {
+				a.Max = d
+			}
+			a.J += (d - a.J) / 16
 		}
-		a.J += (d - a.J) / 16
 	}
 	a.last = now
 }

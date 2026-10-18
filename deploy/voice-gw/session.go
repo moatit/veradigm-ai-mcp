@@ -157,7 +157,7 @@ func (s *Session) legEnded(l *Leg) {
 	s.emit(Event{Type: "leg_hangup", Leg: l.idx, By: by, PktsIn: pin, PktsOut: pout, FirstInMs: intp(first)})
 	q := l.cm.Quality()
 	s.emit(Event{Type: "leg_quality", Leg: l.idx, Quality: &q})
-	s.g.log.Info("leg ended", "call", s.ref, "leg", l.idx, "kind", l.kind, "pkts_in", pin, "pkts_out", pout, "first_in_ms", first, "quality", q)
+	s.g.log.Info("leg ended", "call", s.ref, "leg", l.idx, "kind", l.kind, "pkts_in", pin, "pkts_out", pout, "first_in_ms", first, "quality", q.String())
 	s.mu.Lock()
 	delete(s.legs, l.idx)
 	left := len(s.legs)
@@ -433,6 +433,17 @@ func (s *Session) holdResume(l *Leg, hold bool, reqID string) {
 	ev := Event{Type: typ, Leg: l.idx, RequestID: reqID, Code: 200, Reason: "ok"}
 	if err != nil {
 		ev.Code, ev.Reason = responseCode(err), "reinvite_failed"
+		// The PBX's reason phrase and Warning header (no caller data) say why it refused.
+		var dp *sipgo.ErrDialogResponse
+		if errors.As(err, &dp) && dp != nil && dp.Res != nil {
+			warn := ""
+			if h := dp.Res.GetHeader("Warning"); h != nil {
+				warn = h.Value()
+			}
+			s.g.log.Warn("re-INVITE refused", "call", s.ref, "leg", l.idx, "code", dp.Res.StatusCode, "reason", dp.Res.Reason, "warning", warn)
+		} else {
+			s.g.log.Warn("re-INVITE failed", "call", s.ref, "leg", l.idx, "err", err.Error())
+		}
 	} else {
 		l.held = hold
 	}

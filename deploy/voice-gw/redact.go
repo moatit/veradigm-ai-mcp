@@ -8,8 +8,8 @@ import (
 )
 
 var (
-	// Long digit runs in SIP lines (caller numbers in From/PAI) keep only their last 4 digits.
-	digitsRe = regexp.MustCompile(`\+?\d{5,}`)
+	// Phone-number-length digit runs (7+) keep only their last 4 digits; counters and ports stay readable.
+	digitsRe = regexp.MustCompile(`\+?\d{7,}`)
 	// Digest Authorization values never reach the log.
 	digestRe = regexp.MustCompile(`(?i)(response|nonce|cnonce)="[^"]*"`)
 )
