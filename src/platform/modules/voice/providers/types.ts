@@ -35,6 +35,10 @@ export interface ProviderEvents {
   responseStarted(responseId: string): void;
   responseDone(responseId: string, status: 'completed' | 'cancelled' | 'failed' | 'incomplete'): void;
   error(code: string, fatal: boolean): void;
+  /** Billing counts (OpenAI response.done usage); never content. */
+  usage?(usage: any): void;
+  /** The in-session input transcription reported its usage (tokens or duration). */
+  transcriptionUsage?(usage: any): void;
   closed(code: string): void;
 }
 

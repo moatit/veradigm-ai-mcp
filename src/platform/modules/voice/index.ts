@@ -5,6 +5,7 @@ import { startDailyRetention } from '../../retention';
 import { AgentConfig, ENABLEABLE_TOOLS, HandoffAction, loadAgents, saveAgent, validateAgent } from './config';
 import { getVoiceHarness } from './gw-server';
 import { listVoiceCalls, pruneVoiceCalls, readVoiceCall } from './transcript';
+import { loadPrices, savePrices, validatePrices } from './usage';
 
 export { startVoiceHarness } from './gw-server';
 
@@ -110,16 +111,38 @@ function fromForm(b: any, prev: AgentConfig): any {
   };
 }
 
+function pricesForm(errors = ''): string {
+  return `<form method="post" action="${BASE}/prices" class="card"><h3 style="margin-top:0">Price table (USD)</h3>
+  <p class="muted" style="font-size:13px">Realtime models: USD per 1M tokens. Transcription: USD per minute of audio. Used for the estimated cost of each call; changing it needs no code change.</p>
+  ${errors ? `<div class="card" style="border-color:#c00">Not saved: ${esc(errors)}</div>` : ''}
+  <textarea name="prices" rows="14" style="width:100%;font-family:monospace">${esc(JSON.stringify(loadPrices(), null, 2))}</textarea>
+  <button type="submit">Save prices</button></form>`;
+}
+
 function callsTable(): string {
   const rows = listVoiceCalls(50);
   if (!rows.length) return '<div class="card muted">No voice calls yet.</div>';
-  return `<div class="card"><h3 style="margin-top:0">Recent voice calls</h3><table><tr><th>Started</th><th>Caller</th><th>Provider</th><th>Turns</th><th>p50 reply (ms)</th><th>Ended</th><th></th></tr>
+  return `<div class="card"><h3 style="margin-top:0">Recent voice calls</h3><table><tr><th>Started</th><th>Caller</th><th>Provider</th><th>Turns</th><th>p50 reply (ms)</th><th>Minutes</th><th>Est. cost</th><th>Per minute</th><th>Ended</th><th></th></tr>
 ${rows
   .map(
-    (r) => `<tr><td>${esc(r.started_at.replace('T', ' ').slice(0, 19))}</td><td>...${esc(r.caller_last4)}</td><td>${esc(r.provider)}</td><td>${r.turns}</td><td>${r.p50_ms ?? '-'}</td><td>${esc(r.end_reason || 'in progress')}</td>
+    (r) => `<tr><td>${esc(r.started_at.replace('T', ' ').slice(0, 19))}</td><td>...${esc(r.caller_last4)}</td><td>${esc(r.provider)}</td><td>${r.turns}</td><td>${r.p50_ms ?? '-'}</td><td>${r.duration_s !== null ? (r.duration_s / 60).toFixed(1) : '-'}</td><td>${r.cost_usd !== null ? `$${r.cost_usd.toFixed(4)}` : '-'}</td><td>${r.per_minute_usd !== null ? `$${r.per_minute_usd.toFixed(4)}` : '-'}</td><td>${esc(r.end_reason || 'in progress')}</td>
 <td><a href="${BASE}/calls/${encodeURIComponent(r.call_id)}">Transcript</a></td></tr>`
   )
   .join('')}</table></div>`;
+}
+
+function usageCard(rec: any): string {
+  const u = rec.usage;
+  if (!u) return '';
+  const r = u.realtime;
+  const c = u.cost;
+  const legs = Object.entries<any>(u.transcription || {})
+    .map(([leg, t]) => `<li>${esc(leg)}: ${t.audio_seconds} s sent to ${esc(t.model)}${t.reported_seconds ? `, ${t.reported_seconds} s reported` : ''}${t.input_tokens ? `, ${t.input_tokens} in / ${t.output_tokens} out tokens` : ''}</li>`)
+    .join('');
+  return `<div class="card"><h3 style="margin-top:0">Usage and estimated cost</h3>
+  <div>Model ${esc(u.model)}: ${r.responses} responses; input audio ${r.input_audio_uncached} + ${r.input_audio_cached} cached, input text ${r.input_text_uncached} + ${r.input_text_cached} cached, output audio ${r.output_audio}, output text ${r.output_text} tokens.</div>
+  <ul>${legs || '<li>no transcription</li>'}</ul>
+  <div>Duration ${(u.duration_s / 60).toFixed(2)} min. ${c ? `Estimated $${c.total_usd.toFixed(4)} (model $${c.realtime_usd.toFixed(4)}, transcription $${c.transcription_usd.toFixed(4)}), <strong>$${c.per_minute_usd.toFixed(4)} per minute</strong>${c.priced ? '' : ' (a model is missing from the price table)'}.` : ''}</div></div>`;
 }
 
 export const voiceModule: PlatformModule = {
@@ -131,7 +154,23 @@ export const voiceModule: PlatformModule = {
     router.get('/', (req, res) => {
       const store = loadAgents();
       const a = store.agents.find((x) => x.id === store.active) || store.agents[0];
-      res.send(page('Phone agent · Drawbridge', `<h2>Phone agent (voice harness)</h2>${statusCard()}${form(a)}${callsTable()}`, { user: (req as any).drawbridgeUser, active: '/voice' }));
+      res.send(page('Phone agent · Drawbridge', `<h2>Phone agent (voice harness)</h2>${statusCard()}${form(a)}${callsTable()}${pricesForm()}`, { user: (req as any).drawbridgeUser, active: '/voice' }));
+    });
+    router.post('/prices', (req, res) => {
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(String(req.body?.prices || ''));
+      } catch {
+        res.status(400).send(page('Phone agent · Drawbridge', pricesForm('not valid JSON'), { user: (req as any).drawbridgeUser, active: '/voice' }));
+        return;
+      }
+      const v = validatePrices(parsed);
+      if (!v.ok) {
+        res.status(400).send(page('Phone agent · Drawbridge', pricesForm(v.error), { user: (req as any).drawbridgeUser, active: '/voice' }));
+        return;
+      }
+      savePrices({ ...v.table, updated_at: new Date().toISOString().slice(0, 10) });
+      res.redirect(303, BASE);
     });
     router.post('/agent', (req, res) => {
       const store = loadAgents();
@@ -171,6 +210,7 @@ export const voiceModule: PlatformModule = {
           `<h2>Voice call ${esc(rec.call_id)}</h2>
 <div class="card">Caller ...${esc(rec.caller_last4)} · ${esc(rec.provider)} ${esc(rec.model)} (${esc(rec.voice)}) · media ${esc(rec.media.codec)} ${rec.media.srtp ? 'SRTP' : '<strong>unencrypted RTP</strong>'} · ${esc(rec.started_at)} to ${esc(rec.ended_at || 'now')} · ${esc(rec.end_reason)}</div>
 <div class="card"><h3 style="margin-top:0">Transcript</h3><table>${lines}</table></div>
+${usageCard(rec)}
 <div class="card"><h3 style="margin-top:0">Turn latency (caller end of speech to first agent audio)</h3>${lat.length ? `<ul>${lat.map((l) => `<li>${l}</li>`).join('')}</ul>` : '<span class="muted">none</span>'}</div>`,
           { user: (req as any).drawbridgeUser, active: '/voice' }
         )

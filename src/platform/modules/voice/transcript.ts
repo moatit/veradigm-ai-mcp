@@ -5,6 +5,7 @@ import { retentionDaysFrom } from '../../retention';
 import { upsertCallIndex } from '../activity/retell-events';
 import { callRecords } from '../../../unity/oncall/call-records';
 import { voiceDir } from './config';
+import { CallUsage } from './usage';
 
 /**
  * Voice call records with live transcripts (PHI): one JSON file per call on the data volume
@@ -63,6 +64,8 @@ export interface VoiceCallRecord {
   turns: TurnMetric[];
   handoffs: Array<{ at: string; action: string; target: string; result: string }>;
   quality: Record<string, unknown>;
+  /** Billing counts and estimated cost (no content). */
+  usage?: CallUsage;
   end_reason: string;
 }
 
@@ -80,7 +83,13 @@ export function readVoiceCall(callId: string): VoiceCallRecord | null {
   }
 }
 
-export type VoiceCallRow = Pick<VoiceCallRecord, 'call_id' | 'started_at' | 'ended_at' | 'caller_last4' | 'provider' | 'end_reason'> & { turns: number; p50_ms: number | null };
+export type VoiceCallRow = Pick<VoiceCallRecord, 'call_id' | 'started_at' | 'ended_at' | 'caller_last4' | 'provider' | 'end_reason'> & {
+  turns: number;
+  p50_ms: number | null;
+  cost_usd: number | null;
+  per_minute_usd: number | null;
+  duration_s: number | null;
+};
 
 export function listVoiceCalls(limit = 100): VoiceCallRow[] {
   let names: string[] = [];
@@ -103,6 +112,9 @@ export function listVoiceCalls(limit = 100): VoiceCallRow[] {
         end_reason: r.end_reason,
         turns: r.turns.length,
         p50_ms: lat.length ? lat[Math.floor((lat.length - 1) / 2)] : null,
+        cost_usd: r.usage?.cost?.total_usd ?? null,
+        per_minute_usd: r.usage?.cost?.per_minute_usd ?? null,
+        duration_s: r.usage?.duration_s ?? null,
       });
     } catch {
       // skip a partial file
@@ -214,8 +226,9 @@ export class CallTranscript {
     this.rec.media = { transport: 'tls', codec, srtp };
   }
 
-  finish(reason: string, quality: Record<string, unknown>): void {
+  finish(reason: string, quality: Record<string, unknown>, usage?: CallUsage): void {
     this.rec.ended_at = new Date().toISOString();
+    if (usage) this.rec.usage = usage;
     this.rec.end_reason = reason.slice(0, 40);
     this.rec.quality = quality;
     this.flush();

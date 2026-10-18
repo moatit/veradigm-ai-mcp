@@ -9,6 +9,7 @@ import { fillerFor, WARM_TOOLS } from './tools';
 import { allowedByList, classifyTarget, dialLimitHit, takeHourlySlot } from './dialplan';
 import { ProviderEvents, VoiceProvider } from './providers/types';
 import { Transcriber, TranscriberFactory } from './providers/transcriber';
+import { addRealtimeUsage, addTranscriptionUsage, CallUsage, emptyRealtime, emptyTranscription, priceCall } from './usage';
 
 /**
  * One phone call through the voice harness, in the Drawbridge server process.
@@ -126,6 +127,10 @@ export class CallSession {
   private quality: Record<string, unknown> = {};
   private reqN = 0;
   private dialsThisCall = 0;
+  private startedAt = Date.now();
+  /** Billing counts: model usage per response.done, transcription per leg (label -> usage). */
+  readonly usage: CallUsage;
+  private bytesToModelFromLeg0 = 0;
   private transferReq = new Map<string, { action: HandoffAction; toolCallId: string }>();
 
   constructor(o: SessionOptions) {
@@ -133,6 +138,7 @@ export class CallSession {
     this.callId = o.callId;
     this.t = o.timers || realTimers;
     this.rate = o.provider.pcmRate;
+    this.usage = { model: o.agent.model, realtime: emptyRealtime(), transcription: {}, duration_s: 0 };
   }
 
   private log(line: string): void {
@@ -167,6 +173,8 @@ export class CallSession {
         this.currentResp = id;
       },
       responseDone: (id) => this.onResponseDone(id),
+      usage: (u) => addRealtimeUsage(this.usage.realtime, u),
+      transcriptionUsage: (u) => addTranscriptionUsage(this.legUsage(0, this.inputTranscribeModel()), u),
       error: (code, fatal) => {
         this.log(`provider error ${code}${fatal ? ' (fatal)' : ''}`);
         if (fatal) this.failHard('provider_error');
@@ -260,6 +268,9 @@ export class CallSession {
     if (!this.agentPresent || !this.modelIn.has(leg)) return;
     if (this.modelIn.size === 1) {
       this.o.provider.sendAudio(pcm);
+      // The model's own input transcription bills the audio it hears (caller leg; staff leg during a consult).
+      const tu = this.legUsage(leg, this.inputTranscribeModel());
+      tu.audio_seconds += pcm.length / 2 / this.rate;
       return;
     }
     // Several human legs feed the model (agent stayed in a conference): mix them on the lowest leg's clock.
@@ -778,10 +789,31 @@ export class CallSession {
     this.localHold = null;
   }
 
+  /** The model that transcribes what the realtime model hears (ElevenLabs: its own speech recognition, unpriced). */
+  private inputTranscribeModel(): string {
+    return this.o.provider.name === 'elevenlabs' ? 'elevenlabs-asr' : process.env.VOICE_OPENAI_TRANSCRIBE_MODEL || 'gpt-4o-transcribe';
+  }
+
+  /** Usage bucket for a leg's transcription (keyed by its speaker label: caller, staff:<ext or ...last4>). */
+  private legUsage(leg: number, model: string) {
+    const key = this.o.transcript.speakerOf(leg);
+    if (!this.usage.transcription[key]) this.usage.transcription[key] = emptyTranscription(model);
+    return this.usage.transcription[key];
+  }
+
   private startTranscriber(leg: number): void {
     if (!this.o.transcriber || this.transcribers.has(leg)) return;
     try {
-      this.transcribers.set(leg, this.o.transcriber(this.rate, (text) => this.o.transcript.humanSpeech(leg, text)));
+      const model = process.env.VOICE_OPENAI_TRANSCRIBE_MODEL || 'gpt-4o-transcribe';
+      const tu = this.legUsage(leg, model);
+      const inner = this.o.transcriber(this.rate, (text) => this.o.transcript.humanSpeech(leg, text), (u) => addTranscriptionUsage(tu, u));
+      this.transcribers.set(leg, {
+        send: (pcm: Buffer) => {
+          tu.audio_seconds += pcm.length / 2 / this.rate;
+          inner.send(pcm);
+        },
+        close: () => inner.close(),
+      });
     } catch {
       this.log(`transcriber for leg ${leg} unavailable`);
     }
@@ -839,7 +871,21 @@ export class CallSession {
     for (const [, tr] of this.transcribers) tr.close();
     this.transcribers.clear();
     callBindings.forget(this.callId);
-    this.o.transcript.finish(this.endReason || reason, this.quality);
+    this.usage.duration_s = Math.round((Date.now() - this.startedAt) / 100) / 10;
+    for (const t of Object.values(this.usage.transcription)) t.audio_seconds = Math.round(t.audio_seconds * 10) / 10;
+    try {
+      this.usage.cost = priceCall(this.usage);
+    } catch {
+      // pricing never blocks the call record
+    }
+    const c = this.usage.cost;
+    const r = this.usage.realtime;
+    this.log(
+      `usage model=${this.usage.model} responses=${r.responses} in_audio=${r.input_audio_uncached}+${r.input_audio_cached}c in_text=${r.input_text_uncached}+${r.input_text_cached}c ` +
+        `out_audio=${r.output_audio} out_text=${r.output_text} transcribe_s=${Object.values(this.usage.transcription).reduce((a, t) => a + t.audio_seconds, 0).toFixed(1)} ` +
+        `duration_s=${this.usage.duration_s} cost_usd=${c ? c.total_usd.toFixed(4) : '-'} per_min_usd=${c ? c.per_minute_usd.toFixed(4) : '-'}${c && !c.priced ? ' (unpriced model)' : ''}`
+    );
+    this.o.transcript.finish(this.endReason || reason, this.quality, this.usage);
     this.audit('call_end', true, undefined, (this.endReason || reason).slice(0, 40), Date.now() - Date.parse(this.o.transcript.rec.started_at));
     this.log(`ended ${this.endReason || reason}`);
   }
