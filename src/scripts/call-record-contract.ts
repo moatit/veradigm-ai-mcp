@@ -89,8 +89,10 @@ export async function buildContractCases(): Promise<ContractCase[]> {
     await add('no start time: started_at null', 'call_analyzed', call('call_c_nostart', { start_timestamp: undefined, end_timestamp: undefined, duration_ms: undefined }));
     await add('no agent ID: agent_id null', 'call_analyzed', call('call_c_noagent', { agent_id: undefined }));
     await add('agent ID outside the format: null', 'call_analyzed', call('call_c_badagent', { agent_id: 'Agent Zelda +1 208 555 0142' }));
-    await add('agent ID with a 7+ digit run: null', 'call_analyzed', call('call_c_digitagent', { agent_id: 'agent_1234567abcdefabcdefabcdef' }));
-    await add('short agent ID (vendor format, 8 chars)', 'call_analyzed', call('call_c_shortagent', { agent_id: 'agent_a1b2c3d4' }));
+    await add('vendor agent ID with a 7+ digit run: kept', 'call_analyzed', call('call_c_digitagent', { agent_id: 'agent_1234567abcdefabcdefabcde' }));
+    await add('agent ID shorter than 20 hex: null', 'call_analyzed', call('call_c_shortagent', { agent_id: 'agent_a1b2c3d4' }));
+    await add('agent ID not lowercase hex: null', 'call_analyzed', call('call_c_upperagent', { agent_id: 'agent_5A1E5A1E5A1E5A1E5A1E5A1E5A' }));
+    await add('agent ID longer than 40 hex: null', 'call_analyzed', call('call_c_longagent', { agent_id: 'agent_' + 'ab'.repeat(21) }));
     await add('web call: no caller number, no repeat counts', 'call_analyzed', call('call_c_web', { call_type: 'web_call', direction: undefined, from_number: undefined, to_number: undefined }));
     await add('outbound call', 'call_analyzed', call('call_c_out', { direction: 'outbound' }));
     await add('undocumented disconnection reason: other', 'call_analyzed', call('call_c_disc', { disconnection_reason: 'error_brand_new_2031' }));

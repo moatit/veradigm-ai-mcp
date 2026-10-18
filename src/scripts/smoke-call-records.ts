@@ -142,9 +142,13 @@ async function main(): Promise<void> {
   const oddAgent = await ca.buildCallRecord('call_analyzed', analyzedCall('call_syn007', { agent_id: 'Agent Zelda 2085550142' }));
   assert.strictEqual(oddAgent!.agent_id, null, 'an agent ID outside the vendor format is null (N2)');
   const shortAgent = await ca.buildCallRecord('call_analyzed', analyzedCall('call_syn008', { agent_id: 'agent_synthetic01' }));
-  assert.strictEqual(shortAgent!.agent_id, 'agent_synthetic01', 'agent_ + 8..64 letters or digits is kept');
-  const digitAgent = await ca.buildCallRecord('call_analyzed', analyzedCall('call_syn010', { agent_id: 'agent_1234567abcdefabcdefabcdef' }));
-  assert.strictEqual(digitAgent!.agent_id, null, 'an agent ID with a 7+ digit run is null, as the admin schema requires');
+  assert.strictEqual(shortAgent!.agent_id, null, 'not the vendor format (agent_ + 20..40 lowercase hex)');
+  const digitAgent = await ca.buildCallRecord('call_analyzed', analyzedCall('call_syn010', { agent_id: 'agent_1234567abcdefabcdefabcde' }));
+  assert.strictEqual(digitAgent!.agent_id, 'agent_1234567abcdefabcdefabcde', 'a vendor hex ID with a 7+ digit run is kept');
+  for (const bad of ['agent_5A1E5A1E5A1E5A1E5A1E5A1E5A', 'agent_' + 'ab'.repeat(21), 'agent_0123456789abcdef012', 'agent_2085550142', 'call_5a1e5a1e5a1e5a1e5a1e5a1e5a']) {
+    const rec = await ca.buildCallRecord('call_analyzed', analyzedCall('call_syn013', { agent_id: bad }));
+    assert.strictEqual(rec!.agent_id, null, `agent ID ${bad} is null`);
+  }
   const noAgent = await ca.buildCallRecord('call_analyzed', analyzedCall('call_syn011', { agent_id: undefined }));
   assert.strictEqual(noAgent!.agent_id, null);
   const noStart = await ca.buildCallRecord('call_analyzed', analyzedCall('call_syn012', { start_timestamp: undefined, end_timestamp: undefined, duration_ms: undefined }));
@@ -329,7 +333,7 @@ async function main(): Promise<void> {
     assert.deepStrictEqual(Object.keys(r).sort(), ALLOWED_KEYS, `${name}: keys`);
     assert.match(r.call_id, /^cr_[0-9a-f]{32}$/, `${name}: call_id`);
     assert.ok(r.started_at === null || HOUR.test(r.started_at), `${name}: started_at`);
-    assert.ok(r.agent_id === null || (/^agent_[A-Za-z0-9]{8,64}$/.test(r.agent_id) && noLong(r.agent_id)), `${name}: agent_id`);
+    assert.ok(r.agent_id === null || /^agent_[0-9a-f]{20,40}$/.test(r.agent_id), `${name}: agent_id`);
     assert.ok(r.practice_id === '' || /^[a-z0-9][a-z0-9-]{0,39}$/.test(r.practice_id), `${name}: practice_id`);
     assert.ok(/^[a-z0-9_]{0,48}$/.test(r.disconnection_reason), `${name}: disconnection_reason`);
     assert.ok(r.tools.length <= 40, `${name}: at most 40 tools`);
@@ -338,7 +342,10 @@ async function main(): Promise<void> {
   }
   assert.strictEqual(byName.get('no start time: started_at null').started_at, null);
   assert.strictEqual(byName.get('no agent ID: agent_id null').agent_id, null);
-  assert.strictEqual(byName.get('agent ID with a 7+ digit run: null').agent_id, null);
+  assert.strictEqual(byName.get('vendor agent ID with a 7+ digit run: kept').agent_id, 'agent_1234567abcdefabcdefabcde');
+  for (const n of ['agent ID shorter than 20 hex: null', 'agent ID not lowercase hex: null', 'agent ID longer than 40 hex: null', 'agent ID outside the format: null']) {
+    assert.strictEqual(byName.get(n).agent_id, null, n);
+  }
   assert.strictEqual(byName.get('half-hour offset clinic (+05:30)').started_at, '2026-10-14T21:00:00+05:30');
   assert.strictEqual(byName.get('more than 40 tools: capped at 40').tools.length, 40);
   assert.deepStrictEqual(byName.get('analyzed inbound call with tools (odd tool names left out)').tools.map((t: any) => t.name), ['unity_get_patient_appointments', 'drawbridge_create_staff_task']);

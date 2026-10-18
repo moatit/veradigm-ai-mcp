@@ -100,7 +100,7 @@ export interface CallAnalyticsRecord {
    *  app can upsert by it, but it can't be used to open the call at the vendor. */
   call_id: string;
   practice_id: string;
-  /** The vendor's agent ID, or null when it sent none or one outside AGENT_ID_RE / with a long digit run. */
+  /** The vendor's agent ID (agent_ + 20..40 lowercase hex), or null when it sent none or anything else. */
   agent_id: string | null;
   agent_version: number | null;
   /** Start of the hour the call began, in clinic local time, with its UTC offset (e.g. 2026-10-14T10:00:00-06:00);
@@ -129,15 +129,16 @@ export interface CallAnalyticsRecord {
  * mismatch there is a 400 and the forwarder drops the record). Checked on both sides by the contract test
  * (npm run contract:call-records here, lib/call-records/contract.test.ts there):
  *   call_id      ^cr_[0-9a-f]{32}$
- *   agent_id     ^agent_[A-Za-z0-9]{8,64}$ with no run of 7+ digits, else null
+ *   agent_id     ^agent_[0-9a-f]{20,40}$ (the vendor's exact format; set by the platform, never by a
+ *                caller, so no digit-run rule: random hex often has one), else null
  *   started_at   clinic-local hour start with offset (^\d{4}-\d{2}-\d{2}T\d{2}:00:00[+-]\d{2}:\d{2}$), else null
  *   tools[].name ^[a-z][a-z0-9_]{0,48}$ with no run of 7+ digits; anything else is left out
  */
-export const AGENT_ID_RE = /^agent_[A-Za-z0-9]{8,64}$/;
+export const AGENT_ID_RE = /^agent_[0-9a-f]{20,40}$/;
 export const TOOL_NAME_RE = /^[a-z][a-z0-9_]{0,48}$/;
 const LONG_DIGITS = /\d{7,}/;
 export const contractAgentId = (v: unknown): string | null =>
-  typeof v === 'string' && AGENT_ID_RE.test(v) && !LONG_DIGITS.test(v) ? v : null;
+  typeof v === 'string' && AGENT_ID_RE.test(v) ? v : null;
 export const contractToolName = (v: unknown): string =>
   typeof v === 'string' && TOOL_NAME_RE.test(v) && !LONG_DIGITS.test(v) ? v : '';
 

@@ -73,7 +73,7 @@ Built by `buildCallRecord()` in `src/platform/modules/activity/call-analytics.ts
 | `schema` | constant `1` | |
 | `call_id` | `call.call_id` | **Not the vendor ID:** `"cr_"` + the first 32 hex characters of `HMAC-SHA256(CALL_ANALYTICS_HASH_KEY, "drawbridge-call\|" + vendor call ID)`. It's the same for every event of a call, so the admin app can upsert. Without the stack key it can't be turned back into the vendor ID. To look a call up in the stack, compute `callRef(<vendor call ID>)` there. |
 | `practice_id` | `DRAWBRIDGE_PRACTICE_ID` | Lowercase slug, for example `sagebrush-kidney`. |
-| `agent_id`, `agent_version` | `call.agent_id`, `call.agent_version` | For comparing prompt versions. `agent_id` must match `^agent_[A-Za-z0-9]{8,64}$` with no run of 7+ digits (the admin schema's rule; the vendor's format is `agent_` + 26 hex today), otherwise it is sent as `null`. |
+| `agent_id`, `agent_version` | `call.agent_id`, `call.agent_version` | For comparing prompt versions. `agent_id` must match `^agent_[0-9a-f]{20,40}$`, the vendor's exact format (`agent_` + 26 lowercase hex today), otherwise it is sent as `null`. It's set by the voice platform, never by a caller, so the digit-run rule doesn't apply to it: random hex often has a run of 7+ digits. |
 | `started_at` | `start_timestamp` | **The start of the hour** in clinic local time (`CLINIC_TIMEZONE`), with its offset, for example `2026-10-14T10:00:00-06:00`. The exact time stays in the stack. `null` (never `""`) when the platform sent no start time; the admin stores it as NULL and leaves it out of date-filtered reports. |
 | `duration_s` | `duration_ms` | Seconds. |
 | `direction` | `call_type` / `direction` | `inbound`, `outbound` or `web`. |
