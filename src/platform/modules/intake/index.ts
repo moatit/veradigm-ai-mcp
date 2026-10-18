@@ -12,6 +12,8 @@ import { startFolderWatcher, startWatchFolders } from './folder';
 import { MoatitFaxClient, setFaxRecordedHandler } from './moatit-fax';
 import { ALWAYS_PERSON_LABEL, alwaysPersonType, RECIPIENT_SOURCE_LABEL } from './rules';
 import { observeEnabled, StaffFilingObserver } from './observe';
+import { QueueSource, queueSourceState } from './queue-source';
+import { startAliveMarker } from './server-lock';
 import { OcrClient } from './ocr';
 import { IntakePipeline } from './pipeline';
 import { rosterPath } from './roster';
@@ -88,7 +90,7 @@ export const KIND_LABEL: Record<DocumentKind, string> = {
   referral: 'Referral',
   other: 'Other',
 };
-const SOURCE_LABEL = { moatit_fax: 'MOATiT Fax', folder: 'Drop folder', upload: 'Staff upload' } as const;
+const SOURCE_LABEL = { moatit_fax: 'MOATiT Fax', folder: 'Drop folder', upload: 'Staff upload', veradigm_queue: 'Veradigm® EHR indexing queue' } as const;
 const DECISION_LABEL = { auto: 'Two identifiers match', review: 'Check the patient', none: 'No match', ambiguous: 'More than one patient', error: 'Search failed' } as const;
 const DECISION_PILL = { auto: 'ok', review: 'warn', none: 'warn', ambiguous: 'warn', error: 'urgent' } as const;
 const ID_LABEL: Record<string, string> = { mrn: 'MRN', phone: 'Phone', ssn4: 'SSN last 4', address: 'Address' };
@@ -357,6 +359,8 @@ function notifyCard(i: IntakeItem): string {
 let stopWatcher: (() => void) | null = null;
 let stopWatchDirs: (() => void) | null = null;
 let stopObserver: (() => void) | null = null;
+let stopQueueSource: (() => void) | null = null;
+let stopAlive: (() => void) | null = null;
 let docTypeCache: DocTypeSource | null = null;
 /** Shadow mode: the read-only patient search for the Confirm panel. */
 let shadowRunTool: ((name: string, args: any) => Promise<any>) | null = null;
@@ -576,6 +580,9 @@ export const intakeModule: PlatformModule = {
   },
 
   start(deps) {
+    // Tells offline tools (intake:purge-shadow) that this server holds the store in memory.
+    stopAlive?.();
+    stopAlive = startAliveMarker(intakeStore().dir);
     if (shadowMode()) {
       // Read-only Veradigm: the patient search and GetDocumentType only (INTAKE_CATEGORIES_CSV as the
       // fallback, INTAKE_ROSTER_CSV instead of the search when set). No filing deps: nothing can be filed.
@@ -587,8 +594,20 @@ export const intakeModule: PlatformModule = {
       // Ground truth from staff's own filing in Veradigm EHR, read back later (observe.ts).
       stopObserver?.();
       stopObserver = observeEnabled() ? new StaffFilingObserver({ store: intakeStore, unity: deps.unity, runTool: deps.runTool, ocr: () => OcrClient.fromEnv() }).start() : null;
-      console.log(`[Intake] shadow mode: nothing is filed; patients from ${rosterPath() ? 'the local patient list' : 'the Veradigm search (read-only)'}; staff filing observer ${stopObserver ? 'on' : 'off'}`);
+      // Documents straight from the clinic's Veradigm EHR indexing queue (read-only; nothing changes for the clinic).
+      stopQueueSource?.();
+      stopQueueSource = queueSourceState() === 'on' && deps.unity ? new QueueSource({ store: intakeStore, unity: deps.unity, onAdded: (id) => intakePipeline.enqueue(id) }).start() : null;
+      if (queueSourceState() === 'refused_mixed') {
+        console.error('[Intake] INTAKE_QUEUE_SOURCE refused: another source of the same documents is configured (INTAKE_WATCH_DIRS or the MOATiT Fax webhook). Use one source for the shadow week.');
+      }
+      console.log(
+        `[Intake] shadow mode: nothing is filed; patients from ${rosterPath() ? 'the local patient list' : 'the Veradigm search (read-only)'}; staff filing observer ${stopObserver ? 'on' : 'off'}; indexing queue as a source ${stopQueueSource ? 'on' : 'off'}`
+      );
     } else {
+      stopQueueSource?.();
+      stopQueueSource = null;
+      // Live mode never reads the queue as a source: filing a copy would leave the original there as a duplicate.
+      if (queueSourceState() === 'refused_live') console.warn('[Intake] INTAKE_QUEUE_SOURCE is ignored outside shadow mode (documents must reach Drawbridge before the indexing queue)');
       docTypeCache = new DocTypeCache(deps.unity);
       intakePipeline.setDeps(deps, docTypeCache);
       setFilingDeps({ unity: deps.unity, store: intakeStore });
@@ -604,5 +623,7 @@ export const intakeModule: PlatformModule = {
     startDailyRetention('intake originals', () => intakeStore().pruneFiled(retentionDaysFrom('INTAKE_RETENTION_DAYS')));
     // Patient details on the records of filed documents (INTAKE_RECORD_RETENTION_DAYS, default 90).
     startDailyRetention('intake records', () => intakeStore().purgeRecords(retentionDaysFrom('INTAKE_RECORD_RETENTION_DAYS', 90)));
+    // Shadow-week copies that were never filed (shadow decisions, documents read from the indexing queue): 30 days.
+    startDailyRetention('intake shadow copies', () => intakeStore().purgeShadow(retentionDaysFrom('INTAKE_SHADOW_RETENTION_DAYS', 30)));
   },
 };

@@ -22,7 +22,12 @@ import type { GroundTruth, ShadowDecision, StaffObservation } from './shadow';
  * Stored document text has every full SSN masked to its last 4 (extract.ts redactSsn); the original
  * file is kept as received.
  */
-export type IntakeSource = 'moatit_fax' | 'folder' | 'upload';
+/** veradigm_queue: read from the clinic's Veradigm® EHR indexing queue in shadow mode (queue-source.ts); never filed. */
+export type IntakeSource = 'moatit_fax' | 'folder' | 'upload' | 'veradigm_queue';
+/** Dedupe key of a document read from the Veradigm® EHR indexing queue: one item per DocumentID, ever. */
+export const queueRef = (documentId: string): string => `vq:${documentId}`;
+/** The queue DocumentID of an item read from the queue ('' for any other item). */
+export const queueDocumentId = (sourceRef: string): string => (String(sourceRef || '').startsWith('vq:') ? sourceRef.slice(3) : '');
 /** 'split': a file with several patients, split into one part (child item) per patient; never filed itself. */
 export type IntakeStatus = 'received' | 'read' | 'matched' | 'needs_review' | 'filed' | 'sent_to_indexing' | 'split' | 'failed';
 export const INTAKE_STATUSES: IntakeStatus[] = ['received', 'read', 'matched', 'needs_review', 'filed', 'sent_to_indexing', 'split', 'failed'];
@@ -51,6 +56,8 @@ export interface IntakeItem {
   /** MOATiT Fax job ID (fax items only). */
   job_id?: string;
   received_at: string;
+  /** Items read from the Veradigm® EHR indexing queue: when the document arrived in the queue (its SortDate), not when Drawbridge read it. */
+  queue_at?: string;
   updated_at: string;
   status: IntakeStatus;
   file?: IntakeFile;
@@ -289,7 +296,7 @@ export class IntakeStore {
       status: 'received',
       file: { name: safeFileName(doc.name), mime, sha256: hash, size: doc.data.length, stored_as: storedAs },
       has_text: !!(doc.text && doc.text.trim()),
-      history: [{ ts, action: doc.source === 'upload' ? 'uploaded' : 'picked up from drop folder', by: doc.by || 'drawbridge' }],
+      history: [{ ts, action: doc.source === 'upload' ? 'uploaded' : doc.source === 'veradigm_queue' ? 'read from the Veradigm® EHR indexing queue' : 'picked up from drop folder', by: doc.by || 'drawbridge' }],
     };
     this.load().push(item);
     this.persist();
@@ -456,6 +463,48 @@ export class IntakeStore {
       item.has_text = false;
       item.purged_at = ts;
       item.history.push({ ts, action: `patient details removed after ${days} days (retention)`, by: 'drawbridge' });
+      purged++;
+    }
+    if (purged) this.persist();
+    return purged;
+  }
+
+  /**
+   * Shadow-week retention (HIPAA 164.310(d)(2)(i) disposal): items from shadow mode (a shadow decision, or read
+   * from the Veradigm® EHR indexing queue) that were never filed are PHI copies with no chart record behind them.
+   * Once received more than `days` ago, their original and text are deleted and their patient details removed,
+   * like purgeRecords. What the shadow report needs stays, by ID only: the decision (code, patient key, category)
+   * and staff's answer and observed filing (patient key, category). `days` = 0 purges every such item now (go-live
+   * or switch-off: `npm run intake:purge-shadow`). Filed items are left to purgeRecords. Returns records purged.
+   */
+  purgeShadow(days: number): number {
+    const cutoff = this.now().getTime() - Math.max(0, days) * 86_400_000;
+    const ts = this.now().toISOString();
+    const keyOnly = (p?: { key: string }) => (p ? ({ key: p.key, name: '', dateOfBirth: '', mrn: '' } as any) : undefined);
+    let purged = 0;
+    for (const item of this.load()) {
+      if (item.purged_at) continue;
+      if (!item.shadow && item.source !== 'veradigm_queue') continue;
+      if (item.status === 'filed' || item.status === 'sent_to_indexing' || item.filed?.document_id) continue;
+      if (Date.parse(item.received_at) > cutoff) continue;
+      for (const name of [item.file?.stored_as, `${item.id}.txt`]) {
+        if (!name || !/^[\w.-]+$/.test(name)) continue;
+        try {
+          fs.unlinkSync(path.join(this.filesDir, name));
+        } catch {
+          // already gone
+        }
+      }
+      const p = item.match?.patient;
+      for (const k of ['extracted', 'note', 'sender_fax', 'pages_check'] as const) delete item[k];
+      if (item.match) item.match = { ...item.match, reason: '', patient: p ? ({ patientId: p.patientId, chartPatientId: p.chartPatientId } as any) : undefined };
+      if (item.shadow) item.shadow = { ...item.shadow, reason: '' };
+      if (item.truth) item.truth = { ...item.truth, patient: keyOnly(item.truth.patient), parts: item.truth.parts?.map((x) => ({ ...x, patient: keyOnly(x.patient) })) };
+      if (item.observed) item.observed = { ...item.observed, patient: keyOnly(item.observed.patient) };
+      if (item.file) item.file = { ...item.file, name: 'document' };
+      item.has_text = false;
+      item.purged_at = ts;
+      item.history.push({ ts, action: days > 0 ? `shadow-week copy deleted after ${days} days (retention)` : 'shadow-week copy deleted (shadow week ended)', by: 'drawbridge' });
       purged++;
     }
     if (purged) this.persist();

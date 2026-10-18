@@ -111,6 +111,7 @@ const QUALITY_ORDER = ['Text layer (emailed or digital PDF)', 'OCR confidence 85
 export function originOf(root: IntakeItem): string {
   if (root.source === 'moatit_fax') return 'MOATiT Fax';
   if (root.source === 'upload') return 'Staff upload';
+  if (root.source === 'veradigm_queue') return 'Veradigm EHR indexing queue';
   if (root.source_ref.startsWith('watch:')) return 'Watched folder (e.g. Express Lab)';
   if (/^imp-[0-9a-f]{8,}/.test(root.file?.name || '')) return 'Bulk import (old faxes)';
   return 'Drop folder';

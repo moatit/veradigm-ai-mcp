@@ -49,7 +49,8 @@
     "staff:user": "ts-node src/scripts/staff-user.ts",
     "audit:verify": "ts-node src/scripts/audit-verify.ts",
     "docs:hipaa": "ts-node src/scripts/docs-hipaa.ts",
-    "server:shadow": "ts-node src/platform/shadow-server.ts"
+    "server:shadow": "ts-node src/platform/shadow-server.ts",
+    "intake:purge-shadow": "ts-node src/scripts/intake-purge-shadow.ts"
   },
   "keywords": [
     "mcp",

@@ -31,8 +31,9 @@ export function prepareShadowEnv(env: NodeJS.ProcessEnv = process.env): ShadowSt
     env.UNITY_UBIQUITY_ENDPOINT = 'https://veradigm-not-configured.invalid/UnityService.svc';
     delete env.UNITY_PM_USERNAME;
     delete env.UNITY_PM_PASSWORD;
-    // The staff filing observer reads Veradigm EHR: nothing to observe without it.
+    // The staff filing observer and the queue source read Veradigm EHR: nothing to observe or read without it.
     env.INTAKE_OBSERVE = 'off';
+    env.INTAKE_QUEUE_SOURCE = 'off';
   }
   return { veradigm, roster: !!String(env.INTAKE_ROSTER_CSV || '').trim() };
 }
@@ -49,6 +50,7 @@ export async function createShadowApp(startup: ShadowStartup) {
   const { auditToolCall } = await import('./audit');
   const { intakeModule, mountFaxWebhook } = await import('./modules/intake');
   const { lockUnityReadOnly, shadowMode } = await import('./modules/intake/shadow');
+  const { queueSourceState } = await import('./modules/intake/queue-source');
   const { toToolFailure } = await import('../unity/utils/tool-result');
 
   if (!shadowMode()) throw Object.assign(new Error('This server runs only with INTAKE_MODE=shadow.'), { code: 'NOT_SHADOW' });
@@ -85,7 +87,7 @@ export async function createShadowApp(startup: ShadowStartup) {
       console.error(`[Intake shadow] Veradigm ${l.target} sign-in still stopped (refused ${l.stage} at ${l.at}): live patient search refused locally until it is retried or the credentials change`);
     }
     unity = new UnityService(auth);
-    lockUnityReadOnly(unity); // SearchPatients and GetDocumentType only, whoever holds the service
+    lockUnityReadOnly(unity); // the read actions in SHADOW_READ_ACTIONS only, whoever holds the service
     const patients = new UnityPatientTools(unity);
     search = (args) => patients.searchPatients(args);
   }
@@ -115,7 +117,7 @@ export async function createShadowApp(startup: ShadowStartup) {
     next();
   });
   app.get('/health', (_req, res) => {
-    res.json({ status: 'healthy', server: 'intake-shadow', mode: 'shadow', filing: 'impossible', patient_search: startup.roster ? 'local list' : 'veradigm read-only' });
+    res.json({ status: 'healthy', server: 'intake-shadow', mode: 'shadow', filing: 'impossible', patient_search: startup.roster ? 'local list' : 'veradigm read-only', indexing_queue_source: queueSourceState() });
   });
   app.get('/', (_req, res) => res.redirect('/app/intake'));
   registerModule(intakeModule);

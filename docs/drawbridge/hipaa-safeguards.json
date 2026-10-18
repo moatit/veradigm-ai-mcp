@@ -208,11 +208,12 @@
       "citation": "164.310(d)(2)(i)",
       "section": "Physical safeguards",
       "requirement": "Dispose of ePHI securely.",
-      "plain": "Drawbridge deletes its working copies on a schedule: call records and outreach lists after 30 days, received documents 30 days after they are filed, and patient details on filed document records after 90 days. Storage is encrypted, so destroying the encryption key erases everything for good.",
-      "technical": "Daily retention jobs (CALL_RECORDS_, OUTREACH_, INTAKE_ RETENTION_DAYS 30; INTAKE_RECORD_RETENTION_DAYS 90); crypto-erase of the encrypted volume at end of life.",
+      "plain": "Drawbridge deletes its working copies on a schedule: call records and outreach lists after 30 days, received documents 30 days after they are filed, patient details on filed document records after 90 days, and shadow-week copies that were never filed after 30 days (or at once when the shadow week ends). Storage is encrypted, so destroying the encryption key erases everything for good.",
+      "technical": "Daily retention jobs (CALL_RECORDS_, OUTREACH_, INTAKE_ RETENTION_DAYS 30; INTAKE_RECORD_RETENTION_DAYS 90; INTAKE_SHADOW_RETENTION_DAYS 30, and npm run intake:purge-shadow at go-live or switch-off); crypto-erase of the encrypted volume at end of life.",
       "evidence": [
-        "src/platform/modules/intake/store.ts:435",
-        "src/platform/retention.ts:24"
+        "src/platform/modules/intake/store.ts:442",
+        "src/platform/modules/intake/store.ts:480",
+        "src/platform/retention.ts:26"
       ],
       "status": "FIXED",
       "status_label": "In place",
@@ -337,7 +338,7 @@
       "plain": "All Drawbridge data is kept on encrypted volumes (AES), and backups are encrypted too. Disk encryption is verified for every deployment before go-live.",
       "technical": "Deployment: EBS encryption with KMS (infra owned by the infrastructure team; compute.tf root_block_device needs encrypted = true); data center: BitLocker or LUKS2. Files are written mode 0600 in 0700 directories.",
       "evidence": [
-        "src/platform/modules/intake/store.ts:216"
+        "src/platform/modules/intake/store.ts:223"
       ],
       "status": "DEPLOYMENT",
       "status_label": "Deployment",
@@ -366,8 +367,8 @@
       "plain": "Each received document gets a digital fingerprint when it arrives. Drawbridge checks it again before anyone downloads the document and before it is filed to the chart; a mismatch stops the action and raises an alert.",
       "technical": "SHA-256 at receipt; verified before download (409) and before SaveScanDocument (INTEGRITY_FAILED); audit hash chain; atomic file writes; idempotent writes.",
       "evidence": [
-        "src/platform/modules/intake/file.ts:309",
-        "src/platform/modules/intake/index.ts:476"
+        "src/platform/modules/intake/file.ts:312",
+        "src/platform/modules/intake/index.ts:480"
       ],
       "status": "FIXED",
       "status_label": "In place",

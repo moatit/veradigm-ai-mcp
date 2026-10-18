@@ -59,9 +59,9 @@ Notes on the table:
 | `GetProviders` | R | Intake clinic rules: who gets the review task | Lists providers and users (inactive ones are skipped). |
 | `GetDocumentType` | R | Document intake: category list | Lists the chart document categories. |
 | `SaveScanDocument` | W | Document intake filing, staff side only. Off unless `INTAKE_FILING` and `INTAKE_SAVE_DOCUMENT_FORMAT_CONFIRMED` allow it (owner-approved exception, `FAX_INTAKE_ADDON.md`). Never the phone agent | Files a received document to the chart. |
-| `GetDocumentsByDocumentType` | R | Intake shadow mode, staff filing observer (read only), polled at most every `INTAKE_OBSERVE_EVERY_MIN` (30; never below 2 minutes) | Lists documents of a category in a date range. |
+| `GetDocumentsByDocumentType` | R | Intake shadow mode (read only): staff filing observer, polled at most every `INTAKE_OBSERVE_EVERY_MIN` (30), and the shadow-week document source (the "(ready for indexing)" queue), polled at most every `INTAKE_QUEUE_EVERY_MIN` (10); never below 2 minutes | Lists documents of a category in a date range. |
 | `GetDocuments` | R | Intake shadow mode, staff filing observer | Lists a patient's chart documents. |
-| `GetDocumentImage` | R | Intake shadow mode, staff filing observer (breaking ties) | Gets one document's image. |
+| `GetDocumentImage` | R | Intake shadow mode: the shadow-week document source (each queued document at most once when the fetch succeeds; a failed fetch is retried with backoff, at most 5 times) and the staff filing observer (breaking ties) | Gets one document's image. |
 
 ## Removed from the configuration (never called)
 

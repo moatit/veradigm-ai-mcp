@@ -32,7 +32,8 @@ services:
       - INTAKE_SHADOW_PORT=3001
       - CALL_RECORDS_DIR=/app/data
       - INTAKE_DROP_DIR=/app/data/intake/inbox
-      - INTAKE_WATCH_DIRS=/mnt/express-lab
+      # INTAKE_WATCH_DIRS (the Express Lab folder at /mnt/express-lab) is set in .env: leave it empty when the
+      # shadow week reads the Veradigm EHR queue instead (INTAKE_QUEUE_SOURCE=on; one source per document).
       - INTAKE_OCR_URL=http://ocr:8090
       - DRAWBRIDGE_USERS_FILE=/run/drawbridge/users/users
     user: "1001:1001"
