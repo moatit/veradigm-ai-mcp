@@ -16,7 +16,7 @@ export const fax = {
   body: `${pageHero({
     eyebrow: "Fax &amp; lab-result intake",
     title: 'The fax pile, <span class="accent-i">filed</span>, to the right chart.',
-    lede: "Drawbridge reads every fax and lab result in your Veradigm® EHR document queue on MOATiT's own servers, matches it to exactly one patient, files it to the right category in Veradigm® EHR and tells the right provider. Anything that needs judgment goes to your staff, already read, with the reason.",
+    lede: "Drawbridge reads every incoming fax and lab file on MOATiT's own servers, matches it to exactly one patient, files it to the right category in Veradigm® EHR and tells the right provider. Anything that needs judgment goes to your Veradigm® EHR document queue for staff, already read, with the reason.",
     crumbs: [{ name: "Fax & lab intake", href: "/fax-lab-intake/" }],
     actions: btnPrimary() + btnSecondary("See a fax get filed", "#sample-filing"),
   })}
@@ -27,7 +27,7 @@ export const fax = {
       <h2 id="flow-title">Six steps, every one logged.</h2>
     </div>
     <ol class="flow cols-6">
-      <li><h3>Receive</h3><p>From your Veradigm® EHR document queue, where your faxes and lab results already arrive. Duplicates are caught.</p></li>
+      <li><h3>Receive</h3><p>Faxes and lab files come to Drawbridge first, through the fax routing and lab file drop MOATiT sets up with you. Duplicates are caught.</p></li>
       <li><h3>Read</h3><p>OCR on MOATiT's servers, page by page: patient name, date of birth, MRN, sender, document type, dates and abnormal flags.</p></li>
       <li><h3>Match</h3><p>Full name + date of birth must match exactly one patient. SSN last 4 or address, when printed, must agree.</p></li>
       <li><h3>Categorize</h3><p>Mapped to your EHR's own document categories, for example lab results to "Lab Results".</p></li>

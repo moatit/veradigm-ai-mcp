@@ -83,7 +83,7 @@ export const trustStrip = () => `<div class="trust-strip" role="list">
   <div role="listitem">${icon("shield")}<span><strong>BAA with every practice</strong>HIPAA business associate agreement before any patient data flows.</span></div>
   <div role="listitem">${icon("eye")}<span><strong>A shadow week first</strong>Drawbridge watches and compares for a week before it files anything.</span></div>
   <div role="listitem">${icon("user")}<span><strong>A person for every close call</strong>Anything that needs judgment goes to your staff, already read.</span></div>
-  <div role="listitem">${icon("link")}<span><strong>${COMPAT_LINE}</strong>Works from the documents already in your Veradigm® EHR queue. Your workflow stays exactly as it is.</span></div>
+  <div role="listitem">${icon("link")}<span><strong>${COMPAT_LINE}</strong>A read-only shadow week first. Nothing is written to your chart until you approve.</span></div>
 </div>`;
 
 // ---------------------------------------------------------------- intake ledger (home hero; synthetic)
@@ -181,20 +181,22 @@ ${keys
 </div>`;
 
 // ---------------------------------------------------------------- what we need from the practice
-// Drawbridge works from the practice's Veradigm EHR document queue: no fax forwarding, no lab access, no IT work.
-// It is the same for every practice, whoever runs its IT.
+// The real process (Ali, Oct 18): a read-only shadow week, then go live on approval. At go-live MOATiT sets up
+// the fax routing, the lab file drop and call forwarding with the practice.
 export const IT_NEEDS = [
   ["clipboard", "A five-minute setup sheet", "Your practice manager answers 15 questions about your rules and how documents flow today: who reviews results, which documents always go to a person, your booking rules."],
   ["key", "A signed BAA and Veradigm® access", "You sign our business associate agreement and authorize Veradigm® to give Drawbridge access to your Veradigm® EHR and Veradigm® Practice Management."],
+  ["fax", "Fax and lab routing, at go-live", "When you approve going live, MOATiT sets up the fax routing and the lab file drop with you, so faxes and lab files come to Drawbridge first."],
+  ["phone", "Call forwarding", "Your line forwards the calls you choose to Drawbridge first; moving the number over comes later."],
 ];
 
-export const itNeedsBlock = ({ title = "What we need from you", lede = "Two things, and we handle the rest.", headingId = "it-needs-title", tag = "h3" } = {}) => `<div class="it-needs" role="region" aria-labelledby="${headingId}">
+export const itNeedsBlock = ({ title = "What we need from you", lede = "A read-only shadow week comes first. We set up the rest with you when you approve going live.", headingId = "it-needs-title", tag = "h3" } = {}) => `<div class="it-needs" role="region" aria-labelledby="${headingId}">
   <${tag} id="${headingId}">${title}</${tag}>
   <p>${lede}</p>
   <ul class="it-list">
 ${IT_NEEDS.map(([ic, t, d]) => `    <li><span class="icon">${icon(ic)}</span><span><strong>${t}</strong>${d}</span></li>`).join("\n")}
   </ul>
-  <p class="small mb-0">Drawbridge works from the documents already in your Veradigm® EHR document queue, so your fax lines, lab feeds and staff workflow stay exactly as they are. The work is simply done for you. Filed results and review tasks appear in Veradigm® EHR, where your team already works. For the phone assistant, we set up the calls you choose (after hours, overflow or all) with your phone provider, and your number stays the same.</p>
+  <p class="small mb-0">Filed results and review tasks appear in Veradigm® EHR, where your team already works. If you decide not to go ahead, we switch Drawbridge off. Nothing in your system changed during the shadow week.</p>
 </div>`;
 
 // ---------------------------------------------------------------- CTA band
@@ -258,12 +260,12 @@ export const FAQS = [
   },
   {
     q: "What does going live look like?",
-    a: "Four steps. (1) Your practice manager answers a 15-question setup sheet about your rules and how documents flow today, in about five minutes. (2) You sign our BAA and authorize Veradigm® to give Drawbridge access. (3) Drawbridge runs in shadow mode for one week: your staff keep working as usual while Drawbridge records what it would have done. We compare the two and align Drawbridge to the way your practice works. (4) We switch filing on step by step, starting with staff-click filing. Your workflow stays exactly as it is throughout, and you can switch Drawbridge off at any time.",
+    a: "Four steps. (1) Your practice manager answers a 15-question setup sheet about your rules and how documents flow today, in about five minutes. (2) You sign our BAA and authorize Veradigm® to give Drawbridge access. (3) Shadow week: For one week Drawbridge runs read-only alongside your team. Staff keep indexing in Veradigm® EHR as today. Drawbridge reads each incoming document, decides where it would file it, and compares that with where your staff filed it. Nothing is written to the chart. (4) Go live when you approve: Faxes and lab files come to Drawbridge first; MOATiT sets up the fax routing and the lab file drop with you. Drawbridge files what it can match with certainty and sends a review task. Anything that needs a person goes to your Veradigm® EHR document queue for staff, as today. For the phone assistant, your line forwards to Drawbridge first; moving the number over comes later. If you decide not to go ahead, we switch Drawbridge off. Nothing in your system changed during the shadow week.",
     home: true,
   },
   {
     q: "What do you need from our practice?",
-    a: "Two things: about five minutes for the setup sheet, and your signature on the BAA with the Veradigm® authorization. Drawbridge works from the documents already in your Veradigm® EHR document queue, so your fax lines, lab feeds and staff computers stay exactly as they are, whoever runs your IT. For the phone assistant, we set up the calls you choose with your phone provider, and your number stays the same.",
+    a: "Before the shadow week: about five minutes for the setup sheet, and your signature on the BAA with the Veradigm® authorization. Nothing in your system changes during the shadow week. When you approve going live, MOATiT sets up the fax routing and the lab file drop with you, and your line forwards the calls you choose to Drawbridge first; moving the number over comes later.",
     home: true,
   },
   {

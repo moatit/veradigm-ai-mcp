@@ -146,12 +146,12 @@ export const integrations = {
   path: "/integrations/",
   title: "Integrations: Veradigm® EHR, Veradigm® PM, fax and phones",
   description:
-    "Drawbridge integrates with Veradigm® EHR and Veradigm® Practice Management and your phone system, working from the documents already in your Veradigm® EHR queue. See what it reads and the short list of things it is allowed to write.",
+    "Drawbridge integrates with Veradigm® EHR and Veradigm® Practice Management your fax routing, a lab file drop and your phone line. See what it reads and the short list of things it is allowed to write.",
   crumbs: [{ name: "Integrations", href: "/integrations/" }],
   body: `${pageHero({
     eyebrow: "Integrations",
     title: 'Works inside the systems <span class="accent-i">you already use.</span>',
-    lede: `${COMPAT_LINE}. Drawbridge works inside the systems you already have, filing into the chart and booking into the schedule your staff already use. Your workflow stays exactly as it is.`,
+    lede: `${COMPAT_LINE}. Drawbridge works inside the systems you already have, filing into the chart and booking into the schedule your staff already use. A read-only shadow week comes first.`,
     crumbs: [{ name: "Integrations", href: "/integrations/" }],
     actions: btnPrimary(),
   })}
@@ -193,10 +193,10 @@ export const integrations = {
       <h2 id="other-title">Everything around the chart</h2>
     </div>
     <div class="grid grid-3">
-      <div class="card"><div class="icon">${icon("fax")}</div><h3>Your document queue</h3><p>Faxes and lab results keep arriving in your Veradigm® EHR document queue exactly as they do today. Drawbridge works through that queue for you, including multi-patient lab batches, which it splits by patient.</p></div>
-      <div class="card"><div class="icon">${icon("phone")}</div><h3>Your clinic number</h3><p>Keep your number and your phone system. We set up the calls you choose (after hours, overflow or all) to reach the assistant. During business hours calls transfer back to your staff; after hours, urgent calls are flagged for your on-call provider.</p></div>
+      <div class="card"><div class="icon">${icon("fax")}</div><h3>Faxes and lab files</h3><p>When you go live, faxes and lab files come to Drawbridge first; MOATiT sets up the fax routing and the lab file drop with you. Multi-patient lab batches are split by patient. Anything that needs a person goes to your Veradigm® EHR document queue for staff, as today.</p></div>
+      <div class="card"><div class="icon">${icon("phone")}</div><h3>Your clinic number</h3><p>Your line forwards the calls you choose (after hours, overflow or all) to Drawbridge first; moving the number over comes later. During business hours calls transfer back to your staff; after hours, urgent calls are flagged for your on-call provider.</p></div>
       <div class="card"><div class="icon">${icon("bell")}</div><h3>Status alerts</h3><p>Status alerts by encrypted email to MOATiT's help desk whenever the Veradigm® connection changes.</p></div>
-      <div class="card"><div class="icon">${icon("hospital")}</div><h3>MOATiT-hosted</h3><p>Drawbridge runs single-tenant per practice on MOATiT's infrastructure, and you can switch it off at any time without changing your workflow.</p></div>
+      <div class="card"><div class="icon">${icon("hospital")}</div><h3>MOATiT-hosted</h3><p>Drawbridge runs single-tenant per practice on MOATiT's infrastructure. If you decide not to go ahead after the shadow week, we switch it off; nothing in your system changed.</p></div>
     </div>
     <p class="tm-note">${esc(TRADEMARK_NOTE)}</p>
   </div>

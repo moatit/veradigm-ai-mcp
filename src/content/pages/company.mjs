@@ -163,7 +163,7 @@ export const pricing = {
   body: `${pageHero({
     eyebrow: "Pricing",
     title: 'Simple to start. <span class="accent-i">Priced to your volume.</span>',
-    lede: "Done for you, and quoted on your fax and call volumes and the parts of Drawbridge it uses. Tell us about your practice and we'll send a clear quote.",
+    lede: "Set up with you, and quoted on your fax and call volumes and the parts of Drawbridge it uses. Tell us about your practice and we'll send a clear quote.",
     crumbs: [{ name: "Pricing", href: "/pricing/" }],
   })}
 <section class="section" aria-labelledby="plan-title">
@@ -174,7 +174,7 @@ export const pricing = {
       <p class="lede">for a quote for your practice</p>
       <h3 class="mt-2">Every plan includes</h3>
       <ul class="checks">
-        <li><span><strong>Done for you:</strong> once you authorize Veradigm® access, Drawbridge works from your existing document queue, and filed results and review tasks appear in Veradigm® EHR, where your team already works.</span></li>
+        <li><span><strong>Set up with you:</strong> MOATiT sets up the fax routing, the lab file drop and call forwarding when you go live, and filed results and review tasks appear in Veradigm® EHR, where your team already works.</span></li>
         <li><span>The 15-question setup sheet turned into your practice's rules</span></li>
         <li><span>One week in shadow mode, with a review of every difference</span></li>
         <li><span>A business associate agreement</span></li>
@@ -199,7 +199,7 @@ export const pricing = {
         </ul>
       </div>
       <p class="mt-2"><a class="btn-link" href="/roi/">Estimate your time savings first</a></p>
-      <p class="small">Your workflow stays exactly as it is, and you can switch Drawbridge off at any time. <a href="/integrations/#it-needs">See what we need from you.</a></p>
+      <p class="small">A read-only shadow week comes first; if you decide not to go ahead, we switch Drawbridge off. <a href="/integrations/#it-needs">See what we need from you.</a></p>
     </div>
   </div>
 </section>`,

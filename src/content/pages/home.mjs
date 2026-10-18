@@ -91,15 +91,15 @@ export const rolloutSection = () => `<section class="section" id="rollout" aria-
     <div class="section-head">
       <p class="eyebrow">Going live</p>
       <h2 id="rollout-title">Your staff keep working as usual through <span class="accent-i">a week of proof.</span></h2>
-      <p class="lede">Four steps, and your workflow stays exactly as it is. Drawbridge works from the documents already in your Veradigm® EHR document queue, so the work is simply done for you.</p>
+      <p class="lede">A read-only shadow week first, so you see the results before anything changes. Nothing is written to your chart until you approve.</p>
     </div>
     <ol class="flow cols-4">
       <li><h3>Five-minute setup sheet</h3><p>Your practice manager answers 15 questions about your rules and how documents flow today: who reviews results, which documents always go to a person, booking rules.</p></li>
-      <li><h3>BAA and Veradigm® access</h3><p>You sign our business associate agreement and authorize Veradigm® to give Drawbridge access. That is all the setup your team does.</p></li>
-      <li><h3>One week in shadow mode</h3><p>Drawbridge works through your queue alongside your staff and records what it would do. We compare it with what your staff actually did and align Drawbridge to the way your practice works.</p></li>
-      <li><h3>Switch on, step by step</h3><p>Start with staff-click filing, then automatic filing for the document types that earned it. You can switch Drawbridge off at any time, and your workflow carries on exactly as before.</p></li>
+      <li><h3>BAA and Veradigm® access</h3><p>You sign our business associate agreement and authorize Veradigm® to give Drawbridge access.</p></li>
+      <li><h3>Shadow week, read-only</h3><p>For one week Drawbridge runs read-only alongside your team. Staff keep indexing in Veradigm® EHR as today. Drawbridge reads each incoming document, decides where it would file it, and compares that with where your staff filed it. Nothing is written to the chart.</p></li>
+      <li><h3>Go live when you approve</h3><p>Faxes and lab files come to Drawbridge first; MOATiT sets up the fax routing and the lab file drop with you. Drawbridge files what it can match with certainty and sends a review task. Anything that needs a person goes to your Veradigm® EHR document queue for staff, as today.</p></li>
     </ol>
-    <p class="small mt-1">For the phone assistant, we set up the calls you choose (after hours, overflow or all) with your phone provider, and your number stays the same.</p>
+    <p class="small mt-1">For the phone assistant, your line forwards to Drawbridge first; moving the number over comes later. If you decide not to go ahead, we switch Drawbridge off. Nothing in your system changed during the shadow week.</p>
   </div>
 </section>`;
 
@@ -141,7 +141,7 @@ ${demoBand()}
     <div class="grid grid-3">
       <div class="card"><div class="icon">${icon("users")}</div><h3>More capacity, same team</h3><p>Drawbridge is built so the same team can serve many times more patients. Imagine your front desk handling ten times the volume without adding headcount.</p></div>
       <div class="card"><div class="icon">${icon("gauge")}</div><h3>Room to grow</h3><p>More calls answered, results routed sooner and fewer bottlenecks at the desk give the practice room to see more patients and grow revenue.</p></div>
-      <div class="card"><div class="icon">${icon("link")}</div><h3>Done for you</h3><p>Drawbridge works from your existing Veradigm® document queue. Your workflow stays exactly as it is, and you can switch it off at any time.</p></div>
+      <div class="card"><div class="icon">${icon("link")}</div><h3>Proof before change</h3><p>A read-only shadow week first. Nothing is written to your chart until you approve, and if you decide not to go ahead, we switch Drawbridge off.</p></div>
     </div>
     <p class="small mt-2 vision-note">This is our vision for what Drawbridge makes possible, not a measured result. Our measured numbers are under "Results so far".</p>
   </div>
@@ -156,7 +156,7 @@ ${demoBand()}
       <a class="card card-link" href="/fax-lab-intake/">
         <div class="icon">${icon("fax")}</div>
         <h3>Fax &amp; lab-result intake</h3>
-        <p>Reads the faxes and lab results in your Veradigm® EHR document queue, on MOATiT's servers. Matches each to one patient, splits multi-patient batch files, files to your category and sends a review task to the ordering provider.</p>
+        <p>Reads incoming faxes and lab files on MOATiT's servers. Matches each to one patient, splits multi-patient batch files, files to your category and sends a review task to the ordering provider.</p>
         <ul class="checks">
           <li><span>Local OCR; nothing sent to outside AI services</span></li>
           <li><span>Critical results as High-priority tasks</span></li>

@@ -77,7 +77,7 @@ We're new, so we won't show you logos. Here's what our testing shows, labeled fo
 - 0 wrong-patient filings across held-out synthetic test sets of 3,000 documents (invented patients, Oct 2026).
 - On a vendor test system, 20 of 20 auto-filed documents landed in the right chart; everything uncertain went to staff.
 
-It's done for you in four steps: a five-minute setup sheet, the BAA with Veradigm® access authorized, one week in shadow mode, then switch on step by step. Drawbridge works from the documents already in your Veradigm® EHR queue, so your workflow stays exactly as it is, and you can switch it off at any time.
+It's done for you in four steps: a five-minute setup sheet, the BAA with Veradigm® access authorized, a read-only shadow week (staff keep indexing as today; nothing is written to the chart), then go live when the practice approves. Nothing in your system changes during the shadow week, and if you decide not to go ahead, we switch Drawbridge off.
 
 Every practice starts with a shadow week: Drawbridge works alongside your staff and records what it would do, we compare it with what your staff actually did, and we align Drawbridge to the way your practice works before anything is switched on.
 
