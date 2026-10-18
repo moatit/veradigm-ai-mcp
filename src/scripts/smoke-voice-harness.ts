@@ -664,6 +664,50 @@ async function main(): Promise<void> {
     ok('outside numbers: NANP only (never international, premium, Caribbean, N11, 911, star codes), allow-list, model sees IDs not numbers, 2 dials per call, hourly cap with security event, last 4 digits only in audit/log/transcript');
   }
 
+  // ── 6c. Usage and cost per call ────────────────────────────────────────────────────────────────────────
+  {
+    const usage = await import('../platform/modules/voice/usage');
+    // Price table lives in the data volume (seeded once), editable without a code change.
+    const table = usage.loadPrices();
+    assert.strictEqual(table.realtime['gpt-realtime-2.1'].audio_output, 64);
+    assert.ok(fs.existsSync(path.join(TMP, 'voice', 'prices.json')));
+    const edited = usage.validatePrices({ ...table, transcription_per_minute: { 'gpt-4o-transcribe': 0.012 } });
+    assert.ok(edited.ok);
+    assert.ok(!usage.validatePrices({ realtime: { 'x y': {} }, transcription_per_minute: {} }).ok);
+
+    console.log = capture;
+    const u = makeSession({ model: 'gpt-realtime-2.1' }, { transcriber: true });
+    u.s.onGwEvent({ type: 'answered', at: 0, leg: 0, codec: 'PCMU', srtp: true });
+    u.segDone(u.gw.last('segment').segment);
+    for (let i = 0; i < 50; i++) u.s.onGwAudio(0, pcm(20, 24000)); // 1 s of caller audio to the model
+    const r1 = { input_tokens: 1300, output_tokens: 200, input_token_details: { text_tokens: 1200, audio_tokens: 100, cached_tokens: 1000, cached_tokens_details: { text_tokens: 1000, audio_tokens: 0 } }, output_token_details: { text_tokens: 40, audio_tokens: 160 } };
+    const r2 = { input_tokens: 1500, output_tokens: 300, input_token_details: { text_tokens: 1250, audio_tokens: 250, cached_tokens: 1300, cached_tokens_details: { text_tokens: 1200, audio_tokens: 100 } }, output_token_details: { text_tokens: 60, audio_tokens: 240 } };
+    u.ev.usage!(r1);
+    u.ev.usage!(r2);
+    u.ev.transcriptionUsage!({ type: 'duration', seconds: 1.5 });
+    u.s.finish('test');
+    console.log = origLog;
+    const rec = readVoiceCall(u.callId)!;
+    const ru = rec.usage!;
+    assert.deepStrictEqual(ru.realtime, { responses: 2, input_text_uncached: 250, input_text_cached: 2200, input_audio_uncached: 250, input_audio_cached: 100, output_text: 100, output_audio: 400 });
+    assert.strictEqual(ru.transcription.caller.audio_seconds, 1);
+    assert.strictEqual(ru.transcription.caller.reported_seconds, 1.5);
+    const p = table.realtime['gpt-realtime-2.1'];
+    const want = (250 * p.audio_input + 100 * p.audio_cached + 400 * p.audio_output + 250 * p.text_input + 2200 * p.text_cached + 100 * p.text_output) / 1e6;
+    assert.ok(Math.abs(ru.cost!.realtime_usd - want) < 1e-6, `realtime cost ${ru.cost!.realtime_usd} vs ${want}`);
+    assert.ok(Math.abs(ru.cost!.transcription_usd - (1.5 / 60) * 0.006) < 1e-6, 'transcription priced on the reported seconds ' + JSON.stringify(ru.transcription) + JSON.stringify(ru.cost));
+    assert.ok(ru.cost!.priced && ru.duration_s >= 0);
+    assert.ok(!JSON.stringify(ru).match(/Marchetti|appointment/i), 'counts only');
+    assert.ok(/usage model=gpt-realtime-2\.1 responses=2 .* cost_usd=/.test(logLines.join('\n')), 'usage logged as counts');
+    // A per-minute figure for a known duration.
+    const fixed = usage.priceCall({ model: 'gpt-realtime-2.1', realtime: { ...usage.emptyRealtime(), output_audio: 1_000_000 }, transcription: {}, duration_s: 120 });
+    assert.strictEqual(fixed.total_usd, 64);
+    assert.strictEqual(fixed.per_minute_usd, 32);
+    const unpriced = usage.priceCall({ model: 'some-new-model', realtime: usage.emptyRealtime(), transcription: {}, duration_s: 60 });
+    assert.strictEqual(unpriced.priced, false);
+    ok('usage: response.done usage summed (text/audio, cached/uncached, output), transcription per leg (sent + reported seconds), cost and per-minute from the editable price table, counts only');
+  }
+
   // ── 7. The model never hears itself ────────────────────────────────────────────────────────────────────
   {
     console.log = capture;
@@ -778,7 +822,7 @@ async function main(): Promise<void> {
           ws.send(JSON.stringify({ type: 'response.output_item.added', response_id: 'resp_1', item: { id: 'item_1', type: 'message' } }));
           ws.send(JSON.stringify({ type: 'response.output_audio.delta', response_id: 'resp_1', delta: Buffer.alloc(480).toString('base64') }));
           ws.send(JSON.stringify({ type: 'response.function_call_arguments.done', call_id: 'call_x', name: 'unity_search_patients', arguments: '{"firstName":"Lucius"}' }));
-          ws.send(JSON.stringify({ type: 'response.done', response: { id: 'resp_1', status: 'completed', output: [{ type: 'function_call', call_id: 'call_x', name: 'unity_search_patients', arguments: '{}' }] } }));
+          ws.send(JSON.stringify({ type: 'response.done', response: { id: 'resp_1', status: 'completed', usage: { input_tokens: 10, output_tokens: 5, input_token_details: { text_tokens: 10 }, output_token_details: { audio_tokens: 5 } }, output: [{ type: 'function_call', call_id: 'call_x', name: 'unity_search_patients', arguments: '{}' }] } }));
           ws.send(JSON.stringify({ type: 'conversation.item.input_audio_transcription.completed', transcript: 'hello there' }));
           ws.send(JSON.stringify({ type: 'error', error: { code: 'invalid_value', message: 'quote of the patient said something' } }));
         }
@@ -800,6 +844,7 @@ async function main(): Promise<void> {
         responseStarted: () => undefined,
         responseDone: (id) => seen.done.push(id),
         error: (code) => seen.errors.push(code),
+        usage: (u: any) => (seen.usage = u),
         closed: () => undefined,
       }
     );
@@ -818,6 +863,7 @@ async function main(): Promise<void> {
     assert.deepStrictEqual(seen.tools[0].args, { firstName: 'Lucius' });
     assert.deepStrictEqual(seen.caller, ['hello there']);
     assert.deepStrictEqual(seen.errors, ['invalid_value'], 'error code only');
+    assert.strictEqual(seen.usage.output_token_details.audio_tokens, 5, 'response.done usage passed on');
     a.sendToolResult('call_x', 'RESULT', true);
     a.truncate('resp_1', 640);
     a.addSystemNote('ORCHESTRATOR: note', false);

@@ -368,11 +368,39 @@ In the repo compose file (`deploy/local/docker-compose.yml`), `voice-gw` sits be
 | 3 | Agent on OpenAI Realtime: verify, look up visits, emergency line, transfer by REFER | Pending |
 | 4 | Warm transfer to an allow-listed extension: hold, brief, conference; second simultaneous call | Pending |
 
+**Usage and cost per call** (`usage.ts`, counts only):
+- **Realtime model:** every `response.done` usage is summed per call: input text and audio tokens (each split cached / uncached), output text and audio tokens, and the model name.
+- **Transcription:** per leg (caller; each `staff:<ext or ...last4>` leg). It records the audio seconds we sent to the transcription model and what the session reported (duration or tokens).
+- **Estimate:** the call duration gives the estimated cost and the cost per minute.
+- **Price table:** `<CALL_RECORDS_DIR>/voice/prices.json`, USD; editable on `/app/voice`, so prices change without a code change.
+  - Seeded Oct 18 2026:
+    - gpt-realtime-2.1: audio $32 in, $0.40 cached, $64 out; text $4 in, $0.40 cached, $24 out per 1M tokens;
+    - gpt-realtime-2.1-mini: audio $10 / $0.30 / $20; its text prices ($0.60 / $0.06 / $2.40) are an assumption, to be verified;
+    - gpt-4o-transcribe: $0.006 per minute.
+  - Each record keeps the prices it used.
+- **Where it shows:** on `/app/voice` (minutes, estimated cost and cost per minute per call; a usage card on each call) and in one metadata log line per call.
+- **ElevenLabs usage is not collected yet.** Its transcription is listed as `elevenlabs-asr` (unpriced).
+
 **Latency** is recorded per turn: caller end of speech (gateway energy detector) to the first agent audio leaving the gateway, plus the provider's own end-of-speech to first audio, plus tool timings. It is shown on `/app/voice` and in each call record.
 
 ---
 
 ## 10. Known limitations and open risks
+
+**TODO (from the live calls, Oct 18):**
+- **Tool-turn latency is 3.5-5.8 s** (caller end of speech to the answer after a Veradigm tool; the tool itself 0.7-1.5 s). The time goes to the model's spoken preamble plus a second model pass. To investigate:
+  - no preamble when the tool is fast;
+  - our filler clip only if the tool takes longer than about 1 s;
+  - returning function results so that one pass can answer.
+- **Hold:** Titan refused our hold re-INVITE (sendonly, fresh SDES keys) with 488.
+  - Local hold is now the default: the caller hears only our hold line, never the briefing.
+  - To find out why Titan refuses, the gateway logs Titan's reason and Warning header when SIP hold is enabled.
+  - Options to try: keep the same SDES key, use UPDATE, or ask Titan.
+- **Caller-side transcription on narrowband PCMU** mis-heard a spelled name; the model recovered by asking the caller to spell it. To improve:
+  - get G.722 offered end to end (enabled on 4515; Titan's offer did not include it);
+  - check the transcription language/prompt settings.
+- **Staff-leg transcripts** during a consult did not appear in the 20:51 call. Check that the per-leg transcription session (`intent=transcription`) returns text.
+- **OpenAI error `invalid_value` once per call:** the log now names the refused parameter. Find which request causes it.
 
 - **SRTP:** until the owner's verification call confirms SDES-SRTP on 4515, patient calls are refused by design.
 - **PBX internal hop:** Titan's edge-to-core signalling hop is UDP (provider's network).

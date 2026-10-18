@@ -114,6 +114,7 @@ export class OpenAiRealtime implements VoiceProvider {
         break;
       case 'conversation.item.input_audio_transcription.completed':
         if (typeof m.transcript === 'string') ev.callerTranscript(m.transcript);
+        if (m.usage) ev.transcriptionUsage?.(m.usage);
         break;
       case 'input_audio_buffer.speech_started':
         ev.speechStarted();
@@ -130,6 +131,7 @@ export class OpenAiRealtime implements VoiceProvider {
           if (item?.type === 'function_call') this.toolCall(item.call_id, item.name, item.arguments);
         }
         if (this.active === r.id) this.active = null;
+        if (r.usage) ev.usage?.(r.usage);
         ev.responseDone(r.id || '', (r.status as any) || 'completed');
         break;
       }

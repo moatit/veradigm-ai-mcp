@@ -9,7 +9,7 @@ export interface Transcriber {
   send(pcm: Buffer): void;
   close(): void;
 }
-export type TranscriberFactory = (rate: number, onText: (text: string) => void) => Transcriber;
+export type TranscriberFactory = (rate: number, onText: (text: string) => void, onUsage?: (usage: any) => void) => Transcriber;
 
 /** 16 kHz -> 24 kHz (linear; for transcription only). */
 export function upsample16to24(pcm: Buffer): Buffer {
@@ -28,7 +28,7 @@ export function upsample16to24(pcm: Buffer): Buffer {
 }
 
 export function openAiTranscriber(apiKey: string, WS: typeof WebSocket = WebSocket): TranscriberFactory {
-  return (rate, onText) => {
+  return (rate, onText, onUsage) => {
     const ws = new WS('wss://api.openai.com/v1/realtime?intent=transcription', {
       headers: { Authorization: `Bearer ${apiKey}` },
       handshakeTimeout: 8000,
@@ -57,7 +57,10 @@ export function openAiTranscriber(apiKey: string, WS: typeof WebSocket = WebSock
     ws.on('message', (d: WebSocket.RawData) => {
       try {
         const m = JSON.parse(String(d));
-        if (m.type === 'conversation.item.input_audio_transcription.completed' && typeof m.transcript === 'string') onText(m.transcript);
+        if (m.type === 'conversation.item.input_audio_transcription.completed') {
+          if (typeof m.transcript === 'string') onText(m.transcript);
+          if (m.usage) onUsage?.(m.usage);
+        }
       } catch {
         // ignore
       }
