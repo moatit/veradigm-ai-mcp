@@ -14,6 +14,24 @@ The site was restyled to the "Ledger" identity (see `brand/BRAND_KIT.md`). Prese
 - **Functional:** demo form (5 inline errors, focus to "Full name", valid POST with utm fields and confirmation), ROI calculator (82 h default, 109 h at 100 docs/day), mobile menu (opens, Escape closes and returns focus) and every replay button behave as before.
 - **Lighthouse:** see the Oct 18 section below; the launch-look scores further down are kept for comparison.
 
+## Audit release-1 fixes (Oct 18, 2026)
+
+The fixes for the independent audit `audits/release-1-2026-10-18/marketing-site.md` are in commits `9118126` (copy and claims: H2, H4, M1-M4, L5, L7) and `5a13105` (preview form error M5; L1-L4, L6, L8). H1 and H3 copy is unchanged, waiting for Ali.
+
+- **`npm run check`** builds the **production** site into a temporary folder by default (`DRAWBRIDGE_PREVIEW=1` checks the preview build), so a check never replaces what the preview serves. It now scans every text file in `dist/` (pages, scripts, styles, manifest, `_headers`, robots, sitemap, security.txt, SVG). Production: OK on 41 text files, 18 pages, 637 internal links and anchors. Preview: OK on 42 text files, 19 pages, 676. Negative test: an em dash and "GPT" in the manifest name and "Amazon" in robots.txt were all caught.
+- **Behavior checked in Chrome:** the preview's `/api/demo-request` answers 503 and the form shows "We couldn't send the form just now" with the phone numbers; the live-call pop-up moves focus to its heading on open and Escape returns focus to the button; the home transcript is static and fully visible, and the replay works on `/phone-assistant/`.
+
+Lighthouse 12.8.2 on a **production** build (production robots, `/brand/` excluded), served locally on a separate port so the preview was not touched:
+
+| Page | Mobile P / A / BP / SEO | Desktop P / A / BP / SEO |
+|---|---|---|
+| `/` | 100 / 100 / 100 / 100 | 100 / 100 / 100 / 100 |
+| `/fax-lab-intake/` | 100 / 100 / 100 / 100 | 100 / 100 / 100 / 100 |
+| `/phone-assistant/` | 100 / 100 / 100 / 100 | 100 / 100 / 100 / 100 |
+| `/contact/` | 100 / 100 / 100 / 100 | 100 / 100 / 100 / 100 |
+
+Mobile LCP 1.4 to 1.7 s, desktop 0.4 s, TBT 0 ms. CLS 0 everywhere except home on mobile at 0.01 (it was 0.079; the reworded hero paragraph no longer lands on a line-break boundary). The only flagged audit is the informational network-dependency tree.
+
 ## Brand finish and checks (Oct 18, 2026)
 
 Lighthouse 12.8.2 (`npx lighthouse@12.8.2`, run locally against `scripts/serve.mjs` on 127.0.0.1:4417; nothing uploaded), default mobile (Moto G Power, slow 4G, 4x CPU) and `--preset=desktop`, on the preview build:
