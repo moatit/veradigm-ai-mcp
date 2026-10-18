@@ -42,6 +42,8 @@ export interface TurnMetric {
   e2e_ms?: number;
   /** Provider end of speech (its voice detector) -> first audio from the provider. */
   provider_ms?: number;
+  /** Tool turns: provider end of speech -> first audio of the answer after the tool result. */
+  answer_ms?: number;
   tools: Array<{ name: string; ms: number; ok: boolean }>;
   kind: 'plain' | 'tool' | 'script';
 }
@@ -190,8 +192,15 @@ export class CallTranscript {
     this.add({ speaker: 'system', leg, kind: 'event', text });
   }
 
-  turn(m: Omit<TurnMetric, 'at'>): void {
-    if (this.rec.turns.length < 1000) this.rec.turns.push({ at: new Date().toISOString(), ...m });
+  turn(m: Omit<TurnMetric, 'at'>): TurnMetric {
+    const t: TurnMetric = { at: new Date().toISOString(), ...m };
+    if (this.rec.turns.length < 1000) this.rec.turns.push(t);
+    this.flushSoon();
+    return t;
+  }
+
+  /** A turn object returned by turn() was updated (tool timings, answer time). */
+  turnChanged(): void {
     this.flushSoon();
   }
 

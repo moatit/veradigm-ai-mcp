@@ -110,6 +110,10 @@ export class CallSession {
   private turnScript = false;
   private speechStoppedAt = 0;
   private providerMs: number | undefined;
+  /** This caller turn: when the provider heard the caller stop, its metric once audio started, an answer pending. */
+  private turnStartAt = 0;
+  private lastTurn: import('./transcript').TurnMetric | null = null;
+  private awaitingAnswer = false;
   private warm: WarmState | null = null;
   private ended = false;
   private endReason = '';
@@ -144,9 +148,12 @@ export class CallSession {
       speechStopped: () => {
         // A new caller turn: what follows (tools, clips, the reply) belongs to it.
         this.speechStoppedAt = Date.now();
+        this.turnStartAt = this.speechStoppedAt;
         this.providerMs = undefined;
         this.turnTools = [];
         this.turnScript = false;
+        this.lastTurn = null;
+        this.awaitingAnswer = false;
       },
       toolCall: (c) => void this.onToolCall(c.id, c.name, c.args),
       responseStarted: (id) => {
@@ -271,6 +278,17 @@ export class CallSession {
       this.respLeg.set(id, this.agentOut);
       this.o.link.send({ type: 'segment', leg: this.agentOut, segment: seg });
       if (this.speechStoppedAt && this.providerMs === undefined) this.providerMs = Date.now() - this.speechStoppedAt;
+      if (this.awaitingAnswer && this.turnStartAt) {
+        // The answer after a tool result started: the number a caller feels on a lookup.
+        this.awaitingAnswer = false;
+        const answer = Date.now() - this.turnStartAt;
+        if (this.lastTurn) {
+          this.lastTurn.answer_ms = answer;
+          this.lastTurn.kind = 'tool';
+          this.o.transcript.turnChanged();
+        }
+        this.log(`answer after tool answer_ms=${answer} tools=${(this.lastTurn?.tools || this.turnTools).map((t) => `${t.name}:${t.ms}`).join(',')}`);
+      }
     }
     this.o.link.sendAudio(this.respLeg.get(id)!, pcm);
   }
@@ -310,7 +328,7 @@ export class CallSession {
   private closeTurn(e2eMs?: number): void {
     if (e2eMs === undefined && !this.turnTools.length && this.providerMs === undefined) return;
     const kind: 'plain' | 'tool' | 'script' = this.turnTools.length ? 'tool' : this.turnScript ? 'script' : 'plain';
-    this.o.transcript.turn({ e2e_ms: e2eMs, provider_ms: this.providerMs, tools: this.turnTools, kind });
+    this.lastTurn = this.o.transcript.turn({ e2e_ms: e2eMs, provider_ms: this.providerMs, tools: this.turnTools, kind });
     this.log(`turn kind=${kind} e2e_ms=${e2eMs ?? '-'} provider_ms=${this.providerMs ?? '-'} tools=${this.turnTools.map((t) => `${t.name}:${t.ms}`).join(',') || '-'}`);
     this.turnTools = [];
     this.turnScript = false;
@@ -420,7 +438,11 @@ export class CallSession {
       this.o.transcript.tool(name, false, 'INTERNAL');
     }
     const ms = Date.now() - t0;
-    this.turnTools.push({ name, ms, ok });
+    if (this.lastTurn) {
+      this.lastTurn.tools.push({ name, ms, ok });
+      this.o.transcript.turnChanged();
+    } else this.turnTools.push({ name, ms, ok });
+    this.awaitingAnswer = true;
     if (!this.ended) this.o.provider.sendToolResult(id, text, true);
   }
 
