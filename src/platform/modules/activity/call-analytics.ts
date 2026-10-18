@@ -120,6 +120,16 @@ export interface CallAnalyticsRecord {
   tools: { name: string; calls: number; failed: number }[];
 }
 
+/**
+ * Wire formats, pinned to match the admin app's schema (a mismatch there is a 400 and the record is dropped):
+ *   call_id     ^cr_[0-9a-f]{32}$
+ *   agent_id    ^(agent_[0-9a-f]{16,40})?$     (the vendor's agent IDs are agent_ + 26 hex today)
+ *   started_at  ^\d{4}-\d{2}-\d{2}T\d{2}:00:00[+-]\d{2}:\d{2}$  (clinic-local hour start)
+ *   tools[].name ^[a-z][a-z0-9_]{0,48}$          (tool registry names; anything else is left out)
+ */
+export const AGENT_ID_RE = /^agent_[0-9a-f]{16,40}$/;
+export const TOOL_NAME_RE = /^[a-z][a-z0-9_]{0,48}$/;
+
 const DAY_MS = 86_400_000;
 const HISTORY_DAYS = 8;
 const HISTORY_MAX = 50_000;
@@ -280,7 +290,7 @@ export function toolsForCall(entries: AuditEntry[], callId: string): CallAnalyti
   const by = new Map<string, { name: string; calls: number; failed: number }>();
   for (const e of entries) {
     if (e.call_id !== callId || (e.kind && e.kind !== 'tool')) continue;
-    const name = safeId(e.tool);
+    const name = typeof e.tool === 'string' && TOOL_NAME_RE.test(e.tool) ? e.tool : '';
     if (!name) continue;
     const t = by.get(name) || { name, calls: 0, failed: 0 };
     t.calls++;
@@ -329,7 +339,7 @@ export async function buildCallRecord(event: string, call: any, now: Date = new 
     schema: RECORD_SCHEMA,
     call_id: callRef(callId),
     practice_id: practiceId(),
-    agent_id: safeId(call.agent_id),
+    agent_id: typeof call.agent_id === 'string' && AGENT_ID_RE.test(call.agent_id) ? call.agent_id : '',
     agent_version: Number.isInteger(version) && version >= 0 ? version : null,
     started_at: Number.isFinite(startMs) ? hourStartLocal(startMs) : '',
     duration_s: Number.isFinite(durationMs) ? Math.round(durationMs / 1000) : null,

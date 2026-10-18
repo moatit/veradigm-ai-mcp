@@ -35,7 +35,7 @@ const T0 = Date.parse('2026-10-14T16:00:00Z');
 function analyzedCall(id: string, over: Record<string, unknown> = {}, custom: Record<string, unknown> = {}): any {
   return {
     call_id: id,
-    agent_id: 'agent_synthetic01',
+    agent_id: 'agent_5a1e5a1e5a1e5a1e5a1e5a1e5a',
     agent_version: 7,
     call_type: 'phone_call',
     direction: 'inbound',
@@ -131,6 +131,22 @@ async function main(): Promise<void> {
   }
   assert.strictEqual(Date.parse('2026-10-14T10:00:00-06:00'), Date.parse('2026-10-14T16:00:00Z'), 'same instant as the UTC hour start');
   ok('start time is coarsened to the hour in clinic local time, with the offset');
+
+  // 1c. Wire formats pinned to the admin schema
+  assert.match(r!.call_id, /^cr_[0-9a-f]{32}$/);
+  assert.match(r!.started_at, /^\d{4}-\d{2}-\d{2}T\d{2}:00:00[+-]\d{2}:\d{2}$/);
+  assert.strictEqual(r!.agent_id, 'agent_5a1e5a1e5a1e5a1e5a1e5a1e5a');
+  for (const t of r!.tools) assert.match(t.name, /^[a-z][a-z0-9_]{0,48}$/);
+  const oddAgent = await ca.buildCallRecord('call_analyzed', analyzedCall('call_syn007', { agent_id: 'Agent Zelda 2085550142' }));
+  assert.strictEqual(oddAgent!.agent_id, '', 'an agent ID outside the vendor format is left empty');
+  const shortAgent = await ca.buildCallRecord('call_analyzed', analyzedCall('call_syn008', { agent_id: 'agent_synthetic01' }));
+  assert.strictEqual(shortAgent!.agent_id, '');
+  audit.auditToolCall({ server: 'unity', tool: 'Weird.Tool:Name', callId: 'call_syn009', success: true, latencyMs: 1, channel: 'retell' });
+  audit.auditToolCall({ server: 'unity', tool: 'unity_get_patient', callId: 'call_syn009', success: true, latencyMs: 1, channel: 'retell' });
+  await audit.flushAudit();
+  const toolRec = await ca.buildCallRecord('call_analyzed', analyzedCall('call_syn009'));
+  assert.deepStrictEqual(toolRec!.tools.map((t) => t.name), ['unity_get_patient'], 'a tool name outside the registry format is left out');
+  ok('wire formats match the admin schema: call reference, hour start, agent ID, tool names');
 
   // 2. Tools from the audit log, this call only
   assert.deepStrictEqual(r!.tools, [

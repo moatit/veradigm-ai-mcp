@@ -73,7 +73,7 @@ Built by `buildCallRecord()` in `src/platform/modules/activity/call-analytics.ts
 | `schema` | constant `1` | |
 | `call_id` | `call.call_id` | **Not the vendor ID:** `"cr_"` + the first 32 hex characters of `HMAC-SHA256(CALL_ANALYTICS_HASH_KEY, "drawbridge-call\|" + vendor call ID)`. It's the same for every event of a call, so the admin app can upsert. Without the stack key it can't be turned back into the vendor ID. To look a call up in the stack, compute `callRef(<vendor call ID>)` there. |
 | `practice_id` | `DRAWBRIDGE_PRACTICE_ID` | Lowercase slug, for example `sagebrush-kidney`. |
-| `agent_id`, `agent_version` | `call.agent_id`, `call.agent_version` | For comparing prompt versions. |
+| `agent_id`, `agent_version` | `call.agent_id`, `call.agent_version` | For comparing prompt versions. `agent_id` must match `^agent_[0-9a-f]{16,40}$` (the vendor's format is `agent_` + 26 hex today), otherwise it's sent empty. |
 | `started_at` | `start_timestamp` | **The start of the hour** in clinic local time (`CLINIC_TIMEZONE`), with its offset, for example `2026-10-14T10:00:00-06:00`. The exact time stays in the stack. |
 | `duration_s` | `duration_ms` | Seconds. |
 | `direction` | `call_type` / `direction` | `inbound`, `outbound` or `web`. |
@@ -83,7 +83,9 @@ Built by `buildCallRecord()` in `src/platform/modules/activity/call-analytics.ts
 | `resolved`, `transferred_to_staff` | custom analysis | Booleans. A `call_transfer` disconnection counts as transferred when the field is empty. |
 | `caller_sentiment`, `call_successful`, `in_voicemail` | built-in analysis | |
 | `prior_calls_24h`, `prior_calls_7d` | caller history in the stack | Earlier inbound calls from the same number. `null` for outbound and web calls. |
-| `tools` | this stack's audit log | `[{ name, calls, failed }]`: tool calls made on this call ID. No arguments or results. |
+| `tools` | this stack's audit log | `[{ name, calls, failed }]`: tool calls made on this call ID. No arguments or results. Names must match `^[a-z][a-z0-9_]{0,48}$` (every registered tool does); others are left out. |
+
+The admin app pins the same formats (`call_id` `^cr_[0-9a-f]{32}$`; `started_at` `^\d{4}-\d{2}-\d{2}T\d{2}:00:00[+-]\d{2}:\d{2}$`). A record that doesn't match there gets a 400 and is dropped by the forwarder, so change both sides together.
 
 ### Repeat callers stay in the stack
 
