@@ -152,8 +152,9 @@ export class CallTranscript {
     this.farEnd = true;
   }
 
+  /** ext: an extension, or "...1234" for an outside number (never the full number). */
   setStaffLeg(leg: number, ext: string): void {
-    this.staffExt.set(leg, ext.replace(/[^0-9]/g, '').slice(0, 8));
+    this.staffExt.set(leg, ext.replace(/[^0-9.]/g, '').slice(0, 8));
   }
 
   /** The speaker label for human audio on a leg. */

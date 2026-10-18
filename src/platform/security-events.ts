@@ -20,7 +20,7 @@ import { auditToolCall, AuditServer, defaultAuditServer, safeUser } from './audi
  * Veradigm sign-in latch (unity-auth.service.ts): unity_signin_latched (Veradigm refused a login; no more
  * logins for that system, code = PM/EHR) and unity_signin_retry (an operator cleared it, with the user), and the
  * voice harness: voice_gw_rejected (a connection to the gateway link without a valid HMAC), sip_registered,
- * sip_registration_lost and sip_tls_failure (the extension's registration), srtp_refused (a call offered no SRTP).
+ * sip_registration_lost and sip_tls_failure (the extension's registration), srtp_refused (a call offered no SRTP), voice_dial_limit (the agent hit its outbound dial limit; help-desk alert).
  *
  *   DRAWBRIDGE_EXPORT_ALERT_PER_HOUR   exports (document downloads, disclosure reports) by one user in
  *                                      60 minutes before an export_volume_alert (default 20)
@@ -58,7 +58,8 @@ export type SecurityEvent =
   | 'sip_registered'
   | 'sip_registration_lost'
   | 'sip_tls_failure'
-  | 'srtp_refused';
+  | 'srtp_refused'
+  | 'voice_dial_limit';
 
 /** Events that are failures or alerts (success=false in the audit line, console.warn in the log). */
 const ALERTS = new Set<SecurityEvent>([
@@ -85,6 +86,7 @@ const ALERTS = new Set<SecurityEvent>([
   'sip_registration_lost',
   'sip_tls_failure',
   'srtp_refused',
+  'voice_dial_limit',
 ]);
 
 export interface SecurityDetails {

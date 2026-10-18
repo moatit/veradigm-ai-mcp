@@ -195,5 +195,9 @@ func ValidateReferTarget(target, realm string) (string, error) {
 	if !strings.EqualFold(host, realm) {
 		return "", fmt.Errorf("target host must be the PBX realm")
 	}
-	return "sip:" + user + "@" + strings.ToLower(host), nil
+	_, dial, err := ClassifyTarget(user)
+	if err != nil {
+		return "", err
+	}
+	return "sip:" + dial + "@" + strings.ToLower(host), nil
 }

@@ -1,6 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { AGENT_TOOLS } from '../../agent-tools';
+import { classifyTarget } from './dialplan';
 
 /**
  * Voice agent configuration (staff app, administrators only). Stored on the data volume next to the call records
@@ -8,15 +9,16 @@ import { AGENT_TOOLS } from '../../agent-tools';
  * gateway secret stay in the environment (.env / SSM). Validation refuses anything that looks like a key.
  *
  * Handoff actions (Titan PBX, verified codes; owner Oct 18 2026). The agent can only use the actions listed on its
- * configuration, each one a fixed target:
- *   transfer     blind transfer (SIP REFER) to an extension, ring group or queue      target "4500"
+ * configuration, each one a fixed target (the model sees the action IDs and labels, never the numbers):
+ *   transfer     to an extension, ring group or queue ("4500"), or an outside US/NANP number ("2085550123")
  *   voicemail    straight to a voicemail box                                         target "**4500"
  *   park         park the caller for staff to pick up (*5 retrieves)                 target "*3"
  *   valet_park   valet park (the PBX assigns and announces a slot)                   target "*4"
  * Never available to the agent: *0 intercom (auto-answers a staff phone), *72/*73/*74/*56 call forwarding,
- * *67 privacy, *2 dynamic caller ID, *11/*12/*13 hot desking, *5 retrieve (staff side). No agent may change PBX
- * settings. Warm transfer dials only the internal extensions on `dial_allow` (2 to 8 digits, no star codes,
- * no external or international numbers).
+ * *67 privacy, *2 dynamic caller ID, *11/*12/*13 hot desking, *5 retrieve (staff side); international,
+ * premium-rate, N11 and emergency numbers (dialplan.ts). No agent may change PBX settings.
+ * Outside numbers (owner decision Oct 18 2026) must also be on `dial_allow` (or `allow_any_nanp` on, off by
+ * default) and count toward `max_dials_per_call` (2) and `max_dials_per_hour` (20, help-desk alert when hit).
  */
 export type ProviderName = 'openai' | 'elevenlabs';
 export type HandoffKind = 'transfer' | 'voicemail' | 'park' | 'valet_park';
@@ -53,7 +55,12 @@ export interface AgentConfig {
   custom_prompt: string;
   enabled_tools: string[];
   handoffs: HandoffAction[];
+  /** Targets the agent may call out to (warm transfer) or transfer to when outside: internal and outside numbers. */
   dial_allow: string[];
+  /** Any US/NANP number (still never international, premium, N11 or emergency). Off by default. */
+  allow_any_nanp: boolean;
+  max_dials_per_call: number;
+  max_dials_per_hour: number;
   warm_transfer: WarmTransferConfig;
   turn: { vad: 'semantic_vad' | 'server_vad'; eagerness: 'low' | 'medium' | 'high' | 'auto'; silence_ms: number };
   /** ElevenLabs Conversational AI agent that carries this configuration (non-secret ID). */
@@ -85,11 +92,12 @@ const ID_RE = /^[a-z0-9][a-z0-9_-]{0,39}$/;
 const MODEL_RE = /^[A-Za-z0-9._:-]{1,64}$/;
 const EXT_RE = /^\d{2,8}$/;
 
-const TARGET_RULES: Record<HandoffKind, RegExp> = {
-  transfer: /^\d{2,8}$/,
-  voicemail: /^\*\*\d{2,8}$/,
-  park: /^\*3$/,
-  valet_park: /^\*4$/,
+/** Which classified target kinds each handoff kind takes (dialplan.ts classifies). */
+const KIND_TARGETS: Record<HandoffKind, string[]> = {
+  transfer: ['internal', 'external'],
+  voicemail: ['voicemail'],
+  park: ['park'],
+  valet_park: ['valet_park'],
 };
 
 /** Anything that looks like an API key or token: refused in every field. */
@@ -122,6 +130,9 @@ export function defaultAgent(env: NodeJS.ProcessEnv = process.env): AgentConfig 
     enabled_tools: [...ENABLEABLE_TOOLS],
     handoffs,
     dial_allow: EXT_RE.test(front) ? [front] : [],
+    allow_any_nanp: false,
+    max_dials_per_call: 2,
+    max_dials_per_hour: 20,
     warm_transfer: { enabled: EXT_RE.test(front), mode: 'conference', ring_timeout_s: 25, hold_timeout_s: 90, agent_after_join: 'leave', transcribe_after_agent_leaves: false },
     turn: { vad: 'semantic_vad', eagerness: 'auto', silence_ms: 500 },
     elevenlabs_agent_id: '',
@@ -154,7 +165,10 @@ export function validateAgent(input: any): ValidationResult {
     custom_prompt: typeof c.custom_prompt === 'string' ? c.custom_prompt.slice(0, 20_000) : '',
     enabled_tools: Array.isArray(c.enabled_tools) ? c.enabled_tools.map((t: unknown) => str(t, 64)).filter(Boolean) : [],
     handoffs: [],
-    dial_allow: Array.isArray(c.dial_allow) ? c.dial_allow.map((x: unknown) => str(x, 12)).filter(Boolean) : [],
+    dial_allow: Array.isArray(c.dial_allow) ? c.dial_allow.map((x: unknown) => str(x, 16)).filter(Boolean) : [],
+    allow_any_nanp: bool(c.allow_any_nanp),
+    max_dials_per_call: int(c.max_dials_per_call, 2),
+    max_dials_per_hour: int(c.max_dials_per_hour, 20),
     warm_transfer: {
       enabled: bool(c.warm_transfer?.enabled),
       mode: c.warm_transfer?.mode === 'attended_refer' ? 'attended_refer' : 'conference',
@@ -185,20 +199,36 @@ export function validateAgent(input: any): ValidationResult {
   out.enabled_tools = [...new Set(out.enabled_tools)];
   const ids = new Set<string>();
   for (const h of Array.isArray(c.handoffs) ? c.handoffs : []) {
-    const a: HandoffAction = { id: str(h?.id, 40).toLowerCase(), label: str(h?.label, 60), kind: h?.kind, target: str(h?.target, 12), description: str(h?.description, 200) };
+    const a: HandoffAction = { id: str(h?.id, 40).toLowerCase(), label: str(h?.label, 60), kind: h?.kind, target: str(h?.target, 16), description: str(h?.description, 200) };
     if (!ID_RE.test(a.id) || ids.has(a.id)) e.push(`handoff id ${a.id || '(empty)'} invalid or duplicate`);
     ids.add(a.id);
-    if (!TARGET_RULES[a.kind as HandoffKind]) e.push(`handoff ${a.id}: kind must be transfer, voicemail, park or valet_park`);
-    else if (!TARGET_RULES[a.kind].test(a.target)) e.push(`handoff ${a.id}: target ${a.target} not allowed for ${a.kind}`);
+    const cls = classifyTarget(a.target);
+    if (!KIND_TARGETS[a.kind as HandoffKind]) e.push(`handoff ${a.id}: kind must be transfer, voicemail, park or valet_park`);
+    else if (!cls.ok) e.push(`handoff ${a.id}: target not allowed (${cls.reason})`);
+    else if (!KIND_TARGETS[a.kind].includes(cls.kind)) e.push(`handoff ${a.id}: target ${cls.masked} not allowed for ${a.kind}`);
+    else {
+      a.target = cls.dial;
+      if (cls.kind === 'external' && !out.allow_any_nanp && !out.dial_allow.some((x) => { const d = classifyTarget(x); return d.ok && d.dial === cls.dial; })) {
+        e.push(`handoff ${a.id}: outside number ${cls.masked} must also be on the dial allow-list (or allow any US number)`);
+      }
+    }
     // Belt and braces: the per-kind patterns already exclude these.
-    if (FORBIDDEN_CODES.some((f) => a.target === f || (a.target.startsWith('*') && !a.target.startsWith('**') && a.target.length > 2))) e.push(`handoff ${a.id}: ${a.target} is never allowed`);
+    if (FORBIDDEN_CODES.includes(a.target)) e.push(`handoff ${a.id}: ${a.target} is never allowed`);
     if (!a.label) e.push(`handoff ${a.id}: label required`);
     out.handoffs.push(a);
   }
   if (out.handoffs.length > 12) e.push('at most 12 handoff actions');
-  for (const x of out.dial_allow) if (!EXT_RE.test(x)) e.push(`dial allow-list entry ${x}: internal extension/group numbers only (2-8 digits)`);
-  out.dial_allow = [...new Set(out.dial_allow)];
-  if (out.warm_transfer.enabled && out.dial_allow.length === 0) e.push('warm transfer needs at least one allowed extension');
+  const allow: string[] = [];
+  for (const x of out.dial_allow) {
+    const cls = classifyTarget(x);
+    if (!cls.ok) e.push(`dial allow-list entry not allowed (${cls.reason})`);
+    else if (cls.kind !== 'internal' && cls.kind !== 'external') e.push(`dial allow-list entry ${cls.masked}: an extension, group, queue or 10-digit US number only`);
+    else allow.push(cls.dial);
+  }
+  out.dial_allow = [...new Set(allow)];
+  if (out.max_dials_per_call < 1 || out.max_dials_per_call > 10) e.push('dials per call 1..10');
+  if (out.max_dials_per_hour < 1 || out.max_dials_per_hour > 200) e.push('dials per hour 1..200');
+  if (out.warm_transfer.enabled && !out.handoffs.some((h) => h.kind === 'transfer')) e.push('warm transfer needs at least one transfer destination');
   if (out.warm_transfer.ring_timeout_s < 5 || out.warm_transfer.ring_timeout_s > 60) e.push('ring timeout 5..60 s');
   if (out.warm_transfer.hold_timeout_s < 15 || out.warm_transfer.hold_timeout_s > 300) e.push('hold timeout 15..300 s');
   if (out.turn.silence_ms < 200 || out.turn.silence_ms > 2000) e.push('silence 200..2000 ms');

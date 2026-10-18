@@ -6,6 +6,7 @@ import { ALL_CONFERENCE_LEGS, CallStart, GwCommand, GwEvent } from './protocol';
 import { Clip, MODEL_SCRIPTS, ScriptId } from './scripts';
 import { CallTranscript } from './transcript';
 import { fillerFor, WARM_TOOLS } from './tools';
+import { allowedByList, classifyTarget, dialLimitHit, takeHourlySlot } from './dialplan';
 import { ProviderEvents, VoiceProvider } from './providers/types';
 import { Transcriber, TranscriberFactory } from './providers/transcriber';
 
@@ -68,7 +69,11 @@ export interface SessionOptions {
 type WarmPhase = 'holding' | 'ringing' | 'consult' | 'joining' | 'joined';
 interface WarmState {
   phase: WarmPhase;
+  /** digits to dial (never logged) */
   ext: string;
+  /** extension, or ...last4 of an outside number (transcript label, audit) */
+  label: string;
+  object: string;
   reason: string;
   name: string;
   verified: boolean;
@@ -119,6 +124,7 @@ export class CallSession {
   private endReason = '';
   private quality: Record<string, unknown> = {};
   private reqN = 0;
+  private dialsThisCall = 0;
   private transferReq = new Map<string, { action: HandoffAction; toolCallId: string }>();
 
   constructor(o: SessionOptions) {
@@ -475,6 +481,34 @@ export class CallSession {
     return `q${++this.reqN}`;
   }
 
+  /**
+   * Guardrails for a call that leaves the PBX or rings someone (warm-transfer dial, transfer to an outside number):
+   * classification (never international, premium, N11, emergency), the agent's allow-list, the per-call and per-hour
+   * dial limits. Returns the audit object (target masked to the last 4 digits) or a refusal text for the model.
+   */
+  private outboundCheck(target: string, counts: boolean): { ok: true; dial: string; object: string; external: boolean } | { ok: false; code: string; text: string } {
+    const c = classifyTarget(target);
+    if (!c.ok) return { ok: false, code: 'TARGET_REFUSED', text: 'That destination cannot be called from this line.' };
+    const external = c.kind === 'external';
+    const object = external ? `pstn:${c.masked}` : `ext:${c.masked}`;
+    if (external && !allowedByList(c, this.o.agent.dial_allow, this.o.agent.allow_any_nanp)) {
+      return { ok: false, code: 'NOT_ON_ALLOW_LIST', text: 'That number is not on this line\'s allow-list.' };
+    }
+    if (counts) {
+      const perCall = this.o.agent.max_dials_per_call ?? 2;
+      if (this.dialsThisCall >= perCall) {
+        dialLimitHit(this.o.agent.id, 'per_call', this.dialsThisCall, this.callId);
+        return { ok: false, code: 'DIAL_LIMIT_CALL', text: 'No more outgoing calls can be placed on this call.' };
+      }
+      if (!takeHourlySlot(this.o.agent.id, this.o.agent.max_dials_per_hour ?? 20)) {
+        dialLimitHit(this.o.agent.id, 'per_hour', this.o.agent.max_dials_per_hour ?? 20, this.callId);
+        return { ok: false, code: 'DIAL_LIMIT_HOUR', text: 'Outgoing calls are paused on this line right now.' };
+      }
+      this.dialsThisCall++;
+    }
+    return { ok: true, dial: c.dial, object, external };
+  }
+
   private toolTransfer(id: string, args: any): void {
     const action = this.o.agent.handoffs.find((h) => h.id === String(args.destination || ''));
     if (!action) {
@@ -482,16 +516,23 @@ export class CallSession {
       this.o.provider.sendToolResult(id, 'TOOL_ERROR (NOT_ALLOWED). That destination is not available on this line. Offer to take a message.', true);
       return;
     }
+    // Outside numbers are outgoing calls: allow-list and dial limits. Internal transfers, voicemail and park are not.
+    const chk = this.outboundCheck(action.target, classifyTarget(action.target).ok && (classifyTarget(action.target) as any).kind === 'external');
+    if (!chk.ok) {
+      this.audit('transfer', false, chk.code, action.id);
+      this.o.provider.sendToolResult(id, `TOOL_ERROR (${chk.code}). ${chk.text} Offer to take a message instead.`, true);
+      return;
+    }
     const line: ScriptId = action.kind === 'voicemail' ? 'TRANSFER_VOICEMAIL' : action.kind === 'transfer' ? 'TRANSFER' : 'PARK';
     this.o.provider.sendToolResult(id, `TRANSFER STARTED (${action.label}). The transfer line is playing; say nothing until you are told the result.`, false);
-    this.o.transcript.handoff(action.kind, action.target, 'started');
+    this.o.transcript.handoff(action.kind, chk.object, 'started');
     const req = this.reqId();
     this.transferReq.set(req, { action, toolCallId: id });
     this.playScript(0, line, {
       tellModel: true,
       onDone: () => {
-        this.audit('transfer', true, undefined, `${action.kind}:${action.target}`);
-        this.o.link.send({ type: 'transfer', leg: 0, target: `sip:${action.target}@${this.o.realm}`, request_id: req });
+        this.audit('transfer', true, undefined, `${action.kind}:${chk.object}`);
+        this.o.link.send({ type: 'transfer', leg: 0, target: `sip:${chk.dial}@${this.o.realm}`, request_id: req });
       },
     });
   }
@@ -504,14 +545,14 @@ export class CallSession {
     }
     const failed = (ev.type === 'transfer_result' && ev.code !== 202) || (ev.type === 'transfer_progress' && (ev.code || 0) >= 300);
     if (ev.type === 'transfer_progress' && ev.code && ev.code >= 200 && ev.code < 300) {
-      this.o.transcript.handoff(req.action.kind, req.action.target, 'connected');
+      this.o.transcript.handoff(req.action.kind, req.action.id, 'connected');
       this.transferReq.delete(ev.request_id!);
       return;
     }
     if (!failed) return;
     this.transferReq.delete(ev.request_id!);
-    this.audit('transfer', false, `SIP_${ev.code || 0}`, `${req.action.kind}:${req.action.target}`);
-    this.o.transcript.handoff(req.action.kind, req.action.target, `failed ${ev.code || ev.reason || ''}`);
+    this.audit('transfer', false, `SIP_${ev.code || 0}`, `${req.action.kind}:${req.action.id}`);
+    this.o.transcript.handoff(req.action.kind, req.action.id, `failed ${ev.code || ev.reason || ''}`);
     this.playScript(0, 'TRANSFER_FAILED', {
       tellModel: true,
       onDone: () => this.o.provider.addSystemNote('ORCHESTRATOR: The transfer did not go through and the caller is still with you. Offer to take a message (drawbridge_take_message) or a staff task.', true),
@@ -521,20 +562,31 @@ export class CallSession {
   // ── Warm transfer ──────────────────────────────────────────────────────────────────────────────────────────
 
   private toolWarmTransfer(id: string, args: any): void {
-    const ext = String(args.extension || '');
-    if (!this.o.agent.warm_transfer.enabled || !this.o.agent.dial_allow.includes(ext) || !/^\d{2,8}$/.test(ext)) {
-      this.audit('dial', false, 'NOT_ALLOWED', 'ext:refused');
-      this.o.provider.sendToolResult(id, 'TOOL_ERROR (NOT_ALLOWED). That extension cannot be dialled from this line. Offer transfer_to_staff or a message.', true);
+    const action = this.o.agent.handoffs.find((h) => h.id === String(args.destination || args.extension || '') && h.kind === 'transfer');
+    const cls = action ? classifyTarget(action.target) : null;
+    if (!this.o.agent.warm_transfer.enabled || !action || !cls || !cls.ok || !allowedByList(cls, this.o.agent.dial_allow, this.o.agent.allow_any_nanp)) {
+      this.audit('dial', false, 'NOT_ALLOWED', 'refused');
+      this.o.provider.sendToolResult(id, 'TOOL_ERROR (NOT_ALLOWED). That destination cannot be called from this line. Offer transfer_to_staff or a message.', true);
       return;
     }
     if (this.warm) {
       this.o.provider.sendToolResult(id, 'TOOL_ERROR (BUSY). A warm transfer is already in progress.', false);
       return;
     }
+    const chk = this.outboundCheck(action.target, true);
+    if (!chk.ok) {
+      this.audit('dial', false, chk.code, action.id);
+      this.o.provider.sendToolResult(id, `TOOL_ERROR (${chk.code}). ${chk.text} Offer voicemail or a message instead.`, true);
+      return;
+    }
+    const ext = chk.dial;
+    const label = chk.object.replace(/^(pstn|ext):/, '');
     const verified = callBindings.verified(this.callId).length > 0;
     this.warm = {
       phase: 'holding',
       ext,
+      label,
+      object: chk.object,
       reason: String(args.reason || '').slice(0, 200),
       name: verified ? String(args.caller_name || '').slice(0, 80) : '',
       verified,
@@ -544,7 +596,7 @@ export class CallSession {
       toolCallId: id,
     };
     this.o.provider.sendToolResult(id, 'WARM TRANSFER STARTED. The caller hears the hold line and is then on hold; say nothing until the next ORCHESTRATOR note.', false);
-    this.o.transcript.handoff('warm_transfer', ext, 'started');
+    this.o.transcript.handoff('warm_transfer', chk.object, 'started');
     this.playScript(0, 'HOLD', {
       tellModel: true,
       onDone: () => {
@@ -553,7 +605,7 @@ export class CallSession {
         this.o.link.send({ type: 'hold', leg: 0, request_id: this.warm.requestId });
         this.warm.phase = 'ringing';
         this.warm.holdTimer = this.t.set(() => this.warmGiveUp('hold_timeout'), this.o.agent.warm_transfer.hold_timeout_s * 1000);
-        this.audit('dial', true, undefined, `ext:${ext}`);
+        this.audit('dial', true, undefined, this.warm.object);
         this.o.link.send({ type: 'dial', target: `sip:${ext}@${this.o.realm}`, timeout_s: this.o.agent.warm_transfer.ring_timeout_s, request_id: this.warm.requestId });
       },
     });
@@ -564,14 +616,14 @@ export class CallSession {
     if (!w || ev.request_id !== w.requestId) return;
     w.leg = ev.leg;
     w.phase = 'consult';
-    this.o.transcript.setStaffLeg(ev.leg, w.ext);
-    this.o.transcript.event(`staff extension ${w.ext} answered`, ev.leg);
+    this.o.transcript.setStaffLeg(ev.leg, w.label);
+    this.o.transcript.event(`staff ${w.label} answered`, ev.leg);
     this.startTranscriber(ev.leg);
     this.modelIn = new Set([ev.leg]);
     this.agentOut = ev.leg;
     const who = w.verified ? `a caller verified on this call${w.name ? ` as ${w.name}` : ''}` : 'a caller who is NOT verified';
     this.o.provider.addSystemNote(
-      `ORCHESTRATOR: You are now speaking privately with the staff member at extension ${w.ext}; the caller is on hold and cannot hear you. ` +
+      `ORCHESTRATOR: You are now speaking privately with the staff member you called (${w.label}); the caller is on hold and cannot hear you. ` +
         `Briefly say you have ${who}, calling about: ${w.reason || 'a question'}. Share nothing else from the record. Ask if they can take the call ` +
         '(they may also press 1 to accept or 2 to decline). If they accept, call connect_caller; if they cannot, call staff_declined.',
       true
@@ -581,7 +633,7 @@ export class CallSession {
   private onStaffFailed(ev: GwEvent): void {
     const w = this.warm;
     if (!w || ev.request_id !== w.requestId) return;
-    this.audit('dial', false, ev.code ? `SIP_${ev.code}` : String(ev.reason || 'FAILED').toUpperCase().slice(0, 40), `ext:${w.ext}`);
+    this.audit('dial', false, ev.code ? `SIP_${ev.code}` : String(ev.reason || 'FAILED').toUpperCase().slice(0, 40), w.object);
     this.warmGiveUp(ev.reason || 'no_answer');
   }
 
@@ -612,7 +664,7 @@ export class CallSession {
     if (this.currentResp) this.suppressed.add(this.currentResp);
     this.o.link.send({ type: 'clear', leg: w.leg });
     if (this.o.agent.warm_transfer.mode === 'attended_refer') {
-      this.audit('transfer', true, undefined, `attended:${w.ext}`);
+      this.audit('transfer', true, undefined, `attended:${w.object}`);
       this.o.link.send({ type: 'transfer', leg: 0, replaces_leg: w.leg });
       return;
     }
@@ -630,8 +682,8 @@ export class CallSession {
     w.phase = 'joined';
     this.o.link.send({ type: 'resume', leg: 0 });
     this.o.link.send({ type: 'conference', legs: [0, w.leg] });
-    this.audit('conference_join', true, undefined, `ext:${w.ext}`);
-    this.o.transcript.handoff('warm_transfer', w.ext, 'joined');
+    this.audit('conference_join', true, undefined, w.object);
+    this.o.transcript.handoff('warm_transfer', w.object, 'joined');
     const after = this.o.agent.warm_transfer;
     if (after.agent_after_join === 'leave') {
       this.agentPresent = false;
@@ -661,7 +713,7 @@ export class CallSession {
     this.warm = null;
     this.t.clear(w.holdTimer);
     this.log(`warm transfer ended: ${reason}`);
-    this.o.transcript.handoff('warm_transfer', w.ext, reason);
+    this.o.transcript.handoff('warm_transfer', w.object, reason);
     if (w.leg >= 0 && this.legsUp.has(w.leg)) this.o.link.send({ type: 'hangup', leg: w.leg });
     const tr = this.transcribers.get(w.leg);
     tr?.close();

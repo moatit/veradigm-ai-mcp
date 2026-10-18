@@ -171,17 +171,26 @@ Stored in `<CALL_RECORDS_DIR>/voice/agents.json` (mode 0600). It holds no secret
 | provider, model, voice, language | `openai` / `gpt-realtime-2.1` / `marin`; or `elevenlabs` + voice ID + ElevenLabs agent ID |
 | prompt | Default: `retell-prompts/unity-healthcare-agent.md` (the Retell v7 prompt, variables filled per call) plus the voice-line addendum (say_script, transfer, end_call). Custom prompts must keep the safety rules. |
 | enabled tools | Any of the Unity phone-agent tools (`AGENT_TOOLS`, same compact schemas as Retell) plus `say_script` (cannot be turned off), `transfer_to_staff`, `warm_transfer`, `end_call`. FHIR backup tools are not offered (they live in the FHIR process). |
-| handoff actions | `id \| label \| kind \| target \| when to use`. Kinds: `transfer` (2-8 digit extension, ring group or queue), `voicemail` (`**<ext>`), `park` (`*3`), `valet_park` (`*4`). Nothing else. |
-| warm transfer | Allow-listed internal extensions (2-8 digits); mode `conference` (local 3-way, then the agent leaves) or `attended_refer` (REFER with Replaces, conference if refused); ring timeout (default 25 s); hold timeout (default 90 s); agent leaves or stays muted; transcription after the agent leaves (default off) |
+| handoff actions | `id \| label \| kind \| target \| when to use`. Kinds: `transfer` (2-8 digit extension, ring group or queue, or a 10-digit US/NANP number), `voicemail` (`**<ext>`), `park` (`*3`), `valet_park` (`*4`). Nothing else. The model sees the action IDs and labels, never the numbers. |
+| dial allow-list | Extensions and outside US numbers the agent may call out to (warm transfer) or transfer to when outside. `allow_any_nanp` (off by default) allows any US/NANP number. |
+| dial limits | `max_dials_per_call` (default 2) and `max_dials_per_hour` per agent (default 20). Outside transfers and every warm-transfer dial count. When a limit is hit: refused, `voice_dial_limit` security event, help-desk alert (at most hourly). |
+| warm transfer | Destinations: transfer actions on the dial allow-list (internal or outside); mode `conference` (local 3-way, then the agent leaves) or `attended_refer` (REFER with Replaces, conference if refused); ring timeout (default 25 s); hold timeout (default 90 s); agent leaves or stays muted; transcription after the agent leaves (default off) |
 | turn detection | `semantic_vad` (eagerness) or `server_vad` (silence ms) |
 
 The default configuration has no handoffs until `VOICE_FRONT_DESK_EXT` is set in `.env`; it then gets "front desk" (transfer) and "front desk voicemail".
 
-**Allow-lists (toll-fraud protection), checked twice:**
-- The harness checks the agent's configuration.
-- The gateway allows only `sip:<digits, * or #>@<our realm>` for REFER, and only `sip:<2-8 digits>@<our realm>` for dial-out: no `+`, no external, international or star-code dialling.
-
-The extension's class of service on the PBX should also be internal-only (the owner's action).
+**Outside numbers (owner decision, Oct 18 2026):** the agent may dial and transfer inside (extensions, queues, groups) and outside (US/NANP), under guardrails (`src/platform/modules/voice/dialplan.ts`, mirrored in `deploy/voice-gw/dialplan.go`).
+- **Always refused:**
+  - international (`011`, `+` not 1, NANP area codes of other countries such as 809/876);
+  - premium (900, 976 exchanges, 5XX personal numbers, 700);
+  - N11 service codes;
+  - emergency numbers: the agent never dials 911; it plays the 911 line instead;
+  - 7-digit numbers;
+  - star codes other than `**ext`, `*3`, `*4`.
+- **Checked twice:** the harness checks the agent's handoff actions and allow-list, plus the per-call and per-hour limits; the gateway re-classifies every REFER and dial target.
+- **Audit and logs:** the target appears as `ext:<ext>` or `pstn:...<last 4>`. Logs and transcripts keep the last 4 digits only.
+- **Live test (owner, Oct 18):** the owner's cell is on the test agent's allow-list (stored in the agent configuration on the data volume, not in code) together with his desk extension (4501).
+- **PBX side:** Titan records every inbound and outbound call (owner). Outbound calls are free on this plan.
 
 ---
 
@@ -312,7 +321,7 @@ The extension's class of service on the PBX should also be internal-only (the ow
 | `VOICE_HARNESS_PORT` / `VOICE_HARNESS_HOST` | 3010 / 0.0.0.0 | Internal network only |
 | `OPENAI_API_KEY` / `ELEVENLABS_API_KEY` | | Provider keys (secret) |
 | `VOICE_AGENT_ID` | the stored active agent | |
-| `VOICE_FRONT_DESK_EXT` | unset | Seeds the default handoffs and warm-transfer allow-list |
+| `VOICE_FRONT_DESK_EXT` | unset | Seeds the default handoffs and dial allow-list |
 | `VOICE_MAX_SESSIONS` | 4 | |
 | `VOICE_ALLOW_PLAIN_RTP` | unset | `synthetic-only` admits non-SRTP calls (tests) |
 | `VOICE_ALLOW_NON_BAA_PROVIDER` | unset | `synthetic-only` admits ElevenLabs agents (tests) |

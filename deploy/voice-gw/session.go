@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
-	"regexp"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -29,8 +28,6 @@ const (
 	allConferenceLegs = 255
 )
 
-var dialUserRe = regexp.MustCompile(`^[0-9]{2,8}$`)
-
 // ValidateDialTarget: the agent may only dial internal extensions, ring groups or queues on our own PBX:
 // digits only (no +, no star codes, no external or international numbers), same realm.
 func ValidateDialTarget(target, realm string) (string, error) {
@@ -40,8 +37,9 @@ func ValidateDialTarget(target, realm string) (string, error) {
 	}
 	user := strings.TrimPrefix(clean, "sip:")
 	user = user[:strings.Index(user, "@")]
-	if !dialUserRe.MatchString(user) {
-		return "", fmt.Errorf("dial target must be an internal extension/group number (2-8 digits)")
+	kind, _, err := ClassifyTarget(user)
+	if err != nil || (kind != TargetInternal && kind != TargetExternal) {
+		return "", fmt.Errorf("dial target must be an internal extension/group or a 10-digit US/NANP number")
 	}
 	return clean, nil
 }
