@@ -4,10 +4,10 @@
 import { createServer } from "node:http";
 import { brotliCompressSync, gzipSync } from "node:zlib";
 import { readFileSync, existsSync, statSync } from "node:fs";
-import { extname, join, normalize, dirname } from "node:path";
+import { extname, join, normalize, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "dist");
+const ROOT = process.env.DRAWBRIDGE_OUT ? resolve(process.env.DRAWBRIDGE_OUT) : join(dirname(fileURLToPath(import.meta.url)), "..", "dist");
 const PORT = Number(process.env.PORT || 4417);
 if (PORT === 8095 || PORT === 8096) throw new Error("Ports 8095/8096 belong to the Drawbridge stack. Pick another.");
 const HOST = "127.0.0.1";
@@ -29,11 +29,13 @@ createServer((req, res) => {
   const url = new URL(req.url, `http://${HOST}:${PORT}`);
   if (url.pathname === "/api/demo-request") {
     if (req.method !== "POST") { res.writeHead(405, { Allow: "POST" }); return res.end(); }
-    // Placeholder: read and discard the body; nothing is logged or stored.
+    // Placeholder: read and discard the body; nothing is logged or stored. It answers 503 so the form
+    // shows its "couldn't send" message with the phone numbers, instead of a thank-you for a request
+    // that went nowhere. Replace with the real endpoint before launch (build plan 1B.3).
     req.on("data", () => {});
     req.on("end", () => {
-      res.writeHead(202, { "Content-Type": "application/json", "Content-Security-Policy": csp(), ...baseHeaders });
-      res.end(JSON.stringify({ ok: true, placeholder: true }));
+      res.writeHead(503, { "Content-Type": "application/json", "Content-Security-Policy": csp(), ...baseHeaders });
+      res.end(JSON.stringify({ ok: false, error: "demo endpoint not connected" }));
     });
     return;
   }

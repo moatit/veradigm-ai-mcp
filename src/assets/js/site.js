@@ -1,5 +1,4 @@
-/* Drawbridge site script. No third-party code, no cookies, no tracking.
-   Analytics are off; see docs/campaign/TRACKING_PLAN.md for the consent-gated plan. */
+/* Drawbridge site script. No third-party code, no cookies, no tracking. */
 (function () {
   "use strict";
   document.documentElement.classList.add("js");
@@ -149,4 +148,12 @@
       });
     });
   }
+  // Pop-ups (the HTML popover attribute): move focus to the heading when one opens, so screen readers start there.
+  document.querySelectorAll("[popover]").forEach(function (pop) {
+    pop.addEventListener("toggle", function (e) {
+      if (e.newState !== "open") return;
+      var h = pop.querySelector("h2");
+      if (h) { h.setAttribute("tabindex", "-1"); h.focus(); }
+    });
+  });
 })();

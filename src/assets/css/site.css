@@ -273,6 +273,7 @@ hr { border: 0; border-top: 1px solid var(--line); margin: 2rem 0; }
 .fake-btn { font: 500 0.88rem/1.2 var(--font-display); padding: 0.55rem 0.9rem; border-radius: var(--radius); border: 1.5px solid var(--ink); color: var(--ink); }
 .fake-btn.primary { background: var(--ink); color: var(--white); }
 .btn-replay { background: none; border: 0; padding: 0; cursor: pointer; }
+.btn-link, .btn-replay { min-height: 24px; }
 .card .roi-big-light, .roi-big-light { color: var(--ink); margin-top: 0.6rem; font-size: clamp(2.6rem, 5vw, 3.6rem); }
 .card .roi-big-light small, .roi-big-light small { color: var(--slate); }
 .note-sign { font-family: var(--font-body); color: var(--slate); }

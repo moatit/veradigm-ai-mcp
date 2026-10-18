@@ -1,22 +1,27 @@
 // Site checks, no dependencies: node scripts/check.mjs (npm run check)
 //   1. build            the static build must succeed
 //   2. design bans      the inlined CSS: no italics, pill radii, monospace, gradients, glass, Google Fonts
-//   3. copy rules       banned marketing words, vendor or subprocessor names, "MCP/FHIR/Unity", em dashes
+//   3. copy rules       banned marketing words, vendor or subprocessor names, "MCP/FHIR/Unity", em dashes, in every
+//                       text file in dist/ (pages, scripts, styles, manifest, _headers, robots, sitemap, SVG)
 //   4. links            every internal href/src resolves to a built file, and every #anchor exists on its page
 // Exit code 1 if anything fails. Scans dist/ (everything a visitor or a crawler can read).
 import { execFileSync } from "node:child_process";
-import { readFileSync, readdirSync, statSync, existsSync } from "node:fs";
+import { readFileSync, readdirSync, statSync, existsSync, mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, join, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
-const DIST = join(ROOT, "dist");
+// Build into a temporary folder: dist/ (which the preview serves) is never touched. Production robots
+// and pages by default; DRAWBRIDGE_PREVIEW=1 checks the preview build instead.
+const DIST = mkdtempSync(join(tmpdir(), "drawbridge-check-"));
+process.on("exit", () => rmSync(DIST, { recursive: true, force: true }));
 const failures = [];
 const fail = (check, where, msg) => failures.push(`${check.padEnd(12)} ${where}: ${msg}`);
 
 // ---------------------------------------------------------------- 1. build
 try {
-  execFileSync(process.execPath, [join(ROOT, "scripts", "build.mjs")], { stdio: "pipe", env: process.env });
+  execFileSync(process.execPath, [join(ROOT, "scripts", "build.mjs")], { stdio: "pipe", env: { ...process.env, DRAWBRIDGE_OUT: DIST } });
 } catch (e) {
   console.error(String(e.stdout || ""), String(e.stderr || ""));
   console.error("check: the build failed");
@@ -51,8 +56,8 @@ for (const f of html) if (/fonts\.(googleapis|gstatic)\.com/i.test(read(f))) fai
 
 // ---------------------------------------------------------------- 3. copy rules (visible text + metadata)
 const WORDS = ["leverage", "seamless", "empower", "unlock", "robust", "actionable", "elevate", "delve", "solutions"];
-const VENDORS = ["Retell", "OpenAI", "ChatGPT", "GPT-", "AWS", "Amazon Web Services", "Cloudflare", "ElevenLabs",
-  "SentinelOne", "Garrison", "Twilio", "Azure", "Tesseract", "Anthropic"];
+const VENDORS = ["Retell", "OpenAI", "ChatGPT", "GPT", "AWS", "Amazon", "Cloudflare", "ElevenLabs", "Eleven Labs",
+  "SentinelOne", "Garrison", "Twilio", "Azure", "Tesseract", "Anthropic", "Let's Encrypt", "ConnectWise", "Netlify"];
 const TECH = ["MCP", "FHIR", "Unity"];
 // The brand-kit page quotes the rules themselves, so it may name a banned word as an example.
 const RULES_PAGES = new Set(["/brand/index.html"]);
@@ -62,18 +67,23 @@ const textOf = (s) => s
   .replace(/<[^>]+?(content|alt|title|aria-label|placeholder)="([^"]*)"[^>]*>/gi, " $2 ")
   .replace(/<[^>]+>/g, " ")
   .replace(/&[a-z#0-9]+;/gi, (e) => ({ "&amp;": "&", "&mdash;": "—", "&#8212;": "—" }[e] || " "));
-const jsFiles = files.filter((f) => f.endsWith(".js"));
-for (const f of [...html, ...jsFiles]) {
+// Every text file a visitor, browser or crawler can read: pages, scripts, styles, manifest, headers, robots,
+// sitemap, security.txt and SVG. Em dashes, vendor names and MCP/FHIR/Unity are checked in all of them;
+// banned marketing words only in copy (pages and the manifest).
+const TEXT_EXT = /\.(html|js|css|webmanifest|json|txt|xml|svg)$/i;
+const textFiles = files.filter((f) => TEXT_EXT.test(f) || f.endsWith(`${sep}_headers`));
+const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\'-]/g, "\\$&");
+for (const f of textFiles) {
   const raw = read(f);
-  const text = f.endsWith(".js") ? raw : textOf(raw);
+  const isHtml = f.endsWith(".html");
+  const text = isHtml ? textOf(raw) : raw;
   const where = rel(f);
   if (/—/.test(raw) || /—/.test(text)) fail("em-dash", where, "contains an em dash");
-  if (f.endsWith(".js")) continue; // code identifiers are not copy; only the em dash rule applies to scripts
-  if (!RULES_PAGES.has(where)) {
+  for (const v of VENDORS) if (new RegExp(`\\b${escapeRe(v)}\\b`, v === v.toUpperCase() ? "" : "i").test(text)) fail("vendor-name", where, `"${v}"`);
+  for (const t of TECH) if (new RegExp(`\\b${t}\\b`).test(text)) fail("tech-term", where, `"${t}"`);
+  if ((isHtml || f.endsWith(".webmanifest")) && !RULES_PAGES.has(where)) {
     for (const w of WORDS) if (new RegExp(`\\b${w}`, "i").test(text)) fail("banned-word", where, `"${w}"`);
   }
-  for (const v of VENDORS) if (new RegExp(`\\b${v.replace(/[-]/g, "\\-")}`, v === v.toUpperCase() ? "" : "i").test(text)) fail("vendor-name", where, `"${v}"`);
-  for (const t of TECH) if (new RegExp(`\\b${t}\\b`).test(text)) fail("tech-term", where, `"${t}"`);
 }
 
 // ---------------------------------------------------------------- 4. internal links and anchors
@@ -122,4 +132,4 @@ if (failures.length) {
   console.error(`\ncheck: ${failures.length} problem(s) in ${counts}`);
   process.exit(1);
 }
-console.log(`check: OK (build; design bans; copy rules; ${counts})`);
+console.log(`check: OK (build; design bans; copy rules in ${textFiles.length} text files; ${counts})`);

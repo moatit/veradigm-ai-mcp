@@ -1,7 +1,7 @@
 // Static build for drawbridge.moatit.com. No dependencies: node scripts/build.mjs → dist/
 import { createHash } from "node:crypto";
 import { cpSync, mkdirSync, readFileSync, rmSync, writeFileSync, existsSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { SITE, ORG } from "../src/content/site.mjs";
@@ -17,7 +17,9 @@ import { btnPrimary } from "../src/content/partials.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const SRC = join(ROOT, "src");
-const DIST = join(ROOT, "dist");
+// DRAWBRIDGE_OUT builds somewhere other than dist/ (npm run check uses a temporary folder, so a check
+// never replaces what the preview server is serving).
+const DIST = process.env.DRAWBRIDGE_OUT ? resolve(process.env.DRAWBRIDGE_OUT) : join(ROOT, "dist");
 
 const hash = (...files) => {
   const h = createHash("sha256");
@@ -53,7 +55,9 @@ const notFound = {
   })}`,
 };
 
-const pages = [home, fax, phone, platform, security, integrations, about, contact, roi, pricing, faq, privacy, terms, hipaa, accessibility, lpFax, lpPhone, brand, notFound];
+// The internal brand-kit page ships only in the preview build (DRAWBRIDGE_PREVIEW=1), never to production.
+const previewBuild = process.env.DRAWBRIDGE_PREVIEW === "1";
+const pages = [home, fax, phone, platform, security, integrations, about, contact, roi, pricing, faq, privacy, terms, hipaa, accessibility, lpFax, lpPhone, ...(previewBuild ? [brand] : []), notFound];
 
 rmSync(DIST, { recursive: true, force: true });
 mkdirSync(DIST, { recursive: true });
@@ -85,14 +89,14 @@ writeFileSync(
   join(DIST, "robots.txt"),
   preview
     ? "User-agent: *\nDisallow: /\n"
-    : `User-agent: *\nAllow: /\nDisallow: /brand/\nDisallow: /api/\n\nSitemap: ${SITE.url}/sitemap.xml\n`
+    : `User-agent: *\nAllow: /\nDisallow: /api/\n\nSitemap: ${SITE.url}/sitemap.xml\n`
 );
 
 writeFileSync(
   join(DIST, "site.webmanifest"),
   JSON.stringify(
     {
-      name: "Drawbridge — A MOATiT Service",
+      name: "Drawbridge, A MOATiT Service",
       short_name: "Drawbridge",
       start_url: "/",
       display: "browser",
@@ -116,7 +120,7 @@ writeFileSync(
   `Contact: mailto:${ORG.email}\nContact: tel:${ORG.phones[0].tel}\nExpires: 2027-10-16T00:00:00.000Z\nPreferred-Languages: en\nCanonical: ${SITE.url}/.well-known/security.txt\nPolicy: ${SITE.url}/security/\n`
 );
 
-// Security headers for static hosts that read _headers (Cloudflare Pages / Netlify). See docs/DEPLOYMENT.md.
+// Security headers for static hosts that read _headers. See docs/DEPLOYMENT.md.
 export const CSP =
   `default-src 'self'; script-src 'self'; style-src 'self' '${cssHash}'; img-src 'self' data:; font-src 'self'; connect-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'; object-src 'none'; upgrade-insecure-requests`;
 writeFileSync(
@@ -130,8 +134,17 @@ writeFileSync(
   Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=(), usb=(), interest-cohort=()
   Cross-Origin-Opener-Policy: same-origin
 
-/assets/*
+/assets/fonts/*
   Cache-Control: public, max-age=31536000, immutable
+
+/assets/js/*
+  Cache-Control: public, max-age=31536000, immutable
+
+/assets/brand/*
+  Cache-Control: public, max-age=86400
+
+/assets/img/*
+  Cache-Control: public, max-age=86400
 `
 );
 writeFileSync(join(DIST, "csp.txt"), CSP + "\n");
