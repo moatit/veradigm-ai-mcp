@@ -267,7 +267,7 @@ export const SAFEGUARDS: Safeguard[] = [
     section: 'Technical safeguards',
     requirement: 'Encryption of stored ePHI.',
     plain: 'All Drawbridge data is kept on encrypted volumes (AES), and backups are encrypted too. Disk encryption is verified for every deployment before go-live.',
-    technical: 'Deployment: EBS encryption with KMS (infra owned by Kanhaiya; compute.tf root_block_device needs encrypted = true); data center: BitLocker or LUKS2. Files are written mode 0600 in 0700 directories.',
+    technical: 'Deployment: EBS encryption with KMS (infra owned by the infrastructure team; compute.tf root_block_device needs encrypted = true); data center: BitLocker or LUKS2. Files are written mode 0600 in 0700 directories.',
     evidence: [E(STORE, "fs.writeFileSync(tmp, data, { mode: 0o600 });")],
     status: 'DEPLOYMENT',
   },
