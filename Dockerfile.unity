@@ -39,6 +39,9 @@ COPY --from=builder /app/dist ./dist
 # Copy environment template
 COPY .env.example ./.env.example
 
+# Phone agent prompt (the voice harness renders it per call; docs/drawbridge/VOICE_HARNESS.md)
+COPY retell-prompts/unity-healthcare-agent.md ./retell-prompts/unity-healthcare-agent.md
+
 # Change ownership to non-root user
 RUN mkdir -p /app/data && chown -R mcp:nodejs /app
 USER mcp

@@ -9,6 +9,7 @@ import { mountRetellInbound } from './modules/activity/retell-inbound';
 import { intakeModule, mountFaxWebhook } from './modules/intake';
 import { veradigmModule } from './modules/veradigm';
 import { complianceModule } from './modules/compliance';
+import { voiceModule } from './modules/voice';
 
 /**
  * Every Drawbridge platform module, in registration order. Add one import + one entry per new module.
@@ -22,9 +23,10 @@ const ALL_MODULES: PlatformModule[] = [
   intakeModule,
   veradigmModule,
   complianceModule,
+  voiceModule,
 ];
 
-/** Names ENABLED_MODULES accepts: oncall, scheduling, outreach, huddle, activity, intake, veradigm, compliance. */
+/** Names ENABLED_MODULES accepts: oncall, scheduling, outreach, huddle, activity, intake, veradigm, compliance, voice. */
 export const MODULE_NAMES: string[] = ALL_MODULES.map((m) => m.name);
 
 /** Settings that mean the phone agent's webhooks are live on this server (activity/retell-signature.ts). */

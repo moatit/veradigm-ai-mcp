@@ -35,6 +35,8 @@ Dockerfile.test
 
 # Documentation
 *.md
+# ...except the phone agent prompt, which the voice harness reads at call start
+!retell-prompts/unity-healthcare-agent.md
 LICENSE
 
 # Logs

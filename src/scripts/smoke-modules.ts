@@ -28,7 +28,7 @@ process.env.CALL_RECORDS_DIR = TMP;
 process.env.INTAKE_DROP_DIR = path.join(TMP, 'inbox');
 
 /** The registration order before ENABLED_MODULES existed (loadPlatformModules registered these, in this order). */
-const BEFORE = ['oncall', 'scheduling', 'outreach', 'huddle', 'activity', 'intake', 'veradigm', 'compliance'];
+const BEFORE = ['oncall', 'scheduling', 'outreach', 'huddle', 'activity', 'intake', 'veradigm', 'compliance', 'voice'];
 
 async function main(): Promise<void> {
   const { enabledModules, loadPlatformModules, moduleEnabled, mountModuleWebhooks, MODULE_NAMES } = await import('../platform/modules');
