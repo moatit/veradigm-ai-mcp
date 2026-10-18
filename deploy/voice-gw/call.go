@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"log/slog"
@@ -289,4 +290,10 @@ func (m *CallMedia) Quality() Quality {
 	m.statMu.Unlock()
 	q.EchoGated, q.EchoPassed = m.gate.Counts()
 	return q
+}
+
+// String: the quality as JSON for the log (field names kept).
+func (q Quality) String() string {
+	b, _ := json.Marshal(q)
+	return string(b)
 }

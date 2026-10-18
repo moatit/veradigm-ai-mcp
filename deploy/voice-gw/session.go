@@ -157,7 +157,7 @@ func (s *Session) legEnded(l *Leg) {
 	s.emit(Event{Type: "leg_hangup", Leg: l.idx, By: by, PktsIn: pin, PktsOut: pout, FirstInMs: intp(first)})
 	q := l.cm.Quality()
 	s.emit(Event{Type: "leg_quality", Leg: l.idx, Quality: &q})
-	s.g.log.Info("leg ended", "call", s.ref, "leg", l.idx, "kind", l.kind, "pkts_in", pin, "pkts_out", pout, "first_in_ms", first, "quality", q)
+	s.g.log.Info("leg ended", "call", s.ref, "leg", l.idx, "kind", l.kind, "pkts_in", pin, "pkts_out", pout, "first_in_ms", first, "quality", q.String())
 	s.mu.Lock()
 	delete(s.legs, l.idx)
 	left := len(s.legs)

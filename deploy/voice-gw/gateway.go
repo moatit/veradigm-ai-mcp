@@ -402,7 +402,7 @@ func (g *Gateway) greetingEcho(in *diago.DialogServerSession, ref string) {
 	start := time.Now()
 	_ = cm.Run(ctx)
 	in1, out1, first := cm.Stats()
-	g.log.Info("call ended", "call", ref, "secs", int(time.Since(start).Seconds()), "pkts_in", in1, "pkts_out", out1, "first_in_ms", first, "quality", cm.Quality())
+	g.log.Info("call ended", "call", ref, "secs", int(time.Since(start).Seconds()), "pkts_in", in1, "pkts_out", out1, "first_in_ms", first, "quality", cm.Quality().String())
 }
 
 func reasonPhrase(code int) string {
