@@ -90,7 +90,7 @@ export const KIND_LABEL: Record<DocumentKind, string> = {
 };
 const SOURCE_LABEL = { moatit_fax: 'MOATiT Fax', folder: 'Drop folder', upload: 'Staff upload' } as const;
 const DECISION_LABEL = { auto: 'Two identifiers match', review: 'Check the patient', none: 'No match', ambiguous: 'More than one patient', error: 'Search failed' } as const;
-const DECISION_PILL = { auto: 'ok', review: 'warn', none: 'warn', ambiguous: 'urgent', error: 'urgent' } as const;
+const DECISION_PILL = { auto: 'ok', review: 'warn', none: 'warn', ambiguous: 'warn', error: 'urgent' } as const;
 const ID_LABEL: Record<string, string> = { mrn: 'MRN', phone: 'Phone', ssn4: 'SSN last 4', address: 'Address' };
 const TASK_ERROR_LABEL: Record<string, string> = {
   NO_RECIPIENT: 'no one is set up to receive it',
