@@ -681,6 +681,100 @@ async function main(): Promise<void> {
   assert.deepStrictEqual(guardCalls, []);
   ok('staff filing observer: queue listed by DocumentID (verified shapes), faxes linked by time/pages/sender and the file itself on ties, indexing seen in the chart or the category listing, chart fallback, not observed after the deadline; report agreement; reads only');
 
+  // 12c. The indexing queue as the shadow-week source: read-only, one item per DocumentID, exact truth, never filed
+  const qsrc = await import('../platform/modules/intake/queue-source');
+  const { queueRef } = await import('../platform/modules/intake/store');
+  let qClock = Date.parse('2026-10-14T16:00:00Z'); // 10:00 in Boise
+  const vqStore = new IntakeStore(path.join(TMP, 'queue-source'), () => new Date(qClock));
+  const qEhr: Record<string, any> = {
+    V1: q('V1', '10/14/2026 09:10:00 AM', 2),
+    V2: q('V2', '10/14/2026 09:20:00 AM', 1),
+    V3: q('V3', '10/14/2026 09:30:00 AM', 2),
+  };
+  const qImages: Record<string, Buffer> = { V1: Buffer.from('%PDF-1.4 queue V1'), V2: Buffer.from('%PDF-1.4 queue V2'), V3: Buffer.from('%PDF-1.4 queue V1') };
+  const qCalls: { action: string; params: any; pid: string }[] = [];
+  const qUnity = {
+    async executeAction(action: string, params: any = {}, pid = '') {
+      qCalls.push({ action, params, pid });
+      const rows = Object.values(qEhr);
+      if (action === 'GetDocumentsByDocumentType') {
+        const want = params.Parameter1 === '-1000999' ? rows.filter((r) => r.DocumentSubType === '-1000999') : rows.filter((r) => r.DocumentType === params.Parameter1 && r.PatientID);
+        return { success: true, data: [{ getdocumentsbydocumenttypeinfo: want }] };
+      }
+      if (action === 'GetDocuments') return { success: true, data: [{ getdocumentsinfo: rows.filter((r) => r.PatientID === pid).map(({ PatientID, ...r }) => r) }] };
+      if (action === 'GetDocumentImage') return qImages[params.Parameter1] ? { success: true, data: [{ getdocumentimageinfo: [{ base64image: qImages[params.Parameter1].toString('base64') }] }] } : { success: false, error: 'not found' };
+      return { success: true, data: [] }; // a write would "succeed" here: the guard must stop it first
+    },
+  };
+  const added: string[] = [];
+  // Off unless asked; never in live mode.
+  delete process.env.INTAKE_QUEUE_SOURCE;
+  assert.strictEqual(qsrc.queueSourceState(), 'off');
+  process.env.INTAKE_QUEUE_SOURCE = 'on';
+  assert.strictEqual(qsrc.queueSourceState(), 'on');
+  process.env.INTAKE_MODE = 'live';
+  assert.strictEqual(qsrc.queueSourceState(), 'refused_live');
+  const liveRun = await new qsrc.QueueSource({ store: () => vqStore, unity: qUnity, onAdded: (id) => added.push(id), now: () => new Date(qClock) }).run();
+  assert.deepStrictEqual([liveRun.error_code, qCalls.length, vqStore.list().length], ['QUEUE_SOURCE_LIVE_MODE', 0, 0], 'live mode: no call, no item');
+  process.env.INTAKE_MODE = 'shadow';
+  process.env.INTAKE_QUEUE_PER_RUN = '2';
+  const vqSrc = new qsrc.QueueSource({ store: () => vqStore, unity: qUnity, onAdded: (id) => added.push(id), now: () => new Date(qClock) });
+  // Run 1: three documents waiting, two taken in (per-run cap), oldest first.
+  const vr1 = await vqSrc.run();
+  assert.deepStrictEqual([vr1.queue, vr1.added, vr1.deferred, vr1.known, vr1.errors], [3, 2, 1, 0, 0]);
+  const lst = qCalls.find((c) => c.action === 'GetDocumentsByDocumentType')!;
+  assert.deepStrictEqual([lst.params, lst.pid], [{ Parameter1: '-1000999', Parameter2: '', Parameter3: '10/11/2026', Parameter4: '10/14/2026' }, ''], 'queue listing: the queue type, a 3-day window, PatientID blank');
+  const img = qCalls.find((c) => c.action === 'GetDocumentImage')!;
+  assert.deepStrictEqual([img.params.Parameter1, img.params.Parameter2, img.params.Parameter3, img.params.Parameter4], ['V1', 'Scan', 'PDF', 'N']);
+  const v1 = vqStore.findBySourceRef(queueRef('V1'))!;
+  const v2 = vqStore.findBySourceRef(queueRef('V2'))!;
+  assert.deepStrictEqual([v1.source, v1.file?.mime, v1.history[0].action, added], ['veradigm_queue', 'application/pdf', 'read from the Veradigm® EHR indexing queue', [v1.id, v2.id]]);
+  // Run 2: the two known documents are not fetched again; V3 (same bytes as V1) is passed over, and remembered.
+  const imagesBefore = qCalls.filter((c) => c.action === 'GetDocumentImage').length;
+  const vr2 = await vqSrc.run();
+  assert.deepStrictEqual([vr2.added, vr2.known, vr2.skipped, qCalls.filter((c) => c.action === 'GetDocumentImage').length - imagesBefore], [0, 2, 1, 1]);
+  const vr3 = await vqSrc.run();
+  assert.deepStrictEqual([vr3.known, vr3.skipped, vqStore.list().length], [3, 0, 2], 'nothing fetched twice; one item per DocumentID');
+  // A failed listing is an error, never "the queue is empty".
+  const failing = new qsrc.QueueSource({ store: () => vqStore, unity: { async executeAction() { return { success: false, error: 'down' }; } }, onAdded: () => undefined });
+  const rf = await failing.run();
+  assert.deepStrictEqual([rf.errors, rf.queue, rf.error_code], [1, 0, 'GETDOCUMENTSBYDOCUMENTTYPE_FAILED']);
+  // What the pipeline would record in shadow mode (decision and suggested patient), set directly here.
+  for (const [it, key] of [[v1, '7001'], [v2, '7002']] as const) {
+    vqStore.update(it.id, {
+      status: 'matched',
+      page_count: it === v1 ? 2 : 1,
+      match: { decision: 'auto', reason: '', candidates: 1, patient: { patientId: '', chartPatientId: key, name: 'Synthetic Patient', dateOfBirth: '01/01/1970', mrn: '' }, checked_at: new Date(qClock).toISOString() },
+      shadow: { at: new Date(qClock).toISOString(), would: 'auto_file', code: 'auto', reason: '', patient_key: key, category: 'Labs/Procedures' },
+    });
+  }
+  // Staff index V1 to patient 7001 as Labs/Procedures; V2 still waits.
+  Object.assign(qEhr.V1, { PatientID: '7001', DocumentType: 'Labs/Procedures', DocumentSubType: 'LAB' });
+  qClock += 3_600_000;
+  const qObs = new observe.StaffFilingObserver({ store: () => vqStore, unity: qUnity, runTool: liveSearch, now: () => new Date(qClock) });
+  const or1 = await qObs.run();
+  assert.strictEqual(or1.linked, 2, 'both queue items linked by DocumentID');
+  const o1 = vqStore.get(v1.id)!.observed!;
+  assert.deepStrictEqual([o1.status, o1.via, o1.patient?.key, o1.category, o1.document_id, o1.confidence], ['found', 'queue', '7001', 'Labs/Procedures', 'V1', 'high'], 'exact truth: the same DocumentID, indexed by staff');
+  assert.ok(o1.signals?.includes('same document, read from the indexing queue'));
+  const o2 = vqStore.get(v2.id)!.observed!;
+  assert.deepStrictEqual([o2.status, o2.in_queue, o2.document_id], ['pending', true, 'V2']);
+  assert.deepStrictEqual([shadow.agreement(vqStore.get(v1.id)!, (id) => vqStore.get(id)), report.originOf(vqStore.get(v1.id)!)], ['agrees', 'Veradigm EHR indexing queue']);
+  // Never filed: the original is already in Veradigm EHR, and a copy would leave a duplicate in the queue.
+  const pre = filing.filingPreconditions({ ...vqStore.get(v1.id)!, document_type: { id: '1', name: 'Labs/Procedures', reason: 'kind' } as any }, 'chart');
+  assert.ok(pre.some((p) => /already in the Veradigm® EHR indexing queue/.test(p)), 'chart filing refused');
+  assert.ok(filing.filingPreconditions(vqStore.get(v1.id)!, 'indexing').some((p) => /indexing queue/.test(p)), 'send-to-indexing refused');
+  assert.ok(qCalls.every((c) => ['GetDocumentsByDocumentType', 'GetDocuments', 'GetDocumentImage'].includes(c.action)), 'reads only');
+  // The source's own guard: a write never reaches Veradigm, whatever it is asked.
+  const gCalls: string[] = [];
+  const gSrc = new qsrc.QueueSource({ store: () => vqStore, unity: { async executeAction(a: string) { gCalls.push(a); return { success: true, data: [] }; } }, onAdded: () => undefined });
+  await (gSrc as any).unity.executeAction('SaveScanDocument', {}, '7001');
+  await (gSrc as any).unity.executeAction('SaveTask', {}, '7001');
+  assert.deepStrictEqual(gCalls, []);
+  delete process.env.INTAKE_QUEUE_SOURCE;
+  delete process.env.INTAKE_QUEUE_PER_RUN;
+  ok('indexing queue as the shadow source: off by default, refused in live mode, one item per DocumentID (cap, no refetch, duplicates remembered), listing failure is an error, exact high-confidence truth by DocumentID, never filed (chart or indexing), reads only');
+
   await intake.intakePipeline.idle();
   ocrSrv.srv.close();
 

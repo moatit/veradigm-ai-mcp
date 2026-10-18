@@ -123,6 +123,9 @@ export function filingPreconditions(item: IntakeItem, target: 'chart' | 'indexin
   const problems: string[] = [];
   if (item.status === 'filed' || item.status === 'sent_to_indexing' || item.filed?.document_id) problems.push('already filed');
   if (item.status === 'split') problems.push('split into one document per patient (file each part)');
+  // Read from the Veradigm® EHR indexing queue (shadow week): the document is already in Veradigm® EHR, and a
+  // saved copy would leave the original waiting in the queue as a duplicate. Staff index the original.
+  if (item.source === 'veradigm_queue') problems.push('already in the Veradigm® EHR indexing queue (staff index the original)');
   if (!item.file) problems.push('no original file');
   if (!item.match?.patient?.chartPatientId) problems.push('no matched patient chart');
   if (target === 'chart') {

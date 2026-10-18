@@ -22,7 +22,12 @@ import type { GroundTruth, ShadowDecision, StaffObservation } from './shadow';
  * Stored document text has every full SSN masked to its last 4 (extract.ts redactSsn); the original
  * file is kept as received.
  */
-export type IntakeSource = 'moatit_fax' | 'folder' | 'upload';
+/** veradigm_queue: read from the clinic's Veradigm® EHR indexing queue in shadow mode (queue-source.ts); never filed. */
+export type IntakeSource = 'moatit_fax' | 'folder' | 'upload' | 'veradigm_queue';
+/** Dedupe key of a document read from the Veradigm® EHR indexing queue: one item per DocumentID, ever. */
+export const queueRef = (documentId: string): string => `vq:${documentId}`;
+/** The queue DocumentID of an item read from the queue ('' for any other item). */
+export const queueDocumentId = (sourceRef: string): string => (String(sourceRef || '').startsWith('vq:') ? sourceRef.slice(3) : '');
 /** 'split': a file with several patients, split into one part (child item) per patient; never filed itself. */
 export type IntakeStatus = 'received' | 'read' | 'matched' | 'needs_review' | 'filed' | 'sent_to_indexing' | 'split' | 'failed';
 export const INTAKE_STATUSES: IntakeStatus[] = ['received', 'read', 'matched', 'needs_review', 'filed', 'sent_to_indexing', 'split', 'failed'];
@@ -289,7 +294,7 @@ export class IntakeStore {
       status: 'received',
       file: { name: safeFileName(doc.name), mime, sha256: hash, size: doc.data.length, stored_as: storedAs },
       has_text: !!(doc.text && doc.text.trim()),
-      history: [{ ts, action: doc.source === 'upload' ? 'uploaded' : 'picked up from drop folder', by: doc.by || 'drawbridge' }],
+      history: [{ ts, action: doc.source === 'upload' ? 'uploaded' : doc.source === 'veradigm_queue' ? 'read from the Veradigm® EHR indexing queue' : 'picked up from drop folder', by: doc.by || 'drawbridge' }],
     };
     this.load().push(item);
     this.persist();

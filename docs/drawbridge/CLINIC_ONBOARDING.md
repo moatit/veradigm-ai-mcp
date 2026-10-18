@@ -29,7 +29,7 @@ Collected from our own systems. Only counts, settings and locations go in email;
 **Legal and access**
 - BAA and MOU signed (templates: the IKI drafts in the "VeradigmAI - Drawbridge" Drive folder)
 - Dedicated Veradigm integration user (sandbox: portal ticket; production: part of activation)
-- A sample folder on the clinic's fax server (past faxes plus recent lab drops) for the shadow week
+- For the shadow week, nothing is needed beyond the integration user: Drawbridge reads the "(ready for indexing)" queue itself, read-only (section 3a). A sample folder on the clinic's fax server (past faxes plus recent lab drops) is still useful for the offline accuracy bench before the shadow week.
 
 ## 2. Clinic questionnaire (practice manager)
 
@@ -43,6 +43,26 @@ A Google Sheet with 15 questions, most answered from a dropdown, about 5 minutes
 
 - **Patient identification:** full name + date of birth, matching exactly one patient. The last 4 of the SSN or the address is checked when the document shows it. Anything that doesn't line up, or a look-alike patient, goes to a person.
 - **Go-live:** one week in shadow mode. Staff index as usual; Drawbridge compares each document with where staff filed it. We review the differences, fix them, then switch filing on.
+
+## 3a. Rollout: shadow week, go-live, or switch off (Ali, Oct 18, 2026)
+
+**Shadow week: nothing changes for the clinic.** Faxes and lab files keep arriving in Veradigm® EHR's "(ready for indexing)" queue and staff index them as today. Drawbridge reads the waiting documents straight from that queue, read-only (`INTAKE_QUEUE_SOURCE=on` with `INTAKE_MODE=shadow`), works out the patient and category for each, and records what it would have done. When staff index a document, the same DocumentID moves into a chart; Drawbridge reads back where it went and scores itself on exactly that document. Nothing is written to Veradigm® EHR, so nothing is added to the queue and there is nothing to clean up. A fax-server copy or the lab folder (`INTAKE_WATCH_DIRS`) can be used instead where MOATiT already runs them.
+
+**Go-live: only after the clinic approves the shadow-week results.** Documents must reach Drawbridge *before* the queue from then on; Drawbridge never files a copy of a document that is already in the queue (it would leave the original waiting there as a duplicate, and the code refuses it). The go-live checklist:
+
+1. **Fax routing.** Incoming faxes go to MOATiT Fax, which sends them to Drawbridge (`MOATIT_FAX_*`).
+2. **Lab files.** The lab's daily drop (e.g. Express Lab) goes to Drawbridge's drop folder (`INTAKE_DROP_DIR`) instead of the loader that puts it in the queue.
+3. **Fallback if Drawbridge is down.** MOATiT Fax must deliver a fax straight to the clinic's Veradigm® EHR queue when Drawbridge doesn't accept it within a set time (and the lab loader keeps a path to the queue), so a document is never lost or delayed; staff then index it as before. Test this before cutover: stop Drawbridge, send a test fax, confirm it reaches the queue, start Drawbridge again.
+4. **Documents Drawbridge can't file.**
+   - Patient found but not certain enough, or a type the clinic always gives to a person: sent to the patient's chart as "(ready for indexing)" (`SaveScanDocument`), where staff work them as today.
+   - No patient found (filing needs a patient): stays on Drawbridge's **Needs review** screen (`/app/intake`). Agree with the clinic who checks it and how often, and alert the help desk when anything waits there longer than one business day.
+5. **Cutover day.** Whatever is already waiting in the queue, staff finish as usual. Drawbridge never reads the queue as a source in live mode (`INTAKE_QUEUE_SOURCE` is ignored outside shadow mode).
+6. **Phone.** The clinic line forwards to Drawbridge's number first; the number is ported later.
+7. **Switch filing on:** `INTAKE_MODE` unset (live), `INTAKE_FILING=auto` (or `review` first).
+
+**Not approved: switch it off.** Turn the intake module off (`ENABLED_MODULES` without `intake`, or stop the server). Nothing in the clinic's systems changed during the shadow week.
+
+**Open question for Veradigm (after the shadow week; not yet asked):** the Unity API reference has no action to index, move or change the status of a document already in the "(ready for indexing)" queue. If one exists, Drawbridge could index the waiting documents in place and the clinic would never need to change its fax or lab routing. Draft wording: `DRAWBRIDGE_BUILD_PLAN.md`, "Intake rollout per clinic".
 
 ## 4. Turn answers into settings
 
@@ -58,6 +78,6 @@ A Google Sheet with 15 questions, most answered from a dropdown, about 5 minutes
 | Notify the provider of results for same-day appointments? | `INTAKE_SAME_DAY_NO_NOTIFY=on` when they don't (critical results always notify) |
 | Who checks uncertain documents | staff logins (`src/scripts/staff-user.ts`) |
 | Matching rule | `INTAKE_MATCH_RULE=name_dob` (standard) |
-| Shadow week | `INTAKE_MODE=shadow`, then `INTAKE_FILING=auto` after review |
+| Shadow week | `INTAKE_MODE=shadow` + `INTAKE_QUEUE_SOURCE=on` (documents from the indexing queue, read-only); at go-live `INTAKE_MODE` unset and `INTAKE_FILING=auto` after review (section 3a) |
 
 **Idaho Kidney Institute (answers of Oct 13, 2026):** `INTAKE_ALWAYS_PERSON=records_request,prior_auth,refill_request,referral`, `INTAKE_TASK_TARGET=ordering_provider`, `INTAKE_SAME_DAY_NO_NOTIFY=on`, `INTAKE_CATEGORY_MAP={"lab_result":"Lab Results"}`; `INTAKE_CRITICAL_NOTIFY` unset until the clinic names who gets critical results (then the ordering provider, or `INTAKE_REVIEW_USER`, gets them). What each does: [FAX_INTAKE_ADDON.md, Clinic rules](FAX_INTAKE_ADDON.md#clinic-rules-set-per-clinic).

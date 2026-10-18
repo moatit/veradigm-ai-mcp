@@ -221,6 +221,8 @@ Also: remove the MOATiT Fax webhook and its API key, take the service off `drawb
 | `INTAKE_ROSTER_CSV` | unset | Local patient list instead of the live search |
 | `INTAKE_CATEGORIES_CSV` | unset | Category list when `GetDocumentType` isn't available |
 | `INTAKE_WATCH_DIRS` / `INTAKE_WATCH_SINCE` / `INTAKE_WATCH_MAX` | `/mnt/express-lab` / none / 200 | Folders read in place; files older than the day ignored; files per scan |
+| `INTAKE_QUEUE_SOURCE` | `off` | `on`: take documents straight from the "(ready for indexing)" queue (read-only; shadow mode only, ignored in live mode). Each DocumentID becomes one item, scored exactly against where staff index it. Use instead of, not together with, a fax copy of the same documents |
+| `INTAKE_QUEUE_EVERY_MIN` / `_WINDOW_DAYS` / `_PER_RUN` | 10 / 3 / 25 | Queue source: run interval (never below 2 minutes); listing window (the first run backfills it); documents fetched per run |
 | `INTAKE_OBSERVE` | `on` (off without Veradigm) | Staff filing observer |
 | `INTAKE_OBSERVE_QUEUE_TYPE` | `-1000999` | "(ready for indexing)" type ID or name |
 | `INTAKE_OBSERVE_EVERY_MIN` / `_WINDOW_DAYS` / `_LINK_HOURS` / `_DELAY_HOURS` / `_MAX_DAYS` | 30 / 14 / 36 / 24 / 7 | Run interval; listing window; max time between queue and receipt; chart search after; give up after |

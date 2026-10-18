@@ -8,7 +8,7 @@ import { normalizeDate } from './extract';
 import { toCandidates } from './match';
 import type { OcrClient } from './ocr';
 import { readOnlyRunTool, readOnlyUnity, type StaffObservation, type TruthPatient } from './shadow';
-import type { IntakeItem, IntakeStore } from './store';
+import { queueDocumentId, type IntakeItem, type IntakeStore } from './store';
 
 /**
  * Staff filing observer (shadow mode, live Veradigm® only): ground truth from what the clinic's staff
@@ -35,6 +35,8 @@ import type { IntakeItem, IntakeStore } from './store';
  * 4. Faxes that never pass through the queue: after INTAKE_OBSERVE_DELAY_HOURS, the candidates'
  *    charts are searched for a document added around the receipt date with the same page count and
  *    clinical date (at most medium confidence: there is no DocumentID trail).
+ * Documents read from the queue itself (INTAKE_QUEUE_SOURCE, queue-source.ts) skip step 2: the item IS the queue
+ * document, linked by its DocumentID, so where staff index it is high-confidence ground truth.
  * Unlinked or unindexed after INTAKE_OBSERVE_MAX_DAYS: not_observed. Never counted as correct; the
  * Confirm panel is the fallback. A file Drawbridge split by patient is observed but its parts are
  * not given that truth (staff index a batch fax as one document).
@@ -155,6 +157,9 @@ export function parseDocRows(data: unknown, patientKey = ''): DocRow[] {
 /** Still waiting for staff: no patient yet, or still typed "(ready for indexing)". */
 export const inQueue = (d: Pick<DocRow, 'patientKey' | 'type' | 'subtype'>, code = queueType()) =>
   !d.patientKey || d.subtype === code || /ready for indexing/i.test(d.type) || d.type === code;
+
+/** Link score of a document read from the queue itself: the same DocumentID, so the observation is high confidence. */
+export const EXACT_LINK_SCORE = 10;
 
 const words = (s: string) => new Set(String(s || '').toLowerCase().split(/[^a-z0-9]+/).filter((w) => w.length >= 4));
 const itemPages = (i: IntakeItem) => i.part?.pages.length || i.page_count || i.ocr?.pages || 0;
@@ -404,6 +409,19 @@ export class StaffFilingObserver {
       // Best pairs first; a pair that ties with another free pair on the same item or document (or
       // is weak) is decided by comparing the documents themselves, or not linked at all.
       const linkedItems = new Set(Object.values(ledger.docs).map((d) => d.item).filter(Boolean) as string[]);
+      // Documents read from the queue itself (queue-source.ts) are the queue document: link by DocumentID, no guessing.
+      for (const item of items) {
+        const docId = queueDocumentId(item.source_ref);
+        if (!docId || linkedItems.has(item.id)) continue;
+        const received = Date.parse(item.received_at);
+        const d = (ledger.docs[docId] ||= { id: docId, first_seen: item.received_at, last_seen: item.received_at, when: received, timed: true, pages: itemPages(item), display: '', author: '' });
+        if (d.item) continue; // already the truth for another item (same document from a second source)
+        d.item = item.id;
+        d.link_score = EXACT_LINK_SCORE;
+        d.link_signals = ['same document, read from the indexing queue'];
+        linkedItems.add(item.id);
+        out.linked++;
+      }
       type Pair = { item: IntakeItem; d: TrackedDoc; s: { score: number; signals: string[] } };
       const pairs: Pair[] = [];
       for (const item of items.filter((i) => !linkedItems.has(i.id))) {
