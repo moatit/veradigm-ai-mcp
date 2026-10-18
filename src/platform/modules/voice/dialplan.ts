@@ -26,7 +26,7 @@ const PREMIUM_NPA = new Set(['900', '700', '500', '521', '522', '523', '524', '5
 
 export const mask = (digits: string): string => (digits.length > 4 ? `...${digits.slice(-4)}` : digits);
 
-/** Classify one configured target ("4500", "**4500", "*3", "*4", "2087760388", "12087760388", "+12087760388"). */
+/** Classify one configured target ("4500", "**4500", "*3", "*4", "2025550123", "12025550123", "+12025550123"). */
 export function classifyTarget(raw: string): Classified {
   const t = String(raw || '').trim().replace(/[\s().-]/g, '');
   if (/^\*\*\d{2,8}$/.test(t)) return { ok: true, kind: 'voicemail', dial: t, masked: t };
