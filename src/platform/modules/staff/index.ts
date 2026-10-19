@@ -1,6 +1,6 @@
 import { Request, Response, Router } from 'express';
 import { PlatformModule } from '../../registry';
-import { esc, fmtTime, page, requireAdmin, revokeStaffSessions, serverStaffNames, staffAccounts } from '../../shell';
+import { APP_BASE, esc, fmtTime, page, requireAdmin, revokeStaffSessions, serverStaffNames, staffAccounts } from '../../shell';
 import { clientIp, securityEvent } from '../../security-events';
 import { inviteMailProblem, sendStaffInvite } from '../../staff-invite-mail';
 import { AccountView } from '../../staff-accounts';
@@ -40,8 +40,8 @@ function screen(user: string, notice = '', error = ''): string {
 <td style="white-space:nowrap">${
         self
           ? '<span class="muted" style="font-size:12px">You</span>'
-          : `<form method="post" action="staff/resend" data-confirm="${esc(resendConfirm)}" style="display:inline"><input type="hidden" name="user" value="${esc(a.user)}"><button class="secondary">${esc(resendLabel)}</button></form>
-<form method="post" action="staff/remove" data-confirm="${esc(`Remove ${a.name}? They are signed out now and can't sign in again.`)}" style="display:inline"><input type="hidden" name="user" value="${esc(a.user)}"><button class="secondary">Remove</button></form>`
+          : `<form method="post" action="${APP_BASE}/staff/resend" data-confirm="${esc(resendConfirm)}" style="display:inline"><input type="hidden" name="user" value="${esc(a.user)}"><button class="secondary">${esc(resendLabel)}</button></form>
+<form method="post" action="${APP_BASE}/staff/remove" data-confirm="${esc(`Remove ${a.name}? They are signed out now and can't sign in again.`)}" style="display:inline"><input type="hidden" name="user" value="${esc(a.user)}"><button class="secondary">Remove</button></form>`
       }</td></tr>`;
     })
     .join('');
@@ -51,7 +51,7 @@ ${notice ? `<div class="card" style="border-left:3px solid var(--ok,#1f7a4d)">${
 ${error ? `<div class="card" style="border-left:3px solid var(--urgent)">${esc(error)}</div>` : ''}
 ${mailProblem ? `<div class="card" style="border-left:3px solid var(--urgent)">Invitation email isn't set up on this server (${esc(mailProblem)}). Invitations can't be sent until it is.</div>` : ''}
 <div class="card"><h3 style="margin-top:0">Invite someone</h3>
-<form method="post" action="staff/invite">
+<form method="post" action="${APP_BASE}/staff/invite">
 <p><label>Name<input name="name" maxlength="80" required></label></p>
 <p><label>Work email (their username)<input name="email" type="email" maxlength="254" autocomplete="off" required></label></p>
 <p><label>Role<select name="role"><option value="staff">Staff</option><option value="admin">Drawbridge admin (Phone agent, Staff logins, access report)</option></select></label></p>

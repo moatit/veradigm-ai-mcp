@@ -61,7 +61,8 @@ export interface StaffEntry {
 }
 
 const HASH_RE = /^scrypt\$\d+\$\d+\$\d+\$[A-Za-z0-9+/=]+\$[A-Za-z0-9+/=]+$/;
-export const USERNAME_RE = /^[A-Za-z0-9._@-]{2,64}$/;
+/** Letters, digits and . _ @ + - (work emails included), 2-128 characters; never ':' or '|' (users file, session cookie). */
+export const USERNAME_RE = /^[A-Za-z0-9._@+-]{2,128}$/;
 
 /** Parse one users-file line; null for blank, comment or malformed lines. */
 export function parseStaffLine(line: string): { user: string; entry: StaffEntry } | null {

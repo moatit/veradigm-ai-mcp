@@ -67,7 +67,7 @@ export function scryptEntry(password: string, salt: Buffer = randomBytes(16)): s
  * Add ":totp=<secret>" (mandatory to sign in) with npm run staff:user -- <name> --totp.
  */
 export function hashStaffPassword(username: string, password: string, salt: Buffer = randomBytes(16)): string {
-  if (!USERNAME_RE.test(username)) throw new Error('username: 2-64 letters, digits, . _ @ -');
+  if (!USERNAME_RE.test(username)) throw new Error('username: 2-128 letters, digits, . _ @ + -');
   const problem = passwordProblem(username, password);
   if (problem) throw new Error(`password: ${problem}`);
   return formatStaffLine(username, { hash: scryptEntry(password, salt), pwset: utcDay(), hist: [], role: 'staff' });
