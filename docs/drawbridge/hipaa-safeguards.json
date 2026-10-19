@@ -48,7 +48,7 @@
       "technical": "Users file re-read on change; a removed user or changed password revokes all sessions (persisted revocation list).",
       "evidence": [
         "src/platform/shell.ts:128",
-        "src/platform/staff-auth.ts:313"
+        "src/platform/staff-auth.ts:314"
       ],
       "status": "PASS",
       "status_label": "In place",
@@ -62,7 +62,7 @@
       "plain": "Every staff member has their own login with a role. Only administrators (the privacy or security officer) can run the access and disclosure report. Drawbridge itself can call only a fixed list of Veradigm® actions.",
       "technical": "Users file roles staff / admin / emergency; requireAdmin on the access report; fixed Unity action list (UNITY_ACTIONS_FOR_CERTIFICATION.md).",
       "evidence": [
-        "src/platform/staff-auth.ts:77",
+        "src/platform/staff-auth.ts:78",
         "src/platform/shell.ts:321"
       ],
       "status": "FIXED",
@@ -102,7 +102,7 @@
       "technical": "Security events login_ok / login_failed (reason) / login_locked / login_ip_locked; lockout per username (5 in 15 min) and per IP (30).",
       "evidence": [
         "src/platform/shell.ts:682",
-        "src/platform/staff-auth.ts:123"
+        "src/platform/staff-auth.ts:124"
       ],
       "status": "FIXED",
       "status_label": "In place",
@@ -116,8 +116,8 @@
       "plain": "Passwords must be at least 12 characters and not common or guessable. They expire every 90 days, and none of the last 5 passwords can be reused. Passwords are stored only as strong one-way hashes.",
       "technical": "passwordProblem policy; DRAWBRIDGE_PASSWORD_MAX_AGE_DAYS (90) with :pwset=; :hist= keeps 4 previous hashes, staff:user refuses reuse of the last 5; scrypt.",
       "evidence": [
-        "src/platform/staff-auth.ts:201",
-        "src/platform/staff-auth.ts:106",
+        "src/platform/staff-auth.ts:202",
+        "src/platform/staff-auth.ts:107",
         "src/scripts/staff-user.ts:73"
       ],
       "status": "FIXED",
