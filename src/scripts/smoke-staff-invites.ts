@@ -85,6 +85,9 @@ async function main(): Promise<void> {
     assert.strictEqual((fs.statSync(accountsFile).mode & 0o777).toString(8), process.platform === 'win32' ? (fs.statSync(accountsFile).mode & 0o777).toString(8) : '600');
     assert.strictEqual(store.activeEntries().size, 0, 'an invited person cannot sign in');
     assert.deepStrictEqual(store.list().map((a) => [a.user, a.status]), [['pat.nurse@example.test', 'invited']], 'email is the lower-cased username');
+    const plus = store.invite({ email: 'pat+drawbridge@example.test', name: 'Pat Plus', role: 'staff', by: 'lee.admin' }, shell.serverStaffNames());
+    assert.ok(plus.ok, 'a work email with + is a valid username');
+    assert.ok(store.remove('pat+drawbridge@example.test'));
     assert.deepStrictEqual(
       store.invite({ email: 'lee.admin', name: 'x', role: 'staff', by: 'lee.admin' }, shell.serverStaffNames()),
       { ok: false, error: 'Enter a valid email address.' }
@@ -171,6 +174,7 @@ async function main(): Promise<void> {
     const screen = await fetch(`${url}/app/staff`, { headers: { cookie: adminCookie } });
     assert.strictEqual(screen.status, 200);
     const html = await screen.text();
+    assert.ok(!/action="staff\//.test(html) && /action="\/app\/staff\/invite"/.test(html), 'forms post to absolute paths');
     assert.ok(/Kim Staff/.test(html) && /Managed on the server/.test(html) && /Invitation email isn&#39;t set up|Invitation email isn't set up/.test(html));
     const sent = await post('/app/staff/invite', { name: 'Ray New', email: 'ray.new@example.test', role: 'staff' }, adminCookie);
     assert.strictEqual(sent.status, 502, 'mail not configured: reported, nothing silently lost');
