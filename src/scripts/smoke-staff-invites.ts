@@ -87,6 +87,7 @@ async function main(): Promise<void> {
     assert.deepStrictEqual(store.list().map((a) => [a.user, a.status]), [['pat.nurse@example.test', 'invited']], 'email is the lower-cased username');
     const plus = store.invite({ email: 'pat+drawbridge@example.test', name: 'Pat Plus', role: 'staff', by: 'lee.admin' }, shell.serverStaffNames());
     assert.ok(plus.ok, 'a work email with + is a valid username');
+    assert.strictEqual((await import('../platform/audit')).safeUser('Pat+Drawbridge@Example.test'), 'pat+drawbridge@example.test', 'the security log keeps a + username');
     assert.ok(store.remove('pat+drawbridge@example.test'));
     assert.deepStrictEqual(
       store.invite({ email: 'lee.admin', name: 'x', role: 'staff', by: 'lee.admin' }, shell.serverStaffNames()),
@@ -97,8 +98,14 @@ async function main(): Promise<void> {
     assert.ok(!clash.ok && /managed on the server/.test(clash.error), 'a server-managed name cannot be invited');
     ok('store: hashed single-use token, invited people cannot sign in, email usernames, server logins protected');
 
-    // 2. Public pages: password (policy, match), then QR, then the first code signs them in.
-    let r = await post('/app/invite', { t: token, p: 'short', p2: 'short' });
+    // 2. Public pages: the link is checked when the page opens; then password (policy, match), QR, first code.
+    let r = await post('/app/invite/check', { t: token });
+    assert.deepStrictEqual([r.status, await r.json()], [200, { ok: true, name: 'Pat' }], 'a valid link greets by first name');
+    r = await post('/app/invite/check', { t: 'B'.repeat(43) });
+    assert.deepStrictEqual([r.status, await r.json()], [400, { ok: false }], 'an ended link says so, and nothing else');
+    const page0 = await (await fetch(`${url}/app/invite`)).text();
+    assert.ok(/id="invite-ended" hidden/.test(page0) && /data-check-url="\/app\/invite\/check"/.test(page0));
+    r = await post('/app/invite', { t: token, p: 'short', p2: 'short' });
     assert.strictEqual(r.status, 422);
     assert.match(await r.text(), /at least 12 characters/);
     r = await post('/app/invite', { t: token, p: NEW_PW, p2: NEW_PW + 'x' });
@@ -128,7 +135,7 @@ async function main(): Promise<void> {
     assert.strictEqual(r.status, 400, 'the link works once');
     const sign = await post('/app/login', { u: 'pat.nurse@example.test', p: NEW_PW, otp: (offset += 31_000, codeAt(secret)), next: '/app' });
     assert.strictEqual(sign.headers.get('location'), '/app', 'normal sign-in afterwards: email, password, code');
-    ok('pages: password policy and match, QR image only (no key as text), first code activates and signs in, link single use, normal sign-in after');
+    ok('pages: link checked on open (greets by first name, or says it ended), password policy and match, QR image only (no key as text), first code activates and signs in, link single use, normal sign-in after');
 
     // 3. Expiry, setup window and the five-wrong-codes limit.
     const inv2 = store.invite({ email: 'sam.front@example.test', name: 'Sam Front', role: 'staff', by: 'lee.admin' }, new Set());

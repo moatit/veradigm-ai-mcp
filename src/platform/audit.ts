@@ -131,9 +131,9 @@ export function patientIdFrom(args: unknown): string {
   return safeId(a.patientId) || safeId(a.patient);
 }
 
-/** Staff usernames as the users file allows them (letters, digits, . _ @ -), lower case. */
+/** Staff usernames as the users file allows them (letters, digits, . _ @ + -, up to 128), lower case. */
 export const safeUser = (v: unknown): string =>
-  typeof v === 'string' && /^[A-Za-z0-9._@-]{1,64}$/.test(v.trim()) ? v.trim().toLowerCase() : '';
+  typeof v === 'string' && /^[A-Za-z0-9._@+-]{1,128}$/.test(v.trim()) ? v.trim().toLowerCase() : '';
 /** Opaque paths and IDs ("/call/call_abc", "in_x1"): no spaces, no query strings, at most 120 characters. */
 const safeObject = (v: unknown): string => (typeof v === 'string' ? v.split('?')[0].replace(/[^A-Za-z0-9._:\-/]/g, '').slice(0, 120) : '');
 
