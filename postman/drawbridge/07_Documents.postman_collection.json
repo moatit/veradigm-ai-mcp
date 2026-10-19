@@ -1,0 +1,132 @@
+{
+  "info": {
+    "name": "Drawbridge · 07 Documents (fax/lab filing)",
+    "description": "Staff-side document filing (fax intake add-on). Sandbox only, synthetic documents only. Order: GetDocumentType, SaveScanDocument, SaveTask Review.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "GetDocumentType",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "const body = pm.response.text();",
+              "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+              "pm.test('No Unity error', () => pm.expect(body).to.not.match(/Magic Error|\"Error\"\\s*:|not valid for this license|Access is denied/i));"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Accept",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"Action\": \"GetDocumentType\",\n  \"Appname\": \"{{app_name}}\",\n  \"AppUserID\": \"{{ehr_username}}\",\n  \"PatientID\": \"\",\n  \"Token\": \"{{ehr_token}}\",\n  \"Parameter1\": \"\",\n  \"Parameter2\": \"\",\n  \"Parameter3\": \"\",\n  \"Parameter4\": \"\",\n  \"Parameter5\": \"\",\n  \"Parameter6\": \"\",\n  \"Data\": \"\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": "{{unity_endpoint}}/json/MagicJson",
+        "description": "Document type names for {{doc_type}}.\n\nTarget: Veradigm EHR. Run the **01 Auth** collection first (token for EHR)."
+      }
+    },
+    {
+      "name": "SaveScanDocument (WRITE)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "const body = pm.response.text();",
+              "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+              "pm.test('No Unity error', () => pm.expect(body).to.not.match(/Magic Error|\"Error\"\\s*:|not valid for this license|Access is denied/i));",
+              "const m = pm.response.text().match(/\"documentID\"\\s*:\\s*\"?(\\d+)/i);",
+              "pm.test('documentID returned', () => pm.expect(m).to.be.ok);",
+              "if (m) pm.environment.set('document_id', m[1]);"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Accept",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"Action\": \"SaveScanDocument\",\n  \"Appname\": \"{{app_name}}\",\n  \"AppUserID\": \"{{ehr_username}}\",\n  \"PatientID\": \"{{ehr_patient_id}}\",\n  \"Token\": \"{{ehr_token}}\",\n  \"Parameter1\": \"{{doc_type}}\",\n  \"Parameter2\": \"drawbridge-postman-test.pdf\",\n  \"Parameter3\": \"<docattributes><transID>0</transID><clinicaldate>{{doc_date}}</clinicaldate><indexsource>None</indexsource><doctitle>Drawbridge Postman test</doctitle><docstatus>2</docstatus></docattributes>\",\n  \"Parameter4\": \"\",\n  \"Parameter5\": \"\",\n  \"Parameter6\": \"\",\n  \"Data\": \"{{doc_base64}}\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": "{{unity_endpoint}}/json/MagicJson",
+        "description": "P1 document type NAME, P2 file name (no spaces or slashes), P3 attributes (docstatus 2 = submitted, 4 = approved), Data = file bytes in base64 (one call up to 2 MB). The default {{doc_base64}} is a one-page synthetic PDF for ram1 kumar1. Saves the document ID to {{document_id}}.\n\nTarget: Veradigm EHR. Run the **01 Auth** collection first (token for EHR)."
+      }
+    },
+    {
+      "name": "SaveTask - review task for the document (WRITE)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "const body = pm.response.text();",
+              "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+              "pm.test('No Unity error', () => pm.expect(body).to.not.match(/Magic Error|\"Error\"\\s*:|not valid for this license|Access is denied/i));"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Accept",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"Action\": \"SaveTask\",\n  \"Appname\": \"{{app_name}}\",\n  \"AppUserID\": \"{{ehr_username}}\",\n  \"PatientID\": \"{{ehr_patient_id}}\",\n  \"Token\": \"{{ehr_token}}\",\n  \"Parameter1\": \"Review\",\n  \"Parameter2\": \"{{review_user}}\",\n  \"Parameter3\": \"{{document_id}}\",\n  \"Parameter4\": \"Drawbridge Postman test document\",\n  \"Parameter5\": \"<taskdata><taskpriority>RoutineNA</taskpriority><subject>Drawbridge test</subject><sourceprovider></sourceprovider></taskdata>\",\n  \"Parameter6\": \"\",\n  \"Data\": \"\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": "{{unity_endpoint}}/json/MagicJson",
+        "description": "Links a Review task to the filed document (P3 = document ID).\n\nTarget: Veradigm EHR. Run the **01 Auth** collection first (token for EHR)."
+      }
+    }
+  ]
+}
