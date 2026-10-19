@@ -9,6 +9,7 @@ import { mountRetellInbound } from './modules/activity/retell-inbound';
 import { intakeModule, mountFaxWebhook } from './modules/intake';
 import { veradigmModule } from './modules/veradigm';
 import { complianceModule } from './modules/compliance';
+import { staffModule } from './modules/staff';
 
 /**
  * Every Drawbridge platform module, in registration order. Add one import + one entry per new module.
@@ -23,6 +24,9 @@ const ALL_MODULES: PlatformModule[] = [
   veradigmModule,
   complianceModule,
 ];
+
+/** Always on, whatever ENABLED_MODULES says: every practice manages its own staff logins (Ali, Oct 19, 2026). */
+const CORE_MODULES: PlatformModule[] = [staffModule];
 
 /** Names ENABLED_MODULES accepts: oncall, scheduling, outreach, huddle, activity, intake, veradigm, compliance. */
 export const MODULE_NAMES: string[] = ALL_MODULES.map((m) => m.name);
@@ -44,7 +48,7 @@ const PHONE_WEBHOOK_SETTINGS = ['RETELL_WEBHOOK_SECRET', 'RETELL_WEBHOOK_API_KEY
  */
 export function enabledModules(env: NodeJS.ProcessEnv = process.env): PlatformModule[] {
   const raw = String(env.ENABLED_MODULES ?? '').trim();
-  if (!raw) return [...ALL_MODULES];
+  if (!raw) return [...ALL_MODULES, ...CORE_MODULES];
   const names = raw
     .split(',')
     .map((n) => n.trim().toLowerCase())
@@ -60,7 +64,7 @@ export function enabledModules(env: NodeJS.ProcessEnv = process.env): PlatformMo
         'Activity holds the call events, the staff access audit and the disclosure report: add "activity", or remove those settings on a server without the phone agent.'
     );
   }
-  return ALL_MODULES.filter((m) => names.includes(m.name));
+  return [...ALL_MODULES.filter((m) => names.includes(m.name)), ...CORE_MODULES];
 }
 
 /** Register the enabled modules once at startup (all of them unless ENABLED_MODULES is set). */

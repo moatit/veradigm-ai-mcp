@@ -28,7 +28,8 @@ process.env.CALL_RECORDS_DIR = TMP;
 process.env.INTAKE_DROP_DIR = path.join(TMP, 'inbox');
 
 /** The registration order before ENABLED_MODULES existed (loadPlatformModules registered these, in this order). */
-const BEFORE = ['oncall', 'scheduling', 'outreach', 'huddle', 'activity', 'intake', 'veradigm', 'compliance'];
+// 'staff' (Staff logins) is a core module: always on, whatever ENABLED_MODULES says.
+const BEFORE = ['oncall', 'scheduling', 'outreach', 'huddle', 'activity', 'intake', 'veradigm', 'compliance', 'staff'];
 
 async function main(): Promise<void> {
   const { enabledModules, loadPlatformModules, moduleEnabled, mountModuleWebhooks, MODULE_NAMES } = await import('../platform/modules');
@@ -41,15 +42,16 @@ async function main(): Promise<void> {
   };
 
   // 1. Unset or blank: everything, same order as before.
-  assert.deepStrictEqual(MODULE_NAMES, BEFORE);
+  // ENABLED_MODULES names: every module except the core ones, which can't be switched off.
+  assert.deepStrictEqual(MODULE_NAMES, BEFORE.filter((n) => n !== 'staff'));
   for (const env of [{}, { ENABLED_MODULES: '' }, { ENABLED_MODULES: '   ' }] as NodeJS.ProcessEnv[]) {
     assert.deepStrictEqual(enabledModules(env).map((m) => m.name), BEFORE, JSON.stringify(env));
   }
   ok(`unset or blank → all ${BEFORE.length} modules in the original order`);
 
   // 2. Set: only the listed ones, in registration order, case and spaces ignored.
-  assert.deepStrictEqual(enabledModules({ ENABLED_MODULES: ' Intake , activity,VERADIGM ' }).map((m) => m.name), ['activity', 'intake', 'veradigm']);
-  assert.deepStrictEqual(enabledModules({ ENABLED_MODULES: 'compliance,compliance' }).map((m) => m.name), ['compliance']);
+  assert.deepStrictEqual(enabledModules({ ENABLED_MODULES: ' Intake , activity,VERADIGM ' }).map((m) => m.name), ['activity', 'intake', 'veradigm', 'staff']);
+  assert.deepStrictEqual(enabledModules({ ENABLED_MODULES: 'compliance,compliance' }).map((m) => m.name), ['compliance', 'staff']);
   ok('set → only the listed modules (case and spaces ignored, duplicates once)');
 
   // 3. Unknown name: clear error, nothing registered.
@@ -63,7 +65,7 @@ async function main(): Promise<void> {
   // 4. A real load with the switch set: registry, agent tools and nav follow it.
   const allTools = enabledModules({}).flatMap((m) => m.getTools?.() || []).map((t) => t.name);
   loadPlatformModules({ ENABLED_MODULES: 'intake,veradigm' });
-  assert.deepStrictEqual(platformModules().map((m) => m.name), ['intake', 'veradigm']);
+  assert.deepStrictEqual(platformModules().map((m) => m.name), ['intake', 'veradigm', 'staff']);
   const tools = platformTools().map((t) => t.name);
   assert.ok(!tools.includes('drawbridge_find_openings') && !tools.includes('drawbridge_get_huddle_brief'), 'disabled modules add no agent tools');
   assert.ok(allTools.includes('drawbridge_find_openings'), 'the scheduling tool exists when every module is on');
@@ -84,8 +86,8 @@ async function main(): Promise<void> {
   // 6. Leaving out activity while the phone agent's webhooks are configured is refused; without them it is allowed.
   assert.throws(() => enabledModules({ ENABLED_MODULES: 'intake,veradigm', RETELL_API_KEY: 'smoke-not-real' }), /leaves out "activity".*RETELL_API_KEY/);
   assert.throws(() => enabledModules({ ENABLED_MODULES: 'intake', RETELL_WEBHOOK_SECRET: 'smoke-not-real' }), /RETELL_WEBHOOK_SECRET/);
-  assert.deepStrictEqual(enabledModules({ ENABLED_MODULES: 'activity,intake', RETELL_API_KEY: 'smoke-not-real' }).map((m) => m.name), ['activity', 'intake']);
-  assert.deepStrictEqual(enabledModules({ ENABLED_MODULES: 'intake,veradigm' }).map((m) => m.name), ['intake', 'veradigm']);
+  assert.deepStrictEqual(enabledModules({ ENABLED_MODULES: 'activity,intake', RETELL_API_KEY: 'smoke-not-real' }).map((m) => m.name), ['activity', 'intake', 'staff']);
+  assert.deepStrictEqual(enabledModules({ ENABLED_MODULES: 'intake,veradigm' }).map((m) => m.name), ['intake', 'veradigm', 'staff']);
   assert.ok(moduleEnabled('intake', {}) && moduleEnabled('activity', { ENABLED_MODULES: 'activity' }) && !moduleEnabled('intake', { ENABLED_MODULES: 'activity' }));
   ok('dropping activity while RETELL_* webhook settings are present → startup error; allowed on a server without the phone agent');
 

@@ -47,7 +47,7 @@
       "plain": "Removing a person’s login signs them out everywhere at once, and an old session never comes back even if the same name is added again.",
       "technical": "Users file re-read on change; a removed user or changed password revokes all sessions (persisted revocation list).",
       "evidence": [
-        "src/platform/shell.ts:101",
+        "src/platform/shell.ts:128",
         "src/platform/staff-auth.ts:313"
       ],
       "status": "PASS",
@@ -63,7 +63,7 @@
       "technical": "Users file roles staff / admin / emergency; requireAdmin on the access report; fixed Unity action list (UNITY_ACTIONS_FOR_CERTIFICATION.md).",
       "evidence": [
         "src/platform/staff-auth.ts:77",
-        "src/platform/shell.ts:272"
+        "src/platform/shell.ts:321"
       ],
       "status": "FIXED",
       "status_label": "In place",
@@ -101,7 +101,7 @@
       "plain": "Every sign-in, failed sign-in and lockout is recorded as a security event. Five wrong tries lock a login for 15 minutes, and too many failures from one computer lock that computer.",
       "technical": "Security events login_ok / login_failed (reason) / login_locked / login_ip_locked; lockout per username (5 in 15 min) and per IP (30).",
       "evidence": [
-        "src/platform/shell.ts:543",
+        "src/platform/shell.ts:682",
         "src/platform/staff-auth.ts:123"
       ],
       "status": "FIXED",
@@ -132,8 +132,8 @@
       "plain": "Drawbridge raises security events for repeated failed sign-ins, lockouts, emergency access, rejected connection keys, documents that no longer match what was received, and unusually many downloads or patient records opened by one person.",
       "technical": "security-events.ts: [SECURITY] server-log lines plus audit lines; throttled tool_key_rejected / webhook_rejected; integrity_failed; export_volume_alert and view_volume_alert (DRAWBRIDGE_EXPORT_ALERT_PER_HOUR 20, DRAWBRIDGE_VIEW_ALERT_PER_HOUR 200).",
       "evidence": [
-        "src/platform/security-events.ts:98",
-        "src/platform/security-events.ts:153"
+        "src/platform/security-events.ts:103",
+        "src/platform/security-events.ts:158"
       ],
       "status": "FIXED",
       "status_label": "In place",
@@ -251,7 +251,7 @@
       "plain": "Every staff screen needs a sign-in. The connections used by the phone agent need a secret key and refuse every request when it is missing; the phone agent has its own key that opens nothing but its own tools.",
       "technical": "requireLogin on every module router; requireToolKey fails closed (503) and rejects wrong keys (401, security event); requireAgentKey: DRAWBRIDGE_AGENT_KEY opens POST /api/retell only (falls back to the tool key when unset).",
       "evidence": [
-        "src/platform/shell.ts:296",
+        "src/platform/shell.ts:345",
         "src/platform/app.ts:71",
         "src/platform/app.ts:102"
       ],
@@ -282,7 +282,7 @@
       "plain": "Every person signs in with their own named login. No shared logins are allowed in production.",
       "technical": "Named users file; the shared DRAWBRIDGE_USERNAME login works only in development with TOTP off and is refused in production.",
       "evidence": [
-        "src/platform/shell.ts:125"
+        "src/platform/shell.ts:170"
       ],
       "status": "FIXED",
       "status_label": "In place",
@@ -296,8 +296,8 @@
       "plain": "A sealed emergency login exists for when no named login can be used. Using it raises an alert, shows a warning on every page, ends after 4 hours, and is reviewed by the privacy officer afterwards. Veradigm® EHR remains the system of record for patient care.",
       "technical": "role=emergency: emergency_access_login security event, banner, 4-hour absolute limit; procedure in this document.",
       "evidence": [
-        "src/platform/shell.ts:557",
-        "src/platform/shell.ts:79"
+        "src/platform/shell.ts:696",
+        "src/platform/shell.ts:83"
       ],
       "status": "FIXED",
       "status_label": "In place",
@@ -311,8 +311,8 @@
       "plain": "Staff are signed out after 15 minutes without activity, and the screen clears itself at that moment so no patient information is left showing. Every session ends after 12 hours regardless.",
       "technical": "Server idle timeout (DRAWBRIDGE_IDLE_MINUTES 15, sliding) and 12-hour limit; pages carry data-idle-ms and blank themselves.",
       "evidence": [
-        "src/platform/shell.ts:405",
-        "src/platform/shell.ts:348"
+        "src/platform/shell.ts:469",
+        "src/platform/shell.ts:397"
       ],
       "status": "FIXED",
       "status_label": "In place",
@@ -383,7 +383,7 @@
       "technical": "TOTP mandatory (DRAWBRIDGE_REQUIRE_TOTP default on, forced in production); tool key and the phone agent’s own key (DRAWBRIDGE_AGENT_KEY); HMAC-signed MOATiT Fax and Retell webhooks.",
       "evidence": [
         "src/platform/staff-auth.ts:34",
-        "src/platform/shell.ts:533"
+        "src/platform/shell.ts:672"
       ],
       "status": "FIXED",
       "status_label": "In place",
@@ -398,7 +398,7 @@
       "technical": "Production refuses non-https Unity/FHIR/MOATiT Fax URLs; HSTS; __Host- Secure cookie; signed webhooks.",
       "evidence": [
         "src/unity/config/environment.ts:72",
-        "src/platform/shell.ts:430"
+        "src/platform/shell.ts:494"
       ],
       "status": "FIXED",
       "status_label": "In place",
@@ -479,8 +479,8 @@
       "plain": "Patient details never appear in web addresses or page titles, pages are not cached or framed, and patient-specific searches are sent in the page body.",
       "technical": "POST for patient IDs and free-text questions; neutral titles; Cache-Control no-store, CSP, X-Frame-Options DENY, Referrer-Policy no-referrer; state-changing staff requests must be same-origin (Sec-Fetch-Site / Origin, 403 + cross_site_request); FHIR REST test routes off in production.",
       "evidence": [
-        "src/platform/shell.ts:424",
-        "src/platform/shell.ts:203",
+        "src/platform/shell.ts:488",
+        "src/platform/shell.ts:252",
         "src/test-server.ts:65"
       ],
       "status": "FIXED",
@@ -509,7 +509,7 @@
       "plain": "Security events help detect a possible breach, the tamper-evident audit log and the access report show which patients were affected, and MOATiT notifies the clinic under the BAA.",
       "technical": "Detection (security events, alerts), scoping (access report per patient / per user), tamper evidence (hash chain); notification is organizational.",
       "evidence": [
-        "src/platform/security-events.ts:184"
+        "src/platform/security-events.ts:189"
       ],
       "status": "FIXED",
       "status_label": "In place",

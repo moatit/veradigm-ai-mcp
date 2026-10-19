@@ -50,11 +50,16 @@ export type SecurityEvent =
   | 'agent_no_call_id'
   | 'cross_site_request'
   | 'unity_signin_latched'
-  | 'unity_signin_retry';
+  | 'unity_signin_retry'
+  | 'staff_invited'
+  | 'staff_invite_failed'
+  | 'staff_invite_accepted'
+  | 'staff_login_removed';
 
 /** Events that are failures or alerts (success=false in the audit line, console.warn in the log). */
 const ALERTS = new Set<SecurityEvent>([
   'login_failed',
+  'staff_invite_failed',
   'login_locked',
   'login_ip_locked',
   'login_password_expired',

@@ -7,6 +7,8 @@ import { FONT_LICENSES } from './brand/licenses';
 import { shellCss } from './brand/styles';
 import { clinicLabel } from './clinic';
 import { clientIp, securityEvent, throttledSecurityEvent } from './security-events';
+import { StaffAccounts } from './staff-accounts';
+import QRCode from 'qrcode';
 import {
   formatStaffLine,
   LoginThrottle,
@@ -73,40 +75,83 @@ export function hashStaffPassword(username: string, password: string, salt: Buff
 
 const revocations = new SessionRevocations();
 const throttle = new LoginThrottle();
+/** Wrong or expired invitation links and codes, per client IP (same limits as sign-in). */
+const inviteThrottle = new LoginThrottle();
 /** Last TOTP step accepted per user: a code works once. */
 const usedTotpStep = new Map<string, number>();
 /** Absolute session limit of the sealed emergency (break-glass) login. */
 const EMERGENCY_HOURS = 4;
 
-let usersCache: { file: string; stamp: string; users: Map<string, StaffEntry> } | null = null;
-/** Named staff from DRAWBRIDGE_USERS_FILE; null when unset. An unreadable file means nobody can sign in. */
+let usersCache: { key: string; users: Map<string, StaffEntry> } | null = null;
+/**
+ * Named staff: the users file (DRAWBRIDGE_USERS_FILE, server-managed) plus the logins managed on the Staff logins
+ * screen (staff-accounts.ts); a name in the users file wins. Null when neither exists. An unreadable users file means
+ * nobody can sign in; an unreadable managed store means only its logins can't (both fail closed).
+ */
 function staffUsers(): Map<string, StaffEntry> | null {
   const file = USERS_FILE();
-  if (!file) return null;
+  const managed = staffAccounts.stamp();
+  if (!file && managed === 'none') return null;
+  let key = `${file}|${managed}`;
+  if (file) {
+    try {
+      const st = fs.statSync(file);
+      key += `|${st.size}:${st.mtimeMs}`;
+    } catch {
+      usersCache = null;
+      return new Map();
+    }
+  }
+  if (usersCache && usersCache.key === key) return usersCache.users;
+  const users = new Map<string, StaffEntry>();
+  if (file) {
+    try {
+      // A later line for the same name replaces an earlier one (a re-issued login appended to the file).
+      for (const line of fs.readFileSync(file, 'utf8').split(/\r?\n/)) {
+        const parsed = parseStaffLine(line);
+        if (parsed) users.set(parsed.user, parsed.entry);
+      }
+    } catch {
+      usersCache = null;
+      return new Map();
+    }
+  }
   try {
-    const st = fs.statSync(file);
-    const stamp = `${st.size}:${st.mtimeMs}`;
-    if (usersCache && usersCache.file === file && usersCache.stamp === stamp) return usersCache.users;
-    const users = new Map<string, StaffEntry>();
-    // A later line for the same name replaces an earlier one (a re-issued login appended to the file).
+    for (const [u, e] of staffAccounts.activeEntries()) if (!users.has(u)) users.set(u, e);
+  } catch (e: any) {
+    console.error(`[Drawbridge] staff logins store unreadable (${e?.code || e?.name || 'error'}): its logins can't sign in`);
+  }
+  // Someone removed, or with a new password: their existing sessions end now, and stay ended if the name comes back.
+  if (usersCache) {
+    for (const [u, old] of usersCache.users) {
+      const now = users.get(u);
+      if (!now || now.hash !== old.hash) revocations.revoke(u);
+    }
+  }
+  usersCache = { key, users };
+  return users;
+}
+
+/** Names in the server users file (the Staff logins screen can't invite or change these). */
+export function serverStaffNames(): Set<string> {
+  const file = USERS_FILE();
+  const out = new Set<string>();
+  if (!file) return out;
+  try {
     for (const line of fs.readFileSync(file, 'utf8').split(/\r?\n/)) {
       const parsed = parseStaffLine(line);
-      if (parsed) users.set(parsed.user, parsed.entry);
+      if (parsed) out.add(parsed.user);
     }
-    // Someone removed from the file, or with a new password: their existing sessions end now,
-    // and stay ended if the same name is added back later.
-    if (usersCache && usersCache.file === file) {
-      for (const [u, old] of usersCache.users) {
-        const now = users.get(u);
-        if (!now || now.hash !== old.hash) revocations.revoke(u);
-      }
-    }
-    usersCache = { file, stamp, users };
-    return users;
   } catch {
-    usersCache = null;
-    return new Map();
+    // unreadable: nothing to list
   }
+  return out;
+}
+
+/** End every session of one staff login now (re-invited or removed on the Staff logins screen). */
+export function revokeStaffSessions(user: string): void {
+  revocations.revoke(user);
+  usersCache = null;
 }
 
 /** Constant-time check of a password against one "scrypt$..." entry (current or a history entry). */
@@ -122,8 +167,12 @@ export function verifyStaffPassword(entry: string, password: string): boolean {
 }
 
 /** The single shared login: development only (no users file, TOTP explicitly off, not production). */
-const sharedLoginAllowed = (): boolean => !USERS_FILE() && !!USERNAME() && !!PASSWORD() && !requireTotp() && !isProduction();
-const loginConfigured = (): boolean => (USERS_FILE() ? true : sharedLoginAllowed());
+const sharedLoginAllowed = (): boolean =>
+  !USERS_FILE() && staffAccounts.stamp() === 'none' && !!USERNAME() && !!PASSWORD() && !requireTotp() && !isProduction();
+const loginConfigured = (): boolean => (USERS_FILE() || staffAccounts.stamp() !== 'none' ? true : sharedLoginAllowed());
+
+/** Staff logins managed in the app (Staff logins screen; staff-accounts.ts). */
+export const staffAccounts = new StaffAccounts({ hashPassword: (pw) => scryptEntry(pw), verifyPassword: verifyStaffPassword });
 const SECRET =
   process.env.DRAWBRIDGE_SESSION_SECRET || process.env.ONCALL_SESSION_SECRET || randomBytes(32).toString('hex');
 /** __Host- prefix: browsers only accept it Secure, for this exact host and Path=/ (no subdomain can set or overwrite it). */
@@ -347,6 +396,21 @@ const APP_JS = `(function () {
     if (!ms || !to) return;
     setTimeout(function () { document.body.innerHTML = ''; window.location.replace(to); }, ms);
   });
+  // Invitation page: the token travels in the URL fragment (never sent to a server); put it in the form and take it
+  // out of the address bar and history.
+  document.addEventListener('DOMContentLoaded', function () {
+    var t = document.getElementById('invite-token');
+    if (!t || t.value) return;
+    var h = (location.hash || '').replace(/^#/, '');
+    if (/^[A-Za-z0-9_-]{43}$/.test(h)) {
+      t.value = h;
+      history.replaceState(null, '', location.pathname);
+    } else {
+      var miss = document.getElementById('invite-missing'), form = document.getElementById('invite-form');
+      if (miss) miss.hidden = false;
+      if (form) form.hidden = true;
+    }
+  });
   document.addEventListener('DOMContentLoaded', function () {
     var form = document.getElementById('intake-upload');
     if (!form) return;
@@ -465,6 +529,81 @@ export function shellRouter(): Router {
   router.get('/assets/favicon.svg', (_req, res) => {
     res.setHeader('Cache-Control', 'public, max-age=604800');
     res.type('image/svg+xml').send(FAVICON_SVG);
+  });
+
+  // ---- Staff invitation (link from the email): choose a password, scan the QR code, enter the first code ----
+  const INVITE_ENDED =
+    '<div class="card signin"><h2 style="margin-top:0">Invitation</h2><p>This invitation link did not work. Links work once and expire after 24 hours. Ask your Drawbridge administrator for a new invitation.</p><p><a href="' +
+    APP_BASE +
+    '/login">Go to sign-in</a></p></div>';
+  const inviteForm = (token: string, error = ''): string =>
+    `<div class="card signin"><h2 style="margin-top:0">Set up your Drawbridge sign-in</h2>
+<p id="invite-missing" hidden style="color:var(--urgent)">This page needs the link from your invitation email. Open the link from the email again.</p>
+${error ? `<p style="color:var(--urgent)">${esc(error)}</p>` : ''}
+<form id="invite-form" method="post" action="${APP_BASE}/invite"><input type="hidden" id="invite-token" name="t" value="${esc(token)}">
+<p><label>Choose a password<input name="p" type="password" autocomplete="new-password" minlength="12" maxlength="256" required></label></p>
+<p><label>Type it again<input name="p2" type="password" autocomplete="new-password" maxlength="256" required></label></p>
+<p class="muted" style="font-size:12px">At least 12 characters. A passphrase of unrelated words works well. Don’t reuse a password from anywhere else.</p>
+<button>Continue</button></form>
+<p class="muted" style="font-size:12px;margin-bottom:0">Next you’ll scan a QR code with an authenticator app on your phone.</p></div>`;
+  const qrStep = async (token: string, name: string, otpauth: string, error = ''): Promise<string> => {
+    const svg = await QRCode.toString(otpauth, { type: 'svg', errorCorrectionLevel: 'M', margin: 2, width: 240 });
+    return `<div class="card signin"><h2 style="margin-top:0">Scan with your authenticator</h2>
+<p>${esc(name)}, open your authenticator app (Microsoft Authenticator, Google Authenticator, 1Password or Authy), add an account and scan this code.</p>
+<p style="text-align:center"><img src="data:image/svg+xml;base64,${Buffer.from(svg).toString('base64')}" width="240" height="240" alt="QR code to scan with your authenticator app"></p>
+<p class="muted" style="font-size:12px">Scan it with your own phone only. Don’t photograph, screenshot or share it.</p>
+${error ? `<p style="color:var(--urgent)">${esc(error)}</p>` : ''}
+<form method="post" action="${APP_BASE}/invite/confirm"><input type="hidden" name="t" value="${esc(token)}">
+<p><label>6-digit code from the app<input name="otp" inputmode="numeric" autocomplete="one-time-code" maxlength="6" required></label></p>
+<button>Finish and sign in</button></form></div>`;
+  };
+  const inviteFailed = (req: Request, res: Response, code: string) => {
+    const ip = clientIp(req);
+    const locked = inviteThrottle.fail('invite', ip);
+    securityEvent('staff_invite_failed', { ip, code });
+    if (locked.ip) securityEvent('login_ip_locked', { ip, code: `INVITE_LOCKED_${loginWindowMs() / 60_000}_MIN` });
+    setTimeout(() => res.status(400).send(page('Invitation · Drawbridge', INVITE_ENDED)), 800);
+  };
+
+  router.get('/invite', (_req, res) => {
+    res.send(page('Set up your sign-in · Drawbridge', inviteForm('')));
+  });
+
+  router.post('/invite', async (req, res) => {
+    const ip = clientIp(req);
+    if (inviteThrottle.blocked('invite', ip)) return inviteFailed(req, res, 'LOCKED');
+    const token = String(req.body?.t || '');
+    const r = staffAccounts.setPassword(token, req.body?.p, req.body?.p2);
+    if (!r.ok) {
+      if (r.fixable) return res.status(422).send(page('Set up your sign-in · Drawbridge', inviteForm(token, r.error)));
+      return inviteFailed(req, res, 'BAD_LINK');
+    }
+    res.send(page('Scan the QR code · Drawbridge', await qrStep(token, r.name, r.otpauth)));
+  });
+
+  router.post('/invite/confirm', async (req, res) => {
+    const ip = clientIp(req);
+    if (inviteThrottle.blocked('invite', ip)) return inviteFailed(req, res, 'LOCKED');
+    const token = String(req.body?.t || '');
+    const r = staffAccounts.confirm(token, req.body?.otp);
+    if (!r.ok) {
+      const again = r.ended ? null : staffAccounts.pendingOtpauth(token);
+      const who = staffAccounts.peek(token);
+      if (again && who) {
+        inviteThrottle.fail('invite', ip);
+        securityEvent('staff_invite_failed', { user: who.user, ip, code: 'BAD_TOTP' });
+        return res.status(422).send(page('Scan the QR code · Drawbridge', await qrStep(token, who.name, again, r.error)));
+      }
+      if (!r.ended && who) return res.status(422).send(page('Set up your sign-in · Drawbridge', inviteForm(token, r.error)));
+      return inviteFailed(req, res, r.ended ? 'INVITE_ENDED' : 'BAD_LINK');
+    }
+    // Activated: signed in now. The setup code is used up, like any sign-in code.
+    usedTotpStep.set(r.user, r.step);
+    usersCache = null;
+    securityEvent('staff_invite_accepted', { user: r.user, ip });
+    const issued = Math.max(Date.now(), revocations.validAfterFor(r.user) + 1);
+    setSessionCookie(res, { user: r.user, issued, last: issued });
+    res.redirect(APP_BASE);
   });
 
   router.get('/login', (req, res) => {

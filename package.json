@@ -34,6 +34,7 @@
     "smoke:unity-auth": "ts-node src/scripts/smoke-unity-auth.ts",
     "smoke:endpoints": "ts-node src/scripts/smoke-endpoints.ts",
     "smoke:staff-login": "ts-node src/scripts/smoke-staff-login.ts",
+    "smoke:staff-invites": "ts-node src/scripts/smoke-staff-invites.ts",
     "smoke:config": "ts-node src/scripts/smoke-config.ts",
     "smoke:display": "ts-node src/scripts/smoke-display.ts",
     "smoke:modules": "ts-node src/scripts/smoke-modules.ts",
@@ -73,13 +74,15 @@
     "express": "^4.21.2",
     "jsonwebtoken": "^9.0.2",
     "node-cache": "^5.1.2",
-    "nodemailer": "10.0.13"
+    "nodemailer": "10.0.13",
+    "qrcode": "^1.5.4"
   },
   "devDependencies": {
     "@types/express": "^4.17.21",
     "@types/jest": "^29.5.0",
     "@types/jsonwebtoken": "^9.0.5",
     "@types/node": "^20.0.0",
+    "@types/qrcode": "^1.5.5",
     "@typescript-eslint/eslint-plugin": "^6.0.0",
     "@typescript-eslint/parser": "^6.0.0",
     "eslint": "^8.0.0",
