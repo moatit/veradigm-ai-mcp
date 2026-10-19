@@ -40,7 +40,7 @@ export function compliancePage(): string {
 <a href="mailto:${esc(SECURITY_CONTACT.email)}">${esc(SECURITY_CONTACT.email)}</a> · ${esc(SECURITY_CONTACT.phone)} (24/7 help desk)</div>`;
 
   return `<h2 style="margin-top:4px">HIPAA &amp; Compliance</h2>
-<p>How Drawbridge, MOATiT’s connection between the VeradigmAI phone agent, your staff and Veradigm® EHR and Veradigm® PM, protects your patients’ information under the HIPAA Security Rule and Privacy Rule. MOATiT is your business associate.</p>
+<p>How Drawbridge, MOATiT’s connection between the Drawbridge phone assistant, your staff and Veradigm® EHR and Veradigm® PM, protects your patients’ information under the HIPAA Security Rule and Privacy Rule. MOATiT is your business associate.</p>
 <div class="grid">
 <div class="card"><div class="muted">In place in Drawbridge</div><div class="stat">${esc(counts.inPlace)}</div></div>
 <div class="card"><div class="muted">Hosting (deployment)</div><div class="stat">${esc(counts.deployment)}</div></div>

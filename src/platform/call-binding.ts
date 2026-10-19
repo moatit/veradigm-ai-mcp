@@ -31,8 +31,9 @@ import { securityEvent } from './security-events';
  *    identity searches per call (SEARCH_LIMIT, security event `agent_search_limit`, code POSSIBLE_ENUMERATION).
  * 5. A search without all three of first name, last name and date of birth, or one that matches more than one
  *    patient, never returns patient identifiers. FHIR search_patient never returns identifiers to the agent.
- * 6. New-patient registration (unity_save_patient without a patientId) is allowed and binds the new patient to
- *    the call. An after-hours call record that claims a patient not verified on this call is saved as unverified.
+ * 6. An after-hours call record that claims a patient not verified on this call is saved as unverified. Patient
+ *    registration and demographic updates (unity_save_patient, unity_update_demographics) are not in this
+ *    release: the tools are not offered and are denied here as well.
  */
 
 export type IdSystem = 'pm' | 'chart' | 'fhir';
@@ -184,8 +185,6 @@ interface Rule {
   search?: 'unity' | 'fhir_verify' | 'fhir_search' | 'unity_mrn';
   /** Takes an appointment ID: runs only with a verified patientId (filled in when the call verified exactly one). */
   appointment?: SystemOf;
-  /** unity_save_patient: new patient allowed (binds), an existing patientId must be verified. */
-  register?: boolean;
   /** drawbridge_save_call_record: an unverified patient is saved as unverified. */
   callRecord?: boolean;
   /** Never on patient calls (no way to check who the record belongs to). */
@@ -204,8 +203,9 @@ export const RULES: Record<string, Rule> = {
   unity_search_patients: { search: 'unity' },
   unity_get_patient_by_mrn: { search: 'unity_mrn' },
   unity_get_patient: { ids: [{ param: 'patientId', system: (a) => (String(a?.target || '').toUpperCase() === 'PM' ? 'pm' : 'chart') }] },
-  unity_save_patient: { register: true },
-  unity_update_demographics: PM,
+  // SavePatient is not used in this release: never on patient calls, even if a tool by that name came back.
+  unity_save_patient: { deny: true },
+  unity_update_demographics: { deny: true },
   // Veradigm® PM
   unity_get_patient_appointments: PM,
   unity_get_open_slots: { ids: [{ param: 'patientId', system: 'pm', optional: true }] },
@@ -374,17 +374,6 @@ export function beforeAgentTool(name: string, rawArgs: any, ctx: GateContext, st
     return { ok: true, args };
   }
 
-  if (rule.register) {
-    if (filled(args.patientId)) {
-      const id = store.resolve(callId, 'pm', args.patientId);
-      if (!id) return { ok: false, failure: refuse('NOT_VERIFIED', name, args, ctx, args.patientId) };
-      args.patientId = id;
-      return { ok: true, args };
-    }
-    if (!store.hasRoom(callId)) return { ok: false, failure: refuse('VERIFIED_LIMIT', name, args, ctx) };
-    return { ok: true, args };
-  }
-
   if (rule.appointment) {
     const system = sys(rule.appointment, args);
     if (!filled(args.patientId)) {
@@ -504,19 +493,11 @@ const FHIR_SEARCH = {
 export function afterAgentTool(name: string, args: any, result: any, ctx: GateContext, store: CallBindings = callBindings): any {
   try {
     const rule = RULES[name];
-    if (!rule || (!rule.search && !rule.register)) return result;
+    if (!rule || !rule.search) return result;
     if (!result || typeof result !== 'object' || result.success === false) return result;
     const callId = normalizeCallId(ctx.callId);
     if (!callId) return result;
     const a = args || {};
-
-    if (rule.register) {
-      if (!filled(a.patientId) && filled(result.patientId)) {
-        const b = store.bind(callId, { pm: result.patientId }, name);
-        if (b === 'limit') return refuse('VERIFIED_LIMIT', name, a, ctx, undefined, 'REGISTERED_NOT_BOUND', false);
-      }
-      return result;
-    }
 
     if (rule.search === 'fhir_search') return result.patients?.length ? FHIR_SEARCH : result;
 

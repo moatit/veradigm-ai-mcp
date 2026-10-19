@@ -1,6 +1,6 @@
 # Drawbridge: Veradigm® Unity actions for certification
 
-For the Veradigm API Assessment. This is the complete list of Veradigm Unity calls Drawbridge makes, taken from the code on branch `drawbridge/cert-hardening` after unused action names were removed from `src/unity/config/unity-endpoints.ts`. Every action name lives in that one file, and each can be overridden per client with `UNITY_ACTION_<KEY>`.
+For the Veradigm API Assessment. This is the complete list of Veradigm Unity calls Drawbridge makes, taken from the code on branch `drawbridge/cert-hardening` after unused action names were removed from `src/unity/config/unity-endpoints.ts`. Every action name lives in that one file. `UNITY_ACTION_<KEY>` may only repeat that key's declared name; any other value stops the server at start-up.
 
 Notes on the table:
 
@@ -13,14 +13,14 @@ Notes on the table:
 | Action | System | R/W | Where Drawbridge uses it | What it does |
 |---|---|---|---|---|
 | `GetToken` (JSON endpoint) | PM, EHR | auth | Every session, `unity-auth.service.ts` | Gets a security token with the Unity service credentials (Ubiquity ID prefix). Concurrent callers share one request. 30 s timeout. A token is reused for `UNITY_TOKEN_CACHE_TTL` minus `UNITY_TOKEN_REFRESH_BUFFER` seconds. |
-| `GetUserAuthentication` | PM, EHR | auth | Once per token and system, before any other action | Binds the token to the EHR/PM user. Runs once for concurrent callers. A rejected token is replaced once; a wrong password is never retried, so the account can't be locked out. |
+| `GetUserAuthentication` | PM, EHR | auth | Once per token and system, before any other action | Binds the token to the EHR/PM user. Runs once for concurrent callers. A rejected token is replaced once; a wrong password is never retried, so the account can't be locked out. A refused sign-in (ValidUser other than YES, an access-denied reply, or `GetToken` denied) stops all logins for that system, across restarts, until the credentials change or an administrator retries; MOATiT's help desk is alerted (runbook `VERADIGM_SIGNIN_LATCH.md`). |
 | `GetServerInfo` | PM, EHR | R | Server start (after the first token), then at most every `UNITY_SERVER_INFO_REFRESH_HOURS` (6). Shown on the staff screen "Veradigm connection" and on the authenticated `GET /diagnostics/veradigm` | Gets the product, version, time zone and server time. Only those fields are kept. If the call fails, the system shows as "unavailable" and the server keeps running. |
 | `LastLogs` | PM, EHR | R | After an action fails on Veradigm's side (HTTP 5xx, unexpected exception). At most once a minute per system, and never after a failed `LastLogs` | Gets Veradigm's troubleshooting log. Each entry keeps the timestamp, action and message, with dates, long numbers and e-mail addresses masked. Entries go to the server log and to the "Veradigm connection" staff screen. |
 | `RetireToken` (JSON endpoint) | PM, EHR | auth | Graceful shutdown of the HTTP servers (SIGINT/SIGTERM) and of the stdio server | Retires only the tokens this process holds. It never requests a token just to retire it. |
 
 ### Not used: `GetTokenValidation`
 
-`GetTokenValidation` checks a token that Veradigm EHR passes to an app it **launches** (an in-EHR app opened from the chart with a token). Veradigm EHR never launches Drawbridge. Drawbridge is a server-side integration that gets its own token with `GetToken` and binds it with `GetUserAuthentication`, so it never receives a token from Veradigm to validate. The name stays in `unity-endpoints.ts` (`Auth.GET_TOKEN_VALIDATION`), marked unused, so it can be added without a code search if Drawbridge is ever launched from Veradigm EHR. That would also require recertification.
+`GetTokenValidation` checks a token that Veradigm EHR passes to an app it **launches** (an in-EHR app opened from the chart with a token). Veradigm EHR never launches Drawbridge. Drawbridge is a server-side integration that gets its own token with `GetToken` and binds it with `GetUserAuthentication`, so it never receives a token from Veradigm to validate. The name was removed from `unity-endpoints.ts` on Oct 16, 2026 and is refused at run time like any other undeclared action. Using it would require recertification.
 
 ## Veradigm® PM actions
 
@@ -28,7 +28,6 @@ Notes on the table:
 |---|---|---|---|
 | `SearchPatients` | R | Phone agent `unity_search_patients` (caller identification); document intake patient match (through the same tool); intake shadow mode | Search by "Last, First" or MRN (plain text). Results are filtered by date of birth in Drawbridge. Also sent to Veradigm® EHR (see below). |
 | `GetPatient` | R | Outreach list builders (reminder, no-show and recall calls) | Gets the patient's first name and phone number for an approved outbound call. Also used on EHR. |
-| `SavePatient` | W | Phone agent `unity_save_patient` (register a new patient), `unity_update_demographics` (contact details) | Adds a patient or updates contact fields. Write tools carry an idempotency key. |
 | `GetScheduleByPatientID` | R | Phone agent `unity_get_patient_appointments`; read-back after `SaveAppointment`; ownership and current-status check before every `SetAppointmentStatus`; intake clinic rules (same-day appointment check) | Gets one patient's appointments. Drawbridge keeps the future ones. `SetAppointmentStatus` ignores PatientID, so Drawbridge only changes a visit that is on the verified patient's own schedule. |
 | `GetAppointmentById` | R | Phone agent `unity_get_appointment_details` when no patient ID is given | Gets one appointment's details. |
 | `SaveAppointment` | W | Phone agent `unity_save_appointment` | Books an appointment in an open slot. PatientID = PM patient ID; Parameter1 = the `<appt>` XML from Veradigm's PM reference (`appointmentDateTime` MM/DD/YYYY HH:mm, `appointmentDuration`, `appointmentType`, `schedulingLocation`, `schedulingDepartment`, `resource`, `comments`, `schedulingLocationID`, `schedulingDepartmentID`; `referDr`, `coverageType`, `visitType`, `referralRequired`, `ailmentID` only when configured, because the sandbox does not require them). The slot is checked with `GetAvailableSchedule` first. A reply without `saveappointmentinfo.Appointment_ID` is a failure. Never retried; idempotent per call. Verified on the sandbox Oct 15, 2026 (`SCHEDULING_WRITE_TEST_2026-10-15.md`). |
@@ -64,13 +63,11 @@ Notes on the table:
 | `GetDocuments` | R | Intake shadow mode, staff filing observer | Lists a patient's chart documents. |
 | `GetDocumentImage` | R | Intake shadow mode, staff filing observer (breaking ties) | Gets one document's image. |
 
-## Verification only (not called by the app)
-
-| Action | System | Used by |
-|---|---|---|
-| `Echo` | PM, EHR | `npm run verify:sandbox` connection check. |
-
 ## Removed from the configuration (never called)
+
+`SavePatient` is **not used in this release**. The sandbox evidence run (Oct 16, 2026) showed the request lacked the required AccountID ("AccountID must be an integer"), and no certified workflow needs patient registration or demographic updates. So the tools `unity_save_patient` and `unity_update_demographics` were removed from every tool list and dispatch, the phone agent's gate denies them, and `SavePatient` is not in `CERTIFIED_ACTIONS`: any attempt is refused with `ACTION_NOT_ALLOWED` before a request is sent. Adding it back means fixing the request and recertifying.
+
+`Echo` is not a declared action and is never sent. It was removed on Oct 16, 2026 with the unused `testConnection()` helper, its `npm run verify:sandbox` check (`GetServerInfo` is the connection check) and the Postman request.
 
 These names were in `unity-endpoints.ts` but no code called them. They were removed after a repo-wide search: `GetPatientFull` (and its unused helper), `GetChangedPatients`, `BookAppointment`, `GetRecallTypes`, `GetFirstAvailableAppointments`, `GetEncounter`, `GetEncounterList`, `SaveSimpleEncounter`, `GetEncounterSummary`, `SaveDocumentImage`, `GetPatientDemographics`, `GetProvider`, the duplicate `GET_AVAILABLE_SCHEDULE` key (`GET_OPEN_SLOTS` holds `GetAvailableSchedule`). Their `UNITY_ACTION_*` overrides now have no effect. `GetSchedulingLocations`, `GetSchedulingDepartments` and `GetAppointmentConfirmationResults` were removed in the same pass and added back on Oct 15, 2026, when `SaveAppointment` and `SetAppointmentStatus` moved to Veradigm's documented parameters (see the PM table). `npm run verify:sandbox` uses the configured names for every read in this document.
 
@@ -79,5 +76,7 @@ These names were in `unity-endpoints.ts` but no code called them. They were remo
 - HTTPS to the Ubiquity endpoint (`UNITY_UBIQUITY_ENDPOINT`). In production the endpoint and both Ubiquity IDs must be set, because there are no sandbox defaults in production.
 - 30 s timeout per call. A read is retried once on 502/503/504 or a dropped connection. Writes (`Save*`, `Set*`) are never retried for those errors. After a rejected token the call is sent once more with a fresh login, which Veradigm never ran, so this is safe for writes too.
 - A failed call is reported as `{ success: false, error_code, retryable }` and never as an empty result.
-- Unity is never polled more often than every 2 minutes.
+- Only the actions in this document are sent. `UnityService.executeAction` refuses any other name (`CERTIFIED_ACTIONS` in `unity-endpoints.ts`) before any login or request, so a `UNITY_ACTION_*` override can't add one. An override that names anything but its key's declared action stops the server at start-up.
+- GetToken, GetUserAuthentication and RetireToken each have a hard deadline (`UNITY_AUTH_TIMEOUT_MS`, 30 s) on top of the idle timeout, so a reply that never ends can't hold the sign-in queue.
+- Unity is never polled more often than every 2 minutes. The health check (`GetServerInfo`) runs every 15 minutes by default (`UNITY_HEALTH_CHECK_MIN`, never below 2) and skips a system that Drawbridge contacted in the background (probe, keep-warm renewal, `GetServerInfo` refresh; success or not), or that answered a real call, in the last 2 minutes. Session keep-warm retries a failed renewal after 2 minutes, doubling up to 30.
 - Every tool call is written to the audit log, and so is every action a staff module sends directly (intake, huddle, outreach, scheduling, diagnostics). Each line has the tool or action name, the patient ID if there is one, the outcome and the latency (`SECURITY_CONTROLS.md`).

@@ -3,27 +3,34 @@ import { scrubLogText } from './unity-diagnostics';
 import { auditToolCall } from '../../platform/audit';
 import type { SystemStatus } from '../../platform/system-status';
 import { errorSummary } from '../../utils/safe-log';
+import { BackgroundContact, backgroundContact } from './background-contact';
 
 /**
  * Veradigm health checker and token keep-warm.
  *
- * Health check (every UNITY_HEALTH_CHECK_MIN minutes, default 2; never more often than every 2 minutes,
+ * Health check (every UNITY_HEALTH_CHECK_MIN minutes, default 15; a smaller value is raised to 2 minutes,
  * Veradigm's polling rule; "off" disables it): for each configured target (PM, EHR)
  *   1. GetToken (only when the cached token is due: the probe uses the same session as the tools, so it
  *      never mints a token per probe),
  *   2. GetUserAuthentication (same rule),
- *   3. one cheap read with no patient data: UNITY_HEALTH_ACTION (default GetServerInfo).
+ *   3. one cheap read with no patient data: GetServerInfo (always; it is a declared action).
  * Each probe gives up after UNITY_HEALTH_TIMEOUT_SEC (default 15). The result goes to SystemStatus
  * (src/platform/system-status.ts) with an error class and a scrubbed detail ("GetToken: Access is denied").
- * Successful probes are not audited (one line every 2 minutes per system would bury the audit log);
+ * Successful probes are not audited (one line per probe per system would bury the audit log);
  * failed probes are audit lines (kind "action", channel "health"); status changes are security/ops events.
- * A real Veradigm call that fails with a network, timeout, auth or server error asks for an early probe,
- * still at most one per 2 minutes.
+ * A real Veradigm call that fails with a network, timeout, auth or server error asks for an early probe.
+ * Floor guard: a system is never probed when Drawbridge contacted it in the background (a probe, a
+ * keep-warm renewal or the GetServerInfo refresh, success or not: BackgroundContact) or a real call got an
+ * answer less than 2 minutes ago, whatever starts the probe (start-up, interval tick or early probe).
+ * While a system's sign-in is latched (unity-auth.service.ts), a late success of a call that started
+ * before the latch does not mark it UP.
  *
  * Keep-warm: while a phone-agent tool ran in the last UNITY_KEEP_WARM_MINUTES (default 30; 0 = off), a
  * target's session is renewed UNITY_KEEP_WARM_LEAD_SEC (default 120) before the cached token is due, so
  * the first search after a pause never waits for GetToken + GetUserAuthentication (measured up to 8.8 s
- * cold). Retell's inbound-call webhook also warms the sessions when a call starts.
+ * cold). Retell's inbound-call webhook also warms the sessions when a call starts. After a failed renewal
+ * a target waits 2 minutes before the next try, doubling up to 30 minutes, back to normal after a success;
+ * a target whose sign-in Veradigm refused (auth latch, unity-auth.service.ts) is skipped.
  */
 export const MIN_POLL_MS = 2 * 60_000;
 
@@ -32,14 +39,19 @@ const num = (v: unknown, d: number, min: number) => {
   return Number.isFinite(n) && n >= min ? n : d;
 };
 
-/** Probe interval in ms (clamped to the 2-minute floor), or 0 when UNITY_HEALTH_CHECK_MIN is off/0. */
+/** Keep-warm retry delay after a failed renewal: 2 minutes, doubling up to 30. */
+export const KEEP_WARM_BACKOFF_MIN_MS = MIN_POLL_MS;
+export const KEEP_WARM_BACKOFF_MAX_MS = 30 * 60_000;
+
+/** Probe interval in ms (default 15 minutes, clamped to the 2-minute floor), or 0 when UNITY_HEALTH_CHECK_MIN is off/0. */
 export function healthIntervalMs(env: NodeJS.ProcessEnv = process.env): number {
   const raw = String(env.UNITY_HEALTH_CHECK_MIN ?? '').trim();
   if (/^(off|false|no|0)$/i.test(raw)) return 0;
-  return Math.max(MIN_POLL_MS, num(raw, 2, 0.01) * 60_000);
+  return Math.max(MIN_POLL_MS, num(raw, 15, 0.01) * 60_000);
 }
 export const healthTimeoutMs = () => num(process.env.UNITY_HEALTH_TIMEOUT_SEC, 15, 2) * 1000;
-export const healthAction = () => String(process.env.UNITY_HEALTH_ACTION || '').trim() || UnityActions.Admin.GET_SERVER_INFO;
+/** The probe's read: always GetServerInfo (UNITY_HEALTH_ACTION was removed: only declared actions are sent). */
+export const healthAction = () => UnityActions.Admin.GET_SERVER_INFO;
 export const keepWarmWindowMs = () => num(process.env.UNITY_KEEP_WARM_MINUTES, 30, 0) * 60_000;
 export const keepWarmLeadSec = () => num(process.env.UNITY_KEEP_WARM_LEAD_SEC, 120, 10);
 
@@ -75,6 +87,8 @@ export function classifyProbeError(stage: string, err: unknown): { error_class: 
 export interface HealthAuth {
   getSecurityToken(target: UnityTargetSystem): Promise<string>;
   getAuthenticatedSession(target: UnityTargetSystem): Promise<unknown>;
+  /** Set while Veradigm refuses the target's sign-in (auth latch). */
+  latched?(target: UnityTargetSystem): unknown;
 }
 export interface HealthUnity {
   executeAction(action: string, params?: any, patientId?: string, target?: any): Promise<any>;
@@ -87,6 +101,8 @@ export interface HealthOptions {
   targets: () => UnityTargetSystem[];
   now?: () => number;
   log?: (l: string) => void;
+  /** Background-contact clock for the floor (default: the process-wide one). */
+  contact?: BackgroundContact;
 }
 
 function withTimeout<T>(p: Promise<T>, ms: number, stage: string): Promise<T> {
@@ -101,6 +117,9 @@ function withTimeout<T>(p: Promise<T>, ms: number, stage: string): Promise<T> {
 
 export class UnityHealthChecker {
   private lastRun = 0;
+  /** Per target: when a real call last got an answer (floor guard, with the background-contact clock). */
+  private lastAnswer = new Map<UnityTargetSystem, number>();
+  private readonly contact: BackgroundContact;
   private running: Promise<ProbeResult[]> | null = null;
   private timer: NodeJS.Timeout | null = null;
   private readonly now: () => number;
@@ -109,6 +128,7 @@ export class UnityHealthChecker {
   constructor(private readonly opts: HealthOptions) {
     this.now = opts.now || Date.now;
     this.log = opts.log || ((l) => console.error(l));
+    this.contact = opts.contact || backgroundContact;
   }
 
   /** One probe of one target. Never throws. */
@@ -130,13 +150,24 @@ export class UnityHealthChecker {
     }
   }
 
-  /** Probe every configured target once (single flight) and update the status. Never throws. */
+  /** True when Drawbridge contacted the target in the background, or a real call got an answer, less than 2 minutes ago. */
+  private tooSoon(target: UnityTargetSystem): boolean {
+    const last = Math.max(this.contact.lastAt(target), this.lastAnswer.get(target) || 0);
+    return last > 0 && this.now() - last < MIN_POLL_MS;
+  }
+
+  /**
+   * Probe every configured target once (single flight) and update the status. A target inside the 2-minute
+   * floor is skipped (left out of the result, status unchanged). Never throws.
+   */
   runOnce(): Promise<ProbeResult[]> {
     if (this.running) return this.running;
     this.lastRun = this.now();
     this.running = (async () => {
       const out: ProbeResult[] = [];
       for (const t of this.opts.targets()) {
+        if (this.tooSoon(t)) continue;
+        this.contact.note(t, this.now());
         const r = await this.probe(t);
         out.push(r);
         this.opts.status.recordProbe(t, r.ok, r.error_class, r.detail);
@@ -161,6 +192,9 @@ export class UnityHealthChecker {
   /** A real call finished: feed the status; an infrastructure failure may trigger an early probe. */
   onActionOutcome(action: string, target: UnityTargetSystem, ok: boolean, code: string): void {
     if (!this.opts.targets().includes(target)) return;
+    // A call that started before the sign-in was latched may still succeed: it must not mark the system UP.
+    if (ok && this.opts.auth.latched?.(target)) return;
+    if (ok) this.lastAnswer.set(target, this.now());
     const wantProbe = this.opts.status.recordPassive(target, ok, code);
     if (!ok && wantProbe && INFRA.has(code)) this.requestEarlyProbe();
   }
@@ -172,13 +206,14 @@ export class UnityHealthChecker {
     return true;
   }
 
-  start(): () => void {
+  /** First probe once `firstAfter` settles (the start-up GetServerInfo, so a system that just answered is skipped), then every interval. */
+  start(firstAfter: Promise<unknown> = Promise.resolve()): () => void {
     const every = healthIntervalMs();
     if (!every) {
       this.log('[Veradigm] health check off (UNITY_HEALTH_CHECK_MIN)');
       return () => undefined;
     }
-    void this.runOnce();
+    void firstAfter.catch(() => undefined).then(() => this.runOnce());
     this.timer = setInterval(() => void this.runOnce(), every);
     this.timer.unref?.();
     return () => {
@@ -191,23 +226,29 @@ export interface KeepWarmAuth {
   tokenSecondsLeft(target: UnityTargetSystem): number | undefined;
   refreshSession(target: UnityTargetSystem): Promise<boolean>;
   getAuthenticatedSession(target: UnityTargetSystem): Promise<unknown>;
+  /** Set when Veradigm refused the target's sign-in (auth latch): keep-warm leaves it alone. */
+  latched?(target: UnityTargetSystem): unknown;
 }
 
 export class TokenKeepWarm {
   private lastActivity = 0;
   private busy = new Set<UnityTargetSystem>();
+  /** Per target after a failed renewal: no new try before `at`; `delay` doubles per failure (2 to 30 minutes). */
+  private backoff = new Map<UnityTargetSystem, { at: number; delay: number }>();
   private readonly now: () => number;
   private readonly log: (l: string) => void;
+  private readonly contact: BackgroundContact;
   /** Sessions renewed by keep-warm (status screen / tests). */
   refreshed = 0;
 
   constructor(
     private readonly auth: KeepWarmAuth,
     private readonly targets: () => UnityTargetSystem[],
-    opts: { now?: () => number; log?: (l: string) => void } = {}
+    opts: { now?: () => number; log?: (l: string) => void; contact?: BackgroundContact } = {}
   ) {
     this.now = opts.now || Date.now;
     this.log = opts.log || ((l) => console.error(l));
+    this.contact = opts.contact || backgroundContact;
   }
 
   /** A phone-agent tool ran (or a call is starting). */
@@ -220,21 +261,30 @@ export class TokenKeepWarm {
     return w > 0 && this.lastActivity > 0 && this.now() - this.lastActivity <= w;
   }
 
-  /** Renew every target whose token is missing or due within the lead time, while there is activity. */
+  /**
+   * Renew every target whose token is missing or due within the lead time, while there is activity.
+   * A target that failed recently waits out its backoff (2 minutes, doubling up to 30).
+   */
   async tick(): Promise<number> {
     if (!this.active()) return 0;
     let n = 0;
     for (const t of this.targets()) {
       const left = this.auth.tokenSecondsLeft(t);
       if (left !== undefined && left > keepWarmLeadSec()) continue;
-      if (this.busy.has(t)) continue;
+      if (this.busy.has(t) || this.auth.latched?.(t)) continue;
+      const wait = this.backoff.get(t);
+      if (wait && this.now() < wait.at) continue;
       this.busy.add(t);
+      this.contact.note(t, this.now());
       try {
         await this.auth.refreshSession(t);
+        this.backoff.delete(t);
         this.refreshed++;
         n++;
       } catch (e) {
-        this.log(`[Unity Auth] keep-warm ${t} failed: ${errorSummary(e, 120)}`);
+        const delay = wait ? Math.min(wait.delay * 2, KEEP_WARM_BACKOFF_MAX_MS) : KEEP_WARM_BACKOFF_MIN_MS;
+        this.backoff.set(t, { at: this.now() + delay, delay });
+        this.log(`[Unity Auth] keep-warm ${t} failed (next try in ${Math.round(delay / 60_000)} min): ${errorSummary(e, 120)}`);
       } finally {
         this.busy.delete(t);
       }
@@ -246,7 +296,7 @@ export class TokenKeepWarm {
   async warmNow(): Promise<void> {
     this.noteActivity();
     await Promise.all(
-      this.targets().map((t) =>
+      this.targets().filter((t) => !this.auth.latched?.(t)).map((t) =>
         this.auth.getAuthenticatedSession(t).catch((e) => this.log(`[Unity Auth] warm ${t} failed: ${errorSummary(e, 120)}`))
       )
     );

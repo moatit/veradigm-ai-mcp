@@ -3,6 +3,7 @@ import * as path from 'path';
 import { UnityActions, UnityTargetSystem } from '../config/unity-endpoints';
 import { pick, unityRows } from '../utils/unity-rows';
 import { errorSummary } from '../../utils/safe-log';
+import { BackgroundContact, backgroundContact } from './background-contact';
 
 /**
  * Veradigm connection diagnostics: the two admin actions Veradigm requires certified apps to use.
@@ -126,6 +127,8 @@ export interface DiagnosticsOptions {
   /** Directory for unity-diagnostics.json (default CALL_RECORDS_DIR, else ./data). Empty string: memory only. */
   dir?: string;
   log?: (line: string) => void;
+  /** Background-contact clock (the health probe's 2-minute floor); default the process-wide one. */
+  contact?: BackgroundContact;
 }
 
 export class UnityDiagnostics {
@@ -165,6 +168,7 @@ export class UnityDiagnostics {
       for (const target of this.opts.targets()) {
         const at = new Date(this.now());
         let summary: ServerInfoSummary;
+        (this.opts.contact || backgroundContact).note(target, this.now());
         try {
           const res = await this.opts.unity.executeAction(UnityActions.Admin.GET_SERVER_INFO, {}, '', target);
           summary = res?.success

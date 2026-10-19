@@ -4,8 +4,9 @@
  *     (down once, reminder, recovered once, retry of a failed send), messages counted, no PHI, events,
  *     state survives a restart without a second down alert.
  *  2. Help-desk transports: webhook JSON + HMAC signature; SMTP never sends without TLS.
- *  3. Health checker: error classes ("GetToken: Access is denied"), probe timeout, 2-minute floor, early probe.
- *  4. Token keep-warm: renews only with recent activity and only when the token is due.
+ *  3. Health checker: error classes ("GetToken: Access is denied"), probe timeout, default 15 minutes with a
+ *     2-minute floor, per-system floor guard (last probe or real answer), start-up order, early probe.
+ *  4. Token keep-warm: renews only with recent activity and only when the token is due; failed renewals back off.
  *  5. Agent edge: RECORDS_UNAVAILABLE fail-fast text, upcoming visits with a verified match (minimum necessary,
  *     budget, never on a spelling variant), success-empty wording, slot IDs for booking.
  *  6. Retell inbound-call webhook: signature check, dynamic variables, HTTP end to end.
@@ -39,6 +40,8 @@ async function main(): Promise<void> {
   const { SystemStatus, setSystemStatus } = await import('../platform/system-status');
   const helpdesk = await import('../platform/helpdesk');
   const health = await import('../unity/services/unity-health');
+  const { BackgroundContact } = await import('../unity/services/background-contact');
+  const { UnityDiagnostics } = await import('../unity/services/unity-diagnostics');
   const edge = await import('../unity/agent-edge');
   const { toVoiceSummary } = await import('../utils/response-formatter');
   const inbound = await import('../platform/modules/activity/retell-inbound');
@@ -227,7 +230,9 @@ async function main(): Promise<void> {
   assert.strictEqual(health.healthIntervalMs({ UNITY_HEALTH_CHECK_MIN: '1' } as any), 120_000, '2-minute floor');
   assert.strictEqual(health.healthIntervalMs({ UNITY_HEALTH_CHECK_MIN: '5' } as any), 300_000);
   assert.strictEqual(health.healthIntervalMs({ UNITY_HEALTH_CHECK_MIN: 'off' } as any), 0);
-  assert.strictEqual(health.healthIntervalMs({} as any), 120_000, 'default every 2 minutes');
+  assert.strictEqual(health.healthIntervalMs({ UNITY_HEALTH_CHECK_MIN: '0.5' } as any), 120_000, 'fractions below 2 are raised to the floor');
+  assert.strictEqual(health.healthIntervalMs({} as any), 900_000, 'default every 15 minutes');
+  assert.strictEqual(health.healthIntervalMs({ UNITY_HEALTH_CHECK_MIN: 'abc' } as any), 900_000, 'unreadable value: the default');
   let hnow = 1_000_000;
   const hst = new SystemStatus({ targets: () => ['EHR'], notifier: new helpdesk.HelpdeskNotifier(() => [fakeTransport]), now: () => hnow, dir: '', log: () => undefined, event: () => undefined });
   let mode: 'deny' | 'ok' | 'hang' = 'deny';
@@ -246,6 +251,7 @@ async function main(): Promise<void> {
     targets: () => ['EHR'],
     now: () => hnow,
     log: () => undefined,
+    contact: new BackgroundContact(),
   });
   const r1 = await quiet(() => checker.runOnce());
   assert.deepStrictEqual([r1[0].ok, r1[0].error_class, r1[0].detail], [false, 'AUTH_ERROR', 'GetToken: Access is denied']);
@@ -268,7 +274,91 @@ async function main(): Promise<void> {
   // passive: an infrastructure failure asks for an early probe; validation answers count as "answering"
   checker.onActionOutcome('GetPatient', 'EHR', true, 'UNITY_ANSWERED');
   checker.onActionOutcome('GetPatient', 'PM', false, 'TIMEOUT_ERROR'); // PM not configured: ignored
-  ok('health checker: GetToken "Access is denied" -> AUTH_ERROR, timeout, network, service account masked, 2-minute floor, early probe, GetServerInfo read, DOWN then UP');
+  // Floor guard in runOnce itself (interval tick, start-up, early probe): never within 2 minutes of the last
+  // probe or of a real call that got an answer.
+  const t4 = hnow;
+  const probesBefore = actions.length;
+  hnow = t4 + 30_000;
+  assert.deepStrictEqual(await quiet(() => checker.runOnce()), [], 'probe 30 s after the last one: skipped');
+  hnow = t4 + 100_000;
+  checker.onActionOutcome('GetSchedule', 'EHR', true, '');
+  hnow = t4 + 150_000;
+  assert.deepStrictEqual(await quiet(() => checker.runOnce()), [], '2.5 min after the probe but 50 s after a real answer: skipped');
+  assert.strictEqual(actions.length, probesBefore, 'nothing sent to Veradigm by the skipped probes');
+  hnow = t4 + 220_000;
+  const r5 = await quiet(() => checker.runOnce());
+  assert.ok(r5.length === 1 && r5[0].ok && actions.length === probesBefore + 1, 'probe again once 2 minutes passed');
+  checker.onActionOutcome('GetPatient', 'EHR', false, 'TIMEOUT_ERROR');
+  assert.strictEqual(actions.length, probesBefore + 1, 'a failed real call 10 s later does not probe early');
+  // Start-up: the first probe waits for the start-up GetServerInfo and skips a system that just answered.
+  const startActions: string[] = [];
+  const starter = new health.UnityHealthChecker({
+    auth: { getSecurityToken: async () => 'tok', getAuthenticatedSession: async () => ({}) },
+    unity: { executeAction: async (a: string) => (startActions.push(a), { success: true, data: [] }) },
+    status: hst,
+    targets: () => ['EHR'],
+    now: () => hnow,
+    log: () => undefined,
+    contact: new BackgroundContact(),
+  });
+  let firstCheckDone!: () => void;
+  const stopStarter = starter.start(new Promise<void>((r) => (firstCheckDone = r)));
+  await new Promise((r) => setTimeout(r, 20));
+  assert.strictEqual(startActions.length, 0, 'no probe before the start-up GetServerInfo is done');
+  starter.onActionOutcome('GetServerInfo', 'EHR', true, '');
+  firstCheckDone();
+  await new Promise((r) => setTimeout(r, 20));
+  stopStarter();
+  assert.strictEqual(startActions.length, 0, 'start-up: one GetServerInfo per system, not two');
+  // Any background contact (a keep-warm renewal, a GetServerInfo refresh), success or not, keeps the probe
+  // away for 2 minutes.
+  const clock = new BackgroundContact();
+  let cnow = 50_000_000;
+  const cActions: string[] = [];
+  const cChecker = new health.UnityHealthChecker({
+    auth: { getSecurityToken: async () => 'tok', getAuthenticatedSession: async () => ({}) },
+    unity: { executeAction: async (a: string) => (cActions.push(a), { success: true, data: [] }) },
+    status: hst,
+    targets: () => ['EHR'],
+    now: () => cnow,
+    log: () => undefined,
+    contact: clock,
+  });
+  const ckw = new health.TokenKeepWarm(
+    {
+      tokenSecondsLeft: () => undefined,
+      refreshSession: async () => {
+        throw new Error('Unity authentication failed: connect ECONNREFUSED');
+      },
+      getAuthenticatedSession: async () => ({}),
+    },
+    () => ['EHR'],
+    { now: () => cnow, log: () => undefined, contact: clock }
+  );
+  ckw.noteActivity();
+  await ckw.tick();
+  cnow += 60_000;
+  assert.deepStrictEqual(await quiet(() => cChecker.runOnce()), [], 'a failed keep-warm renewal 1 minute ago: probe skipped');
+  cnow += 61_000;
+  assert.strictEqual((await quiet(() => cChecker.runOnce())).length, 1, '2 minutes later: probed');
+  const cdiag = new UnityDiagnostics({
+    unity: {
+      executeAction: async () => {
+        throw Object.assign(new Error('timed out'), { code: 'TIMEOUT_ERROR' });
+      },
+    },
+    targets: () => ['EHR'],
+    now: () => cnow,
+    dir: '',
+    log: () => undefined,
+    contact: clock,
+  });
+  cnow += 130_000;
+  await cdiag.refreshServerInfo(true);
+  cnow += 30_000;
+  assert.deepStrictEqual(await quiet(() => cChecker.runOnce()), [], 'a failed GetServerInfo refresh 30 s ago: probe skipped');
+  assert.strictEqual(cActions.length, 1, 'one probe read in all');
+  ok('health checker: GetToken "Access is denied" -> AUTH_ERROR, timeout, network, service account masked, default 15 min with a 2-minute floor, early probe, floor guard per system (any background contact or a real answer), start-up probe after GetServerInfo, GetServerInfo read, DOWN then UP');
 
   // ── 4. Keep-warm ───────────────────────────────────────────────────────────
   let know = 1_000_000;
@@ -288,7 +378,48 @@ async function main(): Promise<void> {
   assert.deepStrictEqual(refreshed, ['EHR', 'PM', 'EHR'], 'a missing token is fetched while active');
   know += 31 * 60_000;
   assert.strictEqual(await kw.tick(), 0, 'idle for 30+ minutes: tokens left to expire');
-  ok('keep-warm: renews a token due within 120 s (or missing) only while a call was active in the last 30 min');
+  // Backoff: a missing token whose renewal keeps failing is retried after 2, 4, 8, 16, then every 30 minutes
+  // (ticks are every 30 s), and a success resets it.
+  let bnow = 5_000_000;
+  let failing = true;
+  let haveToken = false;
+  const tries: number[] = [];
+  const kwb = new health.TokenKeepWarm(
+    {
+      tokenSecondsLeft: () => (haveToken ? 600 : undefined),
+      refreshSession: async () => {
+        tries.push(bnow);
+        if (failing) throw new Error('Unity authentication failed: connect ECONNREFUSED');
+        return (haveToken = true);
+      },
+      getAuthenticatedSession: async () => ({}),
+    },
+    () => ['EHR'],
+    { now: () => bnow, log: () => undefined }
+  );
+  const tickFor = async (minutes: number) => {
+    for (let i = 0; i < minutes * 2; i++) {
+      bnow += 30_000;
+      kwb.noteActivity();
+      await kwb.tick();
+    }
+  };
+  kwb.noteActivity();
+  await kwb.tick();
+  await tickFor(65);
+  assert.deepStrictEqual(tries.slice(1).map((t, i) => (t - tries[i]) / 60_000), [2, 4, 8, 16, 30], 'backoff 2, 4, 8, 16, 30 minutes');
+  failing = false;
+  await tickFor(30);
+  assert.strictEqual(kwb.refreshed, 1, 'renewed once the backoff ran out');
+  assert.strictEqual((tries[tries.length - 1] - tries[0]) / 60_000, 90, 'the success came at the 90-minute try');
+  failing = true;
+  haveToken = false;
+  const n = tries.length;
+  const flipAt = bnow;
+  await tickFor(3);
+  assert.strictEqual(tries[n], flipAt + 30_000, 'token missing again: tried at the next tick');
+  assert.strictEqual(tries.length, n + 2, 'success reset the backoff: next try 2 minutes later (not 30, not every tick)');
+  ok('keep-warm: renews a token due within 120 s (or missing) only while a call was active in the last 30 min; failed renewals back off 2 to 30 minutes, reset on success');
 
   // ── 5. Agent edge + wording ────────────────────────────────────────────────
   assert.ok(edge.needsVeradigm('unity_search_patients') && edge.needsVeradigm('drawbridge_previsit_check') && !edge.needsVeradigm('drawbridge_take_message') && !edge.needsVeradigm('drawbridge_get_call_mode'));

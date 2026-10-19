@@ -57,6 +57,14 @@ class VeradigmUnityMCPServer {
 
     // Initialize services
     this.authService = new UnityAuthService();
+    // Developer MCP server (stdio): no status screen or help desk here, so say it plainly on stderr. The latch
+    // file is shared with the HTTP servers that use the same data directory (docs/drawbridge/VERADIGM_SIGNIN_LATCH.md).
+    this.authService.onLatch((l) =>
+      console.error(`[Unity MCP] Veradigm ${l.target} sign-in STOPPED (refused ${l.stage}: ${l.reason}). Fix the credentials or run npm run unity:retry-signin -- ${l.target}`)
+    );
+    for (const l of this.authService.latchedTargets()) {
+      console.error(`[Unity MCP] Veradigm ${l.target} sign-in still stopped (refused ${l.stage} at ${l.at}): ${l.target} tools answer AUTH_ERROR until npm run unity:retry-signin -- ${l.target} or the credentials change`);
+    }
     this.unityService = new UnityService(this.authService);
     // Veradigm-required admin actions: GetServerInfo at start, LastLogs after Veradigm-side errors.
     this.diagnostics = new UnityDiagnostics({ unity: auditedUnity(this.unityService, "diagnostics"), targets: configuredTargets });
@@ -119,11 +127,8 @@ class VeradigmUnityMCPServer {
         }
 
         // Patient tools
-        else if (name === "unity_save_patient") {
-          result = await this.patientTools.savePatient(args as any);
-        } else if (name === "unity_update_demographics") {
-          result = await this.patientTools.updateDemographics(args as any);
-        } else if (name === "unity_get_patient") {
+        // unity_save_patient / unity_update_demographics: removed in this release (SavePatient not used).
+        else if (name === "unity_get_patient") {
           result = await this.patientTools.getPatient(args as any);
         } else if (name === "unity_search_patients") {
           result = await this.patientTools.searchPatients(args as any);
@@ -224,8 +229,6 @@ class VeradigmUnityMCPServer {
     console.error("    - unity_get_open_slots");
     console.error("    - unity_get_patient_appointments");
     console.error("  Patients:");
-    console.error("    - unity_save_patient");
-    console.error("    - unity_update_demographics");
     console.error("    - unity_get_patient");
     console.error("    - unity_search_patients");
     console.error("    - unity_get_patient_by_mrn");

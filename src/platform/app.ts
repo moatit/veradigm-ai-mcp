@@ -151,7 +151,7 @@ export function mountPlatform(app: Express, deps: PlatformDeps): void {
       page(
         'Drawbridge',
         `<h2 style="margin-top:4px">Overview</h2>${statusCard(getSystemStatus())}<div class="grid">${cards || '<div class="card muted">No modules loaded.</div>'}</div>
-<p class="muted" style="font-size:13px">Drawbridge connects the VeradigmAI phone agent and staff tools to Veradigm® EHR and Veradigm® PM through a fixed set of actions.</p>`,
+<p class="muted" style="font-size:13px">Drawbridge connects the phone assistant and staff tools to Veradigm® EHR and Veradigm® PM through a fixed set of actions.</p>`,
         { user: (req as any).drawbridgeUser, active: '' }
       )
     );

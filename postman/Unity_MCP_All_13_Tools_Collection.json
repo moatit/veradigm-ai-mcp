@@ -6,10 +6,26 @@
     "version": "1.0.0"
   },
   "variable": [
-    { "key": "base_url", "value": "http://localhost:3001", "type": "string" },
-    { "key": "patient_id", "value": "1556", "type": "string" },
-    { "key": "mrn", "value": "29700", "type": "string" },
-    { "key": "appointment_id", "value": "", "type": "string" }
+    {
+      "key": "base_url",
+      "value": "http://localhost:3001",
+      "type": "string"
+    },
+    {
+      "key": "patient_id",
+      "value": "1556",
+      "type": "string"
+    },
+    {
+      "key": "mrn",
+      "value": "29700",
+      "type": "string"
+    },
+    {
+      "key": "appointment_id",
+      "value": "",
+      "type": "string"
+    }
   ],
   "item": [
     {
@@ -37,7 +53,12 @@
           "name": "MCP Initialize",
           "request": {
             "method": "POST",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"method\": \"initialize\",\n  \"id\": 1\n}"
@@ -50,7 +71,12 @@
           "name": "MCP tools/list",
           "request": {
             "method": "POST",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"method\": \"tools/list\",\n  \"id\": 2\n}"
@@ -86,7 +112,12 @@
           "name": "unity_search_patients",
           "request": {
             "method": "POST",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"method\": \"tools/call\",\n  \"params\": {\n    \"name\": \"unity_search_patients\",\n    \"arguments\": {\n      \"firstName\": \"Ed\",\n      \"lastName\": \"Smith\",\n      \"dateOfBirth\": \"12/06/1952\",\n      \"limit\": 10\n    }\n  },\n  \"id\": 1\n}"
@@ -99,7 +130,12 @@
           "name": "unity_get_patient",
           "request": {
             "method": "POST",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"method\": \"tools/call\",\n  \"params\": {\n    \"name\": \"unity_get_patient\",\n    \"arguments\": {\n      \"patientId\": \"{{patient_id}}\",\n      \"includePicture\": false\n    }\n  },\n  \"id\": 2\n}"
@@ -112,39 +148,18 @@
           "name": "unity_get_patient_by_mrn",
           "request": {
             "method": "POST",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"method\": \"tools/call\",\n  \"params\": {\n    \"name\": \"unity_get_patient_by_mrn\",\n    \"arguments\": {\n      \"mrn\": \"{{mrn}}\"\n    }\n  },\n  \"id\": 3\n}"
             },
             "url": "{{base_url}}/",
             "description": "Get patient by Medical Record Number."
-          }
-        },
-        {
-          "name": "unity_save_patient",
-          "request": {
-            "method": "POST",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"method\": \"tools/call\",\n  \"params\": {\n    \"name\": \"unity_save_patient\",\n    \"arguments\": {\n      \"firstName\": \"Alex\",\n      \"lastName\": \"Testpatient\",\n      \"dateOfBirth\": \"05/15/1990\",\n      \"gender\": \"M\",\n      \"address1\": \"123 Test St\",\n      \"city\": \"Raleigh\",\n      \"state\": \"NC\",\n      \"zipCode\": \"27511\",\n      \"homePhone\": \"919-555-0000\"\n    }\n  },\n  \"id\": 4\n}"
-            },
-            "url": "{{base_url}}/",
-            "description": "Create/update patient. Requires firstName, lastName."
-          }
-        },
-        {
-          "name": "unity_update_demographics",
-          "request": {
-            "method": "POST",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"method\": \"tools/call\",\n  \"params\": {\n    \"name\": \"unity_update_demographics\",\n    \"arguments\": {\n      \"patientId\": \"{{patient_id}}\",\n      \"homePhone\": \"919-555-9999\",\n      \"cellPhone\": \"919-555-8888\"\n    }\n  },\n  \"id\": 5\n}"
-            },
-            "url": "{{base_url}}/",
-            "description": "Update patient demographics. Requires patientId."
           }
         }
       ]
@@ -156,7 +171,12 @@
           "name": "unity_get_open_slots",
           "request": {
             "method": "POST",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"method\": \"tools/call\",\n  \"params\": {\n    \"name\": \"unity_get_open_slots\",\n    \"arguments\": {\n      \"startDate\": \"02/03/2026\",\n      \"endDate\": \"02/07/2026\",\n      \"appointmentType\": \"Office Visit\",\n      \"duration\": 30\n    }\n  },\n  \"id\": 6\n}"
@@ -169,7 +189,12 @@
           "name": "unity_get_patient_appointments",
           "request": {
             "method": "POST",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"method\": \"tools/call\",\n  \"params\": {\n    \"name\": \"unity_get_patient_appointments\",\n    \"arguments\": {\n      \"patientId\": \"{{patient_id}}\"\n    }\n  },\n  \"id\": 7\n}"
@@ -182,7 +207,12 @@
           "name": "unity_save_appointment",
           "request": {
             "method": "POST",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"method\": \"tools/call\",\n  \"params\": {\n    \"name\": \"unity_save_appointment\",\n    \"arguments\": {\n      \"patientId\": \"{{patient_id}}\",\n      \"appointmentDate\": \"02/05/2026\",\n      \"appointmentTime\": \"10:00\",\n      \"duration\": 30,\n      \"appointmentType\": \"Office Visit\",\n      \"reasonForVisit\": \"Follow-up\"\n    }\n  },\n  \"id\": 8\n}"
@@ -195,7 +225,12 @@
           "name": "unity_cancel_appointment",
           "request": {
             "method": "POST",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"method\": \"tools/call\",\n  \"params\": {\n    \"name\": \"unity_cancel_appointment\",\n    \"arguments\": {\n      \"appointmentId\": \"{{appointment_id}}\",\n      \"patientId\": \"{{patient_id}}\",\n      \"cancellationReason\": \"Patient requested\"\n    }\n  },\n  \"id\": 9\n}"
@@ -213,7 +248,12 @@
           "name": "unity_get_patient_problems",
           "request": {
             "method": "POST",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"method\": \"tools/call\",\n  \"params\": {\n    \"name\": \"unity_get_patient_problems\",\n    \"arguments\": {\n      \"patientId\": \"{{patient_id}}\",\n      \"status\": \"active\"\n    }\n  },\n  \"id\": 10\n}"
@@ -226,7 +266,12 @@
           "name": "unity_get_patient_medications",
           "request": {
             "method": "POST",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"method\": \"tools/call\",\n  \"params\": {\n    \"name\": \"unity_get_patient_medications\",\n    \"arguments\": {\n      \"patientId\": \"{{patient_id}}\",\n      \"status\": \"active\"\n    }\n  },\n  \"id\": 11\n}"
@@ -239,7 +284,12 @@
           "name": "unity_get_patient_allergies",
           "request": {
             "method": "POST",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"method\": \"tools/call\",\n  \"params\": {\n    \"name\": \"unity_get_patient_allergies\",\n    \"arguments\": {\n      \"patientId\": \"{{patient_id}}\"\n    }\n  },\n  \"id\": 12\n}"
@@ -252,7 +302,12 @@
           "name": "unity_get_patient_diagnosis",
           "request": {
             "method": "POST",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"method\": \"tools/call\",\n  \"params\": {\n    \"name\": \"unity_get_patient_diagnosis\",\n    \"arguments\": {\n      \"patientId\": \"{{patient_id}}\"\n    }\n  },\n  \"id\": 13\n}"

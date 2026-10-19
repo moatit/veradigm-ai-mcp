@@ -75,7 +75,7 @@ The sample is small (3 web calls per variant, 39 turns per variant). Web calls h
 
 ### 2.5 System status and help-desk alerting (decision C)
 - **Health checker** (`UnityHealthChecker`, `src/unity/services/unity-health.ts`):
-  - It probes every configured system (PM, EHR) every 2 minutes. `UNITY_HEALTH_CHECK_MIN` sets the interval, with a 2-minute floor per Veradigm's polling rule.
+  - It probes every configured system (PM, EHR) every 15 minutes by default. `UNITY_HEALTH_CHECK_MIN` sets the interval, with a 2-minute floor per Veradigm's polling rule. A system probed, or answering a real call, in the last 2 minutes is skipped.
   - Each probe uses the tools' session (GetToken and GetUserAuthentication when due) plus `GetServerInfo`. That read carries no patient data and is already on the certified action list.
   - A probe times out after 15 s.
   - Two failed probes make a system DOWN. One good probe, or one successful real call, makes it UP.

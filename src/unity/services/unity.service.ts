@@ -1,7 +1,7 @@
 import axios, { AxiosResponse } from 'axios';
 import { unityConfig } from '../config/environment';
-import { unityEndpoints, UnityActions, UnityTargetSystem } from '../config/unity-endpoints';
-import { isTokenRejection, UnityAuthService, unityLogin } from './unity-auth.service';
+import { isCertifiedAction, unityEndpoints, UnityActions, UnityTargetSystem } from '../config/unity-endpoints';
+import { isTokenRejection, scrubAuthText, UnityAuthService, unityLogin } from './unity-auth.service';
 import { isServerSideError, isUnexpectedUnityError } from './unity-diagnostics';
 
 /**
@@ -142,6 +142,12 @@ export class UnityService {
   ): Promise<UnityMagicResponse<T>> {
     const targetSystem = target || this.currentTarget;
 
+    // Only the actions declared to Veradigm (UNITY_ACTION_* overrides can't add one): refused before anything is sent.
+    if (!isCertifiedAction(action)) {
+      console.error(`[Unity Service] Refused ${String(action).slice(0, 60)} (${targetSystem}): not a declared Veradigm action`);
+      throw new UnityAPIError(`Not a declared Veradigm action: ${String(action).slice(0, 60)}`, 'ACTION_NOT_ALLOWED');
+    }
+
     // Attempt 2 only after Unity rejected the session token (401 or a token error): the action was
     // not run, so even a write is safe to send again with a fresh login.
     for (let attempt = 0; ; attempt++) {
@@ -200,8 +206,8 @@ export class UnityService {
           this.authService.invalidate(targetSystem, token);
           continue;
         }
-        // Message only: the full axios error carries the request body, including the session token.
-        console.error(`[Unity Service] Action ${action} failed: ${error?.response?.status || error?.code || ''} ${String(error?.message || error).slice(0, 200)}`);
+        // Message only, scrubbed: the full axios error carries the request body, including the session token.
+        console.error(`[Unity Service] Action ${action} failed: ${error?.response?.status || error?.code || ''} ${scrubAuthText(error?.message || error, 200)}`);
         const handled = this.handleError(error, action);
         if (isServerSideError(handled.code) || (handled.code === 'API_ERROR' && Number(error?.response?.status) >= 500)) {
           this.notifyServerError(action, targetSystem, handled.code);
@@ -345,6 +351,10 @@ export class UnityService {
 
     // Errors thrown by UnityAuthService are plain Errors; classify them by message.
     const msg = String(error?.message || '');
+    if (error?.code === 'AUTH_ERROR') {
+      // Sign-in stopped (auth latch): refused locally, nothing was sent.
+      return new UnityAPIError(msg, 'AUTH_ERROR');
+    }
     if (/ECONNREFUSED|ENOTFOUND|EAI_AGAIN|ECONNRESET|socket hang up/i.test(msg)) {
       return new UnityAPIError(`Unity unreachable during ${action}`, 'NETWORK_ERROR');
     }
@@ -366,22 +376,6 @@ export class UnityService {
   // ============================================
   // Convenience methods for common operations
   // ============================================
-
-  /**
-   * Test connection using Echo action
-   */
-  async testConnection(target?: UnityTargetSystem): Promise<boolean> {
-    try {
-      const response = await this.executeAction(UnityActions.Admin.ECHO, {
-        Parameter1: 'ConnectionTest',
-        Parameter2: new Date().toISOString()
-      }, '', target);
-      
-      return response.success;
-    } catch {
-      return false;
-    }
-  }
 
   /**
    * Get server information

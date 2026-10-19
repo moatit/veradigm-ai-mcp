@@ -37,6 +37,11 @@ export function prepareShadowEnv(env: NodeJS.ProcessEnv = process.env): ShadowSt
   return { veradigm, roster: !!String(env.INTAKE_ROSTER_CSV || '').trim() };
 }
 
+/** The shadow server alerts the help desk for a refusal it saw itself, and for a fail-closed latch file. */
+export function shadowAlertsLatch(l: { stage: string }, origin: 'refused' | 'file'): boolean {
+  return origin === 'refused' || l.stage === 'unknown';
+}
+
 export async function createShadowApp(startup: ShadowStartup) {
   const express = (await import('express')).default;
   const { registerModule } = await import('./registry');
@@ -54,7 +59,32 @@ export async function createShadowApp(startup: ShadowStartup) {
     const { UnityAuthService } = await import('../unity/services/unity-auth.service');
     const { UnityService } = await import('../unity/services/unity.service');
     const { UnityPatientTools } = await import('../unity/tools/patient.tools');
-    unity = new UnityService(new UnityAuthService());
+    const { HelpdeskNotifier } = await import('./helpdesk');
+    const auth = new UnityAuthService();
+    // Veradigm refused a sign-in: no more logins for that system (the latch is shared through the latch file
+    // with any Drawbridge server using the same data directory). The auth service logs it and writes the
+    // security event unity_signin_latched; this server has no status screen, so it alerts the help desk directly.
+    const notifier = new HelpdeskNotifier();
+    auth.onLatch(async (l, origin) => {
+      // Found in the shared latch file: the process that was refused alerts (no duplicate from here),
+      // except a fail-closed latch (unreadable file, stage 'unknown'): every process that finds it alerts.
+      if (!shadowAlertsLatch(l, origin)) return;
+      const at = new Date().toISOString();
+      const res = await notifier.send({
+        kind: 'down',
+        system: 'Veradigm Unity (Drawbridge document intake, shadow mode)',
+        overall: 'down',
+        since: l.at,
+        components: [{ name: l.target === 'PM' ? 'Veradigm PM' : 'Veradigm EHR', state: 'down', since: l.at, error_class: 'AUTH_ERROR', error_detail: `${l.stage}: sign-in stopped (${l.reason})`, last_ok_at: '' }],
+        messages_taken: 0,
+        at,
+      });
+      if (!res.ok) console.error(`[Intake shadow] help-desk alert for the stopped ${l.target} sign-in NOT sent (${res.failed.map((f) => f.code).join('+') || 'NO_TRANSPORT'})`);
+    });
+    for (const l of auth.latchedTargets()) {
+      console.error(`[Intake shadow] Veradigm ${l.target} sign-in still stopped (refused ${l.stage} at ${l.at}): live patient search refused locally until it is retried or the credentials change`);
+    }
+    unity = new UnityService(auth);
     lockUnityReadOnly(unity); // SearchPatients and GetDocumentType only, whoever holds the service
     const patients = new UnityPatientTools(unity);
     search = (args) => patients.searchPatients(args);

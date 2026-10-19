@@ -45,16 +45,29 @@ function getUnityEndpoints(): UnityEndpoints {
 export const unityEndpoints = getUnityEndpoints();
 
 /**
- * Resolve a Unity action name. Every name can be overridden per environment/client with
- * UNITY_ACTION_<KEY> (e.g. UNITY_ACTION_GET_APPOINTMENTS=GetScheduleByPatientID) so a
- * product difference between Veradigm environments is a config change, not a code change.
- *
- * Only actions the app calls are listed here (plus Echo for verify:sandbox and the documented
- * GetTokenValidation); docs/drawbridge/UNITY_ACTIONS_FOR_CERTIFICATION.md is the certified list.
- * Adding an action means updating that list (Veradigm recertification).
+ * Documented alternative names per key that an override may pick (each must also be in CERTIFIED_ACTIONS).
+ * None today: every key has exactly its certified default. Adding one needs Veradigm recertification.
  */
+const ACTION_ALTERNATIVES: Record<string, readonly string[]> = {};
+
+/**
+ * Resolve a Unity action name. UNITY_ACTION_<KEY> may only name that key's certified default (or a documented
+ * alternative in ACTION_ALTERNATIVES): anything else, e.g. UNITY_ACTION_GET_PATIENT=SaveTask, stops the
+ * server at start-up, so an override can never send a different (or undeclared) action. Run-time check as
+ * well: UnityService.executeAction refuses anything outside CERTIFIED_ACTIONS.
+ *
+ * Only actions the app calls are listed here; docs/drawbridge/UNITY_ACTIONS_FOR_CERTIFICATION.md is the
+ * certified list. Adding an action means updating both lists (Veradigm recertification).
+ */
+export function resolveActionName(key: string, fallback: string, env: NodeJS.ProcessEnv = process.env): string {
+  const override = String(env[`UNITY_ACTION_${key}`] || '').trim();
+  if (!override || override === fallback) return fallback;
+  if ((ACTION_ALTERNATIVES[key] || []).includes(override)) return override;
+  throw new Error(`UNITY_ACTION_${key}=${override.slice(0, 60)} is not allowed: ${key} may only be ${[fallback, ...(ACTION_ALTERNATIVES[key] || [])].join(' or ')} (declared Veradigm actions, UNITY_ACTIONS_FOR_CERTIFICATION.md)`);
+}
+
 function action(key: string, fallback: string): string {
-  return process.env[`UNITY_ACTION_${key}`] || fallback;
+  return resolveActionName(key, fallback);
 }
 
 /**
@@ -63,30 +76,24 @@ function action(key: string, fallback: string): string {
  */
 export const UnityActions = {
   // Admin Actions. GetServerInfo and LastLogs are Veradigm-required (unity-diagnostics.ts).
-  // Echo is used only by `npm run verify:sandbox`.
+  // Echo is not a declared action and is never sent (GetServerInfo is the connection check).
   Admin: {
-    ECHO: action('ECHO', 'Echo'),
     GET_SERVER_INFO: action('GET_SERVER_INFO', 'GetServerInfo'),
     LAST_LOG: action('LAST_LOG', 'LastLogs')
   },
 
   // Authentication Actions (GetToken / RetireToken are their own endpoints, above)
   Auth: {
-    GET_USER_AUTHENTICATION: action('GET_USER_AUTHENTICATION', 'GetUserAuthentication'),
-    // UNUSED, kept on purpose: GetTokenValidation validates a token handed to a *launched* app
-    // (Veradigm EHR opens the app with a token). Drawbridge is not launched from Veradigm EHR; it gets
-    // its own token with GetToken. See docs/drawbridge/UNITY_ACTIONS_FOR_CERTIFICATION.md.
-    GET_TOKEN_VALIDATION: action('GET_TOKEN_VALIDATION', 'GetTokenValidation')
+    GET_USER_AUTHENTICATION: action('GET_USER_AUTHENTICATION', 'GetUserAuthentication')
   },
 
   // Patient/Demographic Actions
   Patient: {
     GET_PATIENT: action('GET_PATIENT', 'GetPatient'),
     GET_PATIENT_BY_MRN: action('GET_PATIENT_BY_MRN', 'GetPatientByMRN'),
-    SEARCH_PATIENTS: action('SEARCH_PATIENTS', 'SearchPatients'),
-    SAVE_PATIENT: action('SAVE_PATIENT', 'SavePatient'),
-    // PM has no UpdateDemographics action; demographic changes are SavePatient (Kanhaiya, main 0a4e3c4).
-    UPDATE_DEMOGRAPHICS: action('UPDATE_DEMOGRAPHICS', 'SavePatient')
+    SEARCH_PATIENTS: action('SEARCH_PATIENTS', 'SearchPatients')
+    // SavePatient is not used in this release (sandbox: "AccountID must be an integer"; no certified
+    // workflow needs it). It is not in CERTIFIED_ACTIONS, so it is refused with ACTION_NOT_ALLOWED.
   },
 
   // Appointment/Scheduling Actions (Veradigm PM)
@@ -168,6 +175,28 @@ export const UnityActions = {
     GET_PROVIDERS: action('GET_PROVIDERS', 'GetProviders')
   }
 } as const;
+
+/**
+ * The Veradigm Unity actions declared in the API Assessment (UNITY_ACTIONS_FOR_CERTIFICATION.md), as literal
+ * names: UNITY_ACTION_* overrides cannot add to it. GetToken and RetireToken are endpoints, not MagicJson
+ * actions, and are not listed here.
+ */
+export const CERTIFIED_ACTIONS: ReadonlySet<string> = new Set([
+  'GetUserAuthentication', 'GetServerInfo', 'LastLogs',
+  'SearchPatients', 'GetPatient', 'GetPatientByMRN',
+  'GetSchedule', 'GetScheduleByPatientID', 'GetAppointmentById', 'GetAvailableSchedule', 'GetResources',
+  'GetAppointmentTypes', 'GetAppointmentCancellationReasons', 'GetAppointmentConfirmationResults',
+  'GetSchedulingLocations', 'GetSchedulingDepartments', 'SaveAppointment', 'SetAppointmentStatus',
+  'GetAppointmentsByChangeDTTM', 'GetRecalls',
+  'GetPatientAccountBalance', 'GetPatientPolicy',
+  'GetClinicalSummary', 'GetPatientDiagnosis', 'GetLocation', 'GetProviders',
+  'GetDocumentType', 'GetDocuments', 'GetDocumentsByDocumentType', 'GetDocumentImage', 'SaveScanDocument', 'SaveTask',
+]);
+
+/** True when `action` is one of the declared Veradigm actions (exact name). */
+export function isCertifiedAction(action: string): boolean {
+  return CERTIFIED_ACTIONS.has(action);
+}
 
 /**
  * Target system type for Unity operations

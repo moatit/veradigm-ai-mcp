@@ -13,7 +13,7 @@ import { adminLogger } from "../middleware/admin-logger";
 import { toVoiceSummary } from "../utils/response-formatter";
 import { agentToolAllowed, forAgent, staffOnlyFailure } from "../utils/minimum-necessary";
 import { unityConfig } from "./config/environment";
-import { configuredTargets, UnityAuthService } from "./services/unity-auth.service";
+import { AuthLatch, configuredTargets, setUnityAuth, UnityAuthService } from "./services/unity-auth.service";
 import { setUnityDiagnostics, UnityDiagnostics } from "./services/unity-diagnostics";
 import { UnityService } from "./services/unity.service";
 import { UnityAppointmentTools } from "./tools/appointment.tools";
@@ -60,6 +60,21 @@ setUnityDiagnostics(diagnostics);
 const systemStatus = new SystemStatus({ targets: configuredTargets });
 setSystemStatus(systemStatus);
 setStatusBanner(() => statusBanner(systemStatus));
+// Auth latch: Veradigm refused a sign-in (wrong password, access denied) -> that system is DOWN at once (help-desk
+// alert) and nothing more is sent for it until an operator retries on the "Veradigm connection" screen or the
+// credentials change. A latch saved before a restart still applies (DOWN again; the status file prevents a
+// second alert for the same outage).
+setUnityAuth(authService);
+const latchDown = (l: AuthLatch) => systemStatus.markDown(l.target, "AUTH_ERROR", `${l.stage}: sign-in stopped (${l.reason})`);
+authService.onLatch(latchDown);
+// The latch file is shared with other Drawbridge processes: look at it every 30 s (a local stat, no Veradigm
+// call) so a latch set elsewhere turns the status DOWN at once instead of at the next probe.
+setInterval(() => void authService.latchedTargets(), 30_000).unref();
+for (const l of authService.latchedTargets()) {
+  if (!configuredTargets().includes(l.target)) continue;
+  console.error(`[Unity Auth] ${l.target} sign-in still stopped (Veradigm refused ${l.stage} at ${l.at}); retry on the Veradigm connection screen after fixing the credentials`);
+  latchDown(l);
+}
 const healthChecker = new UnityHealthChecker({ auth: authService, unity: unityService, status: systemStatus, targets: configuredTargets });
 unityService.onOutcome((action, target, ok, code) => healthChecker.onActionOutcome(action, target, ok, code));
 const keepWarm = new TokenKeepWarm(authService, configuredTargets);
@@ -151,8 +166,6 @@ const WRITE_TOOLS = new Set<string>([
   "unity_save_appointment",
   "unity_cancel_appointment",
   "unity_confirm_appointment",
-  "unity_save_patient",
-  "unity_update_demographics",
   "unity_create_staff_task",
 ]);
 
@@ -214,11 +227,8 @@ async function runTool(name: string, args: any): Promise<any> {
   }
 
   // Patient tools
-  else if (name === "unity_save_patient") {
-    return await patientTools.savePatient(args);
-  } else if (name === "unity_update_demographics") {
-    return await patientTools.updateDemographics(args);
-  } else if (name === "unity_get_patient") {
+  // unity_save_patient / unity_update_demographics: removed in this release (SavePatient not used).
+  else if (name === "unity_get_patient") {
     return await patientTools.getPatient(args);
   } else if (name === "unity_search_patients") {
     return await patientTools.searchPatients(args);
@@ -477,8 +487,10 @@ const httpServer = app.listen(PORT, () => {
   // First token + login per configured system, then GetServerInfo (also pre-warms auth for the first Retell call).
   // A failure is logged and shown as "unavailable"; it never stops the server.
   diagnostics.start();
-  // Veradigm health probe every UNITY_HEALTH_CHECK_MIN (2-minute floor) and token keep-warm.
-  healthChecker.start();
+  // Veradigm health probe every UNITY_HEALTH_CHECK_MIN (default 15, 2-minute floor) and token keep-warm.
+  // The first probe waits for that start-up GetServerInfo (refreshServerInfo joins the call in flight, it
+  // does not send another), so a system that just answered is not probed again within 2 minutes.
+  healthChecker.start(diagnostics.refreshServerInfo(true));
   keepWarm.start();
 
   console.log("");
@@ -498,12 +510,10 @@ const httpServer = app.listen(PORT, () => {
   console.log(`🔧 Environment: ${unityConfig.nodeEnv}`);
   console.log("");
   console.log(`📋 Available Tools (${getToolDefinitions().length}):`);
-  console.log("   Patient Operations (5):");
+  console.log("   Patient Operations (3):");
   console.log("     • unity_search_patients - Search patients by name/DOB");
   console.log("     • unity_get_patient - Get patient details");
   console.log("     • unity_get_patient_by_mrn - Get patient by MRN");
-  console.log("     • unity_save_patient - Create new patient");
-  console.log("     • unity_update_demographics - Update patient info");
   console.log("   Appointment Operations (4):");
   console.log("     • unity_get_open_slots - Find available slots");
   console.log("     • unity_save_appointment - Book appointment");

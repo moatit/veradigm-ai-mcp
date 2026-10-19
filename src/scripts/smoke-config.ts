@@ -41,13 +41,13 @@ async function main(): Promise<void> {
   // 1. CLINIC_NAME: one setting, no default clinic
   assert.strictEqual(clinic.clinicLabel(), 'Drawbridge');
   let html = shell.page('t', '<p>x</p>');
-  assert.ok(html.includes('VeradigmAI · Drawbridge') && !/Idaho|Kidney/.test(html));
+  assert.ok(html.includes('A MOATiT Service · Drawbridge') && !/Idaho|Kidney/.test(html));
   const job: any = { type: 'reminder', patient_first_name: 'Ann', appointment: null };
   assert.strictEqual(dialer.dynamicVariables(job).clinic_name, 'Drawbridge');
   const cover = 'FAX\nTo:     Sagebrush Kidney Care\nFrom:   Sawtooth Rapid Lab\nRE: results';
   process.env.CLINIC_NAME = 'Sagebrush Kidney Care';
   html = shell.page('t', '<p>x</p>');
-  assert.ok(html.includes('VeradigmAI · Sagebrush Kidney Care'));
+  assert.ok(html.includes('A MOATiT Service · Sagebrush Kidney Care'));
   assert.strictEqual(dialer.dynamicVariables(job).clinic_name, 'Sagebrush Kidney Care');
   assert.notStrictEqual(extractFields('To: Sagebrush Kidney Care\nPractice: Sagebrush Kidney Care').sender?.value, 'Sagebrush Kidney Care', 'own practice never the sender');
   assert.strictEqual(extractFields(cover).sender?.value, 'Sawtooth Rapid Lab');

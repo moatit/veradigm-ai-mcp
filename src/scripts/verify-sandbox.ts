@@ -172,8 +172,8 @@ async function main(): Promise<void> {
 
 async function unityChecks(A: typeof UnityActionsT): Promise<void> {
   // ---- Unity: connection, product info, troubleshooting log (GetServerInfo and LastLogs are Veradigm-required) ----
+  // GetServerInfo is the connection check (Echo is not a declared action and is never sent).
   for (const t of ['PM', 'EHR'] as UnityTargetSystem[]) {
-    await unityCheck('Unity connection', `${A.Admin.ECHO} (${t})`, A.Admin.ECHO, { Parameter1: 'drawbridge' }, '', t, 'P0');
     await unityCheck('Unity connection', `${A.Admin.GET_SERVER_INFO} (${t}) · shows product/version`, A.Admin.GET_SERVER_INFO, {}, '', t, 'P0');
     await unityCheck('Unity connection', `${A.Admin.LAST_LOG} (${t}) · troubleshooting log`, A.Admin.LAST_LOG, {}, '', t, 'P1');
   }
@@ -194,7 +194,7 @@ async function unityChecks(A: typeof UnityActionsT): Promise<void> {
   await unityCheck('Unity patients', `${A.Patient.GET_PATIENT} ${U_PID} (EHR)`, A.Patient.GET_PATIENT, {}, U_PID, 'EHR', 'P1');
   await unityCheck('Unity patients', `${A.Patient.GET_PATIENT_BY_MRN} ${U_MRN} (EHR)`, A.Patient.GET_PATIENT_BY_MRN, { Parameter1: U_MRN }, '', 'EHR', 'P1');
   results.push({
-    group: 'Unity patients', check: `Writes: ${A.Scheduling.SAVE_APPOINTMENT}, ${A.Scheduling.SET_APPOINTMENT_STATUS}, ${A.Patient.SAVE_PATIENT}, ${A.Task.SAVE_TASK}, ${A.Document.SAVE_SCAN_DOCUMENT}`,
+    group: 'Unity patients', check: `Writes: ${A.Scheduling.SAVE_APPOINTMENT}, ${A.Scheduling.SET_APPOINTMENT_STATUS}, ${A.Task.SAVE_TASK}, ${A.Document.SAVE_SCAN_DOCUMENT}`,
     target: 'PM/EHR', priority: 'P0', status: 'SKIP', ms: 0,
     detail: 'Write actions: verify by hand on sandbox test data (this script never writes).',
   });

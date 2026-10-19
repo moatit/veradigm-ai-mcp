@@ -204,9 +204,23 @@ export class SystemStatus {
   }
 
   /**
-   * A real Veradigm call finished. Success brings a DOWN component back UP at once; a failure records
-   * the error class (no detail: real calls carry patient context) and returns true when an early probe
-   * is worth running.
+   * A target that cannot work until someone acts (Veradigm refused its sign-in: auth latch) is DOWN at once,
+   * without waiting for failed probes, so the help-desk alert goes out now (once per outage, as usual).
+   */
+  markDown(target: string, errorClass: string, detail: string): void {
+    const c = this.component(target);
+    c.consecutive_failures = Math.max(c.consecutive_failures + 1, failsToDown());
+    c.last_error_class = clip(errorClass || 'UNKNOWN_ERROR', 40);
+    c.last_error_detail = clip(detail, 120);
+    c.last_error_at = this.iso();
+    this.setState(c, 'down');
+    this.recompute();
+  }
+
+  /**
+   * A real Veradigm call finished. Success brings a DOWN (or not yet checked) component UP at once (the
+   * health probe skips a system that answered in the last 2 minutes); a failure records the error class
+   * (no detail: real calls carry patient context) and returns true when an early probe is worth running.
    */
   recordPassive(target: string, ok: boolean, errorClass = ''): boolean {
     const c = this.component(target);
@@ -214,10 +228,10 @@ export class SystemStatus {
       const changed = c.state !== 'up';
       c.last_ok_at = this.iso();
       c.consecutive_failures = 0;
-      if (changed && c.state === 'down') {
+      if (changed) {
         this.setState(c, 'up');
         this.recompute();
-      } else if (changed) this.save();
+      }
       return false;
     }
     c.last_error_class = clip(errorClass || 'UNKNOWN_ERROR', 40);

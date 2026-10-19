@@ -21,7 +21,7 @@ Sources: developer.veradigm.com (Certification Process Overview, Client Activati
 1. **Security Questionnaire**: emailed to VeradigmConnect@veradigm.com. *Musab submits; Claude drafts the technical answers (hosting, encryption, logging, access control, credential storage).*
 2. **API Assessment**: submitted when code-complete and unit-tested. It must include:
    - [ ] Integration description. *Claude drafts from the deck.*
-   - [ ] **Full list of Unity actions**. *Claude: generated from `src/unity/config/unity-endpoints.ts`; only actions verified on the sandbox.* Writes: `SaveAppointment`, `SetAppointmentStatus`, `SavePatient`, `SaveTask`, `SaveScanDocument` (fax/lab intake; verified Oct 11). The list goes in the Certification Package (portal dashboard → Certification); the app page in the portal has no action list.
+   - [ ] **Full list of Unity actions**. *Claude: generated from `src/unity/config/unity-endpoints.ts`; only actions verified on the sandbox.* Writes: `SaveAppointment`, `SetAppointmentStatus`, `SaveTask`, `SaveScanDocument` (fax/lab intake; verified Oct 11). `SavePatient` is not used in this release (removed Oct 16: the request lacked AccountID; no certified workflow needs it). The list goes in the Certification Package (portal dashboard → Certification); the app page in the portal has no action list.
    - [ ] System / sequence diagram. *Claude*
    - [ ] Install and configuration screenshots. *Claude*
    - [ ] **Narrated workflow video** against the test environments. *Claude writes the script and runs the calls; Musab or Ali narrates and records.*
@@ -36,7 +36,7 @@ Sources: developer.veradigm.com (Certification Process Overview, Client Activati
 **Important:** adding Unity actions or changing workflows later requires **recertification**. Submit the complete action list the first time, including the planned ones (staff task, recalls) and the **fax/document intake add-on**: `SaveDocumentImage` (file a received document to the chart), `GetDocumentType`, `GetDocuments`, and for the shadow-mode staff filing observer the reads `GetDocumentsByDocumentType` and `GetDocumentImage`. See `docs/drawbridge/FAX_INTAKE_ADDON.md`.
 
 ### Before we can submit (engineering blockers)
-- [ ] **Write actions verified on the sandbox**: `SavePatient`, `SaveScanDocument`, `SaveTask` verified Oct 11 (synthetic patients, Ali's OK). `SaveAppointment` and `SetAppointmentStatus` (cancel `X`, confirm) still to run. No write is run without Ali's OK.
+- [ ] **Write actions verified on the sandbox**: `SaveScanDocument`, `SaveTask` verified Oct 11 (`SavePatient` was used Oct 11 only to create synthetic test patients and is not in this release) (synthetic patients, Ali's OK). `SaveAppointment` and `SetAppointmentStatus` (cancel `X`, confirm) still to run. No write is run without Ali's OK.
 - [ ] **Dedicated integration user** (Veradigm requires one): requested in portal ticket **19046** (Oct 11) for the EHR and PM sandboxes; also asks whether filing into existing document types is fine for certification.
 - [x] Read actions verified Oct 9 (see `docs/handover/11_STATUS_2026-10-09_MORNING.md` and the commit log on `drawbridge/platform`).
 - [ ] `main` fixed: patient appointments must use `GetScheduleByPatientID`, not `GetSchedule` (privacy). Asked Kanhaiya Oct 9.
