@@ -101,7 +101,7 @@
       "plain": "Every sign-in, failed sign-in and lockout is recorded as a security event. Five wrong tries lock a login for 15 minutes, and too many failures from one computer lock that computer.",
       "technical": "Security events login_ok / login_failed (reason) / login_locked / login_ip_locked; lockout per username (5 in 15 min) and per IP (30).",
       "evidence": [
-        "src/platform/shell.ts:682",
+        "src/platform/shell.ts:715",
         "src/platform/staff-auth.ts:124"
       ],
       "status": "FIXED",
@@ -296,7 +296,7 @@
       "plain": "A sealed emergency login exists for when no named login can be used. Using it raises an alert, shows a warning on every page, ends after 4 hours, and is reviewed by the privacy officer afterwards. Veradigm® EHR remains the system of record for patient care.",
       "technical": "role=emergency: emergency_access_login security event, banner, 4-hour absolute limit; procedure in this document.",
       "evidence": [
-        "src/platform/shell.ts:696",
+        "src/platform/shell.ts:729",
         "src/platform/shell.ts:83"
       ],
       "status": "FIXED",
@@ -311,7 +311,7 @@
       "plain": "Staff are signed out after 15 minutes without activity, and the screen clears itself at that moment so no patient information is left showing. Every session ends after 12 hours regardless.",
       "technical": "Server idle timeout (DRAWBRIDGE_IDLE_MINUTES 15, sliding) and 12-hour limit; pages carry data-idle-ms and blank themselves.",
       "evidence": [
-        "src/platform/shell.ts:469",
+        "src/platform/shell.ts:486",
         "src/platform/shell.ts:397"
       ],
       "status": "FIXED",
@@ -383,7 +383,7 @@
       "technical": "TOTP mandatory (DRAWBRIDGE_REQUIRE_TOTP default on, forced in production); tool key and the phone agent’s own key (DRAWBRIDGE_AGENT_KEY); HMAC-signed MOATiT Fax and Retell webhooks.",
       "evidence": [
         "src/platform/staff-auth.ts:34",
-        "src/platform/shell.ts:672"
+        "src/platform/shell.ts:705"
       ],
       "status": "FIXED",
       "status_label": "In place",
@@ -398,7 +398,7 @@
       "technical": "Production refuses non-https Unity/FHIR/MOATiT Fax URLs; HSTS; __Host- Secure cookie; signed webhooks.",
       "evidence": [
         "src/unity/config/environment.ts:72",
-        "src/platform/shell.ts:494"
+        "src/platform/shell.ts:511"
       ],
       "status": "FIXED",
       "status_label": "In place",
@@ -479,7 +479,7 @@
       "plain": "Patient details never appear in web addresses or page titles, pages are not cached or framed, and patient-specific searches are sent in the page body.",
       "technical": "POST for patient IDs and free-text questions; neutral titles; Cache-Control no-store, CSP, X-Frame-Options DENY, Referrer-Policy no-referrer; state-changing staff requests must be same-origin (Sec-Fetch-Site / Origin, 403 + cross_site_request); FHIR REST test routes off in production.",
       "evidence": [
-        "src/platform/shell.ts:488",
+        "src/platform/shell.ts:505",
         "src/platform/shell.ts:252",
         "src/test-server.ts:65"
       ],

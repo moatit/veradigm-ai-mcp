@@ -405,6 +405,23 @@ const APP_JS = `(function () {
     if (/^[A-Za-z0-9_-]{43}$/.test(h)) {
       t.value = h;
       history.replaceState(null, '', location.pathname);
+      var form0 = document.getElementById('invite-form');
+      var url = form0 && form0.getAttribute('data-check-url');
+      if (url) {
+        fetch(url, { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: 't=' + encodeURIComponent(h) })
+          .then(function (r) { return r.json().catch(function () { return { ok: false }; }); })
+          .then(function (j) {
+            if (j && j.ok) {
+              var g = document.getElementById('invite-greeting');
+              if (g) { g.textContent = 'Hello ' + j.name + '. Choose your password to continue.'; g.hidden = false; }
+            } else {
+              var ended = document.getElementById('invite-ended');
+              if (ended) ended.hidden = false;
+              form0.hidden = true;
+            }
+          })
+          .catch(function () { /* offline: the form still works and the server checks the link on submit */ });
+      }
     } else {
       var miss = document.getElementById('invite-missing'), form = document.getElementById('invite-form');
       if (miss) miss.hidden = false;
@@ -539,8 +556,10 @@ export function shellRouter(): Router {
   const inviteForm = (token: string, error = ''): string =>
     `<div class="card signin"><h2 style="margin-top:0">Set up your Drawbridge sign-in</h2>
 <p id="invite-missing" hidden style="color:var(--urgent)">This page needs the link from your invitation email. Open the link from the email again.</p>
+<div id="invite-ended" hidden><p style="color:var(--urgent)">This invitation link has already been used or has expired. Links work once, for 24 hours.</p><p>Ask your Drawbridge administrator to send you a new invitation, or <a href="${APP_BASE}/login">sign in</a> if you have already set up your account.</p></div>
+<p id="invite-greeting" hidden></p>
 ${error ? `<p style="color:var(--urgent)">${esc(error)}</p>` : ''}
-<form id="invite-form" method="post" action="${APP_BASE}/invite"><input type="hidden" id="invite-token" name="t" value="${esc(token)}">
+<form id="invite-form" method="post" action="${APP_BASE}/invite" data-check-url="${APP_BASE}/invite/check"><input type="hidden" id="invite-token" name="t" value="${esc(token)}">
 <p><label>Choose a password<input name="p" type="password" autocomplete="new-password" minlength="12" maxlength="256" required></label></p>
 <p><label>Type it again<input name="p2" type="password" autocomplete="new-password" maxlength="256" required></label></p>
 <p class="muted" style="font-size:12px">At least 12 characters. A passphrase of unrelated words works well. Don’t reuse a password from anywhere else.</p>
@@ -567,6 +586,20 @@ ${error ? `<p style="color:var(--urgent)">${esc(error)}</p>` : ''}
 
   router.get('/invite', (_req, res) => {
     res.send(page('Set up your sign-in · Drawbridge', inviteForm('')));
+  });
+
+  // Checked when the page opens, so an ended link says so before anyone types a password. Answers only "valid, for
+  // <first name>" or "not valid"; wrong links count toward the same per-IP limit as the setup steps.
+  router.post('/invite/check', (req, res) => {
+    const ip = clientIp(req);
+    if (inviteThrottle.blocked('invite', ip)) return void setTimeout(() => res.status(429).json({ ok: false }), 800);
+    const who = staffAccounts.peek(req.body?.t);
+    if (!who) {
+      inviteThrottle.fail('invite', ip);
+      securityEvent('staff_invite_failed', { ip, code: 'LINK_CHECK' });
+      return void setTimeout(() => res.status(400).json({ ok: false }), 800);
+    }
+    res.json({ ok: true, name: who.name.split(/\s+/)[0] || who.name });
   });
 
   router.post('/invite', async (req, res) => {
