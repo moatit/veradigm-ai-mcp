@@ -1,0 +1,367 @@
+{
+  "info": {
+    "name": "Drawbridge · 08 Drawbridge tool API",
+    "description": "Tests the Drawbridge server itself (local `npm run server:unity` or the live site), not Veradigm directly. Drawbridge handles the Veradigm login.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Health",
+      "request": {
+        "method": "GET",
+        "url": "{{drawbridge_url}}/health"
+      }
+    },
+    {
+      "name": "List tools",
+      "request": {
+        "method": "GET",
+        "url": "{{drawbridge_url}}/tools"
+      }
+    },
+    {
+      "name": "Search patient",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+              "pm.test('Not a tool failure', () => pm.expect(pm.response.text()).to.not.match(/\"success\"\\s*:\\s*false/));"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Accept",
+            "value": "application/json"
+          },
+          {
+            "key": "x-drawbridge-key",
+            "value": "{{drawbridge_tool_key}}"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"name\": \"unity_search_patients\",\n  \"args\": {\n    \"lastName\": \"kumar1\",\n    \"firstName\": \"ram1\",\n    \"dateOfBirth\": \"01/01/1980\"\n  },\n  \"call\": {\n    \"call_id\": \"postman-{{$timestamp}}\"\n  }\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": "{{drawbridge_url}}/api/retell",
+        "description": "Calls the Drawbridge tool unity_search_patients the way the phone agent does. Returns the sentence the agent would say."
+      }
+    },
+    {
+      "name": "Patient appointments",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+              "pm.test('Not a tool failure', () => pm.expect(pm.response.text()).to.not.match(/\"success\"\\s*:\\s*false/));"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Accept",
+            "value": "application/json"
+          },
+          {
+            "key": "x-drawbridge-key",
+            "value": "{{drawbridge_tool_key}}"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"name\": \"unity_get_patient_appointments\",\n  \"args\": {\n    \"patientId\": \"{{pm_patient_id}}\"\n  },\n  \"call\": {\n    \"call_id\": \"postman-{{$timestamp}}\"\n  }\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": "{{drawbridge_url}}/api/retell",
+        "description": "Calls the Drawbridge tool unity_get_patient_appointments the way the phone agent does. Returns the sentence the agent would say."
+      }
+    },
+    {
+      "name": "Open slots",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+              "pm.test('Not a tool failure', () => pm.expect(pm.response.text()).to.not.match(/\"success\"\\s*:\\s*false/));"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Accept",
+            "value": "application/json"
+          },
+          {
+            "key": "x-drawbridge-key",
+            "value": "{{drawbridge_tool_key}}"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"name\": \"unity_get_open_slots\",\n  \"args\": {\n    \"providerId\": \"{{provider_abbr}}\",\n    \"startDate\": \"10/28/2026\",\n    \"endDate\": \"10/30/2026\"\n  },\n  \"call\": {\n    \"call_id\": \"postman-{{$timestamp}}\"\n  }\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": "{{drawbridge_url}}/api/retell",
+        "description": "Calls the Drawbridge tool unity_get_open_slots the way the phone agent does. Returns the sentence the agent would say."
+      }
+    },
+    {
+      "name": "Book appointment (WRITE)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+              "pm.test('Not a tool failure', () => pm.expect(pm.response.text()).to.not.match(/\"success\"\\s*:\\s*false/));"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Accept",
+            "value": "application/json"
+          },
+          {
+            "key": "x-drawbridge-key",
+            "value": "{{drawbridge_tool_key}}"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"name\": \"unity_save_appointment\",\n  \"args\": {\n    \"patientId\": \"{{pm_patient_id}}\",\n    \"appointmentDate\": \"10/28/2026\",\n    \"appointmentTime\": \"11:00\",\n    \"duration\": 15,\n    \"providerId\": \"{{provider_abbr}}\",\n    \"appointmentType\": \"{{appt_type}}\",\n    \"reasonForVisit\": \"Drawbridge sandbox test\"\n  },\n  \"call\": {\n    \"call_id\": \"postman-{{$timestamp}}\"\n  }\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": "{{drawbridge_url}}/api/retell",
+        "description": "Calls the Drawbridge tool unity_save_appointment the way the phone agent does. Returns the sentence the agent would say."
+      }
+    },
+    {
+      "name": "Cancel appointment (WRITE)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+              "pm.test('Not a tool failure', () => pm.expect(pm.response.text()).to.not.match(/\"success\"\\s*:\\s*false/));"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Accept",
+            "value": "application/json"
+          },
+          {
+            "key": "x-drawbridge-key",
+            "value": "{{drawbridge_tool_key}}"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"name\": \"unity_cancel_appointment\",\n  \"args\": {\n    \"appointmentId\": \"{{appointment_id}}\",\n    \"patientId\": \"{{pm_patient_id}}\",\n    \"cancellationReason\": \"Moved Appointment\"\n  },\n  \"call\": {\n    \"call_id\": \"postman-{{$timestamp}}\"\n  }\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": "{{drawbridge_url}}/api/retell",
+        "description": "Calls the Drawbridge tool unity_cancel_appointment the way the phone agent does. Returns the sentence the agent would say."
+      }
+    },
+    {
+      "name": "Account balance",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+              "pm.test('Not a tool failure', () => pm.expect(pm.response.text()).to.not.match(/\"success\"\\s*:\\s*false/));"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Accept",
+            "value": "application/json"
+          },
+          {
+            "key": "x-drawbridge-key",
+            "value": "{{drawbridge_tool_key}}"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"name\": \"unity_get_account_balance\",\n  \"args\": {\n    \"patientId\": \"{{pm_patient_id}}\"\n  },\n  \"call\": {\n    \"call_id\": \"postman-{{$timestamp}}\"\n  }\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": "{{drawbridge_url}}/api/retell",
+        "description": "Calls the Drawbridge tool unity_get_account_balance the way the phone agent does. Returns the sentence the agent would say."
+      }
+    },
+    {
+      "name": "Insurance policy",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+              "pm.test('Not a tool failure', () => pm.expect(pm.response.text()).to.not.match(/\"success\"\\s*:\\s*false/));"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Accept",
+            "value": "application/json"
+          },
+          {
+            "key": "x-drawbridge-key",
+            "value": "{{drawbridge_tool_key}}"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"name\": \"unity_get_insurance_policy\",\n  \"args\": {\n    \"patientId\": \"{{pm_patient_id}}\"\n  },\n  \"call\": {\n    \"call_id\": \"postman-{{$timestamp}}\"\n  }\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": "{{drawbridge_url}}/api/retell",
+        "description": "Calls the Drawbridge tool unity_get_insurance_policy the way the phone agent does. Returns the sentence the agent would say."
+      }
+    },
+    {
+      "name": "Staff task (WRITE)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+              "pm.test('Not a tool failure', () => pm.expect(pm.response.text()).to.not.match(/\"success\"\\s*:\\s*false/));"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Accept",
+            "value": "application/json"
+          },
+          {
+            "key": "x-drawbridge-key",
+            "value": "{{drawbridge_tool_key}}"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"name\": \"unity_create_staff_task\",\n  \"args\": {\n    \"patientId\": \"{{ehr_patient_id}}\",\n    \"reason\": \"callback\",\n    \"message\": \"Drawbridge sandbox test task, please ignore\",\n    \"urgency\": \"routine\"\n  },\n  \"call\": {\n    \"call_id\": \"postman-{{$timestamp}}\"\n  }\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": "{{drawbridge_url}}/api/retell",
+        "description": "Calls the Drawbridge tool unity_create_staff_task the way the phone agent does. Returns the sentence the agent would say."
+      }
+    }
+  ]
+}
