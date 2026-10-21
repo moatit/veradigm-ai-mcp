@@ -27,6 +27,7 @@ Notes on the table:
 | Action | R/W | Feature (tool or screen) | What it does |
 |---|---|---|---|
 | `SearchPatients` | R | Phone agent `unity_search_patients` (caller identification); document intake patient match (through the same tool); intake shadow mode | Search by "Last, First" or MRN (plain text). Results are filtered by date of birth in Drawbridge. Also sent to Veradigm® EHR (see below). |
+| `GetPatientDemographics` | R | Patient matching inside `unity_search_patients` (phone agent and document intake), for each PM patient that is the only one with the searched name and DOB (at most 3 per search) | Gets the PM patient's `Patient_Number`, which is the Veradigm® EHR chart MRN (the PM `Patient_Med_Rec_No` is a different number). See Patient matching below. Added Oct 21, 2026 after the Veradigm QA review; verified on the sandbox the same day. |
 | `GetPatient` | R | Outreach list builders (reminder, no-show and recall calls) | Gets the patient's first name and phone number for an approved outbound call. Also used on EHR. |
 | `GetScheduleByPatientID` | R | Phone agent `unity_get_patient_appointments`; read-back after `SaveAppointment`; ownership and current-status check before every `SetAppointmentStatus`; intake clinic rules (same-day appointment check) | Gets one patient's appointments. Drawbridge keeps the future ones. `SetAppointmentStatus` ignores PatientID, so Drawbridge only changes a visit that is on the verified patient's own schedule. |
 | `GetAppointmentById` | R | Phone agent `unity_get_appointment_details` when no patient ID is given | Gets one appointment's details. |
@@ -51,7 +52,7 @@ Notes on the table:
 |---|---|---|---|
 | `SearchPatients` | R | Phone agent `unity_search_patients` (same tool as on PM) | Searches the EHR chart. Results are merged with the PM results. |
 | `GetPatient` | R | Phone agent `unity_get_patient` | Gets a patient's demographics. |
-| `GetPatientByMRN` | R | Phone agent `unity_get_patient_by_mrn` | Looks up a patient by MRN. If that fails, Drawbridge searches by MRN instead. |
+| `GetPatientByMRN` | R | Phone agent `unity_get_patient_by_mrn`; patient matching inside `unity_search_patients` | Looks up a patient by MRN. If that fails, Drawbridge searches by MRN instead. In patient matching it takes the PM `Patient_Number`; one MRN can return more than one chart, so only a chart with the PM patient's name and DOB counts, and only when exactly one does. |
 | `GetClinicalSummary` | R | Phone agent `unity_get_patient_problems`, `unity_get_patient_medications`, `unity_get_patient_allergies`, `unity_get_recent_results` (sections `results`, `vitals`); huddle brief (allergy and problem counts) | Gets one chart summary section (Parameter1 = section). |
 | `GetPatientDiagnosis` | R | Phone agent `unity_get_patient_diagnosis` | Gets the patient's diagnoses. |
 | `SaveTask` | W | Phone agent `unity_create_staff_task` (the agent's only EHR write); intake review task linked to a filed document | Creates a staff task. |
@@ -63,13 +64,43 @@ Notes on the table:
 | `GetDocuments` | R | Intake shadow mode, staff filing observer | Lists a patient's chart documents. |
 | `GetDocumentImage` | R | Intake shadow mode, staff filing observer (breaking ties) | Gets one document's image. |
 
+## Patient matching (PM and EHR)
+
+The patient ID in Veradigm® PM never matches the patient ID in Veradigm® EHR. `unity_search_patients` matches the patient across the two systems before anything is read or written:
+
+1. `SearchPatients` runs on PM and on EHR at the same time, with the caller's last name and first name. Drawbridge keeps the rows with the given date of birth.
+2. For each PM patient that is the only PM patient with that name and DOB, `GetPatientDemographics` (PM) gives the `Patient_Number`, and `GetPatientByMRN` (EHR) with that number gives the chart. The chart counts only when its name and DOB equal the PM patient's and exactly one such chart comes back.
+3. When step 2 gives no chart (lookup failed, no chart, or more than one), the PM and EHR search rows are paired by name and DOB, again only when each system has exactly one.
+4. When the MRN chart and the name search disagree, or either system has two patients with that name and DOB, the result lists more than one patient. The phone agent then reads and writes nothing and transfers the caller; a document goes to staff review.
+5. The agent confirms the details with the caller before it uses either ID.
+
+Sandbox, Oct 21, 2026 (synthetic patients, read only): ram1 kumar1 PM 51515 to EHR 81214, ram6 kumar6 PM 51520 to EHR 81219 (its MRN also returns another sandbox patient, who was skipped), Thomas Tennessee PM 50 to EHR 79650, Teodoro Brightwater PM 51389 to EHR 81069.
+
+## Declared for certification, not used in release 1.0
+
+Veradigm QA (review of Oct 21, 2026) recommended declaring these now so that a later feature does not need recertification. Drawbridge does not call them: they are not in `CERTIFIED_ACTIONS`, so the server refuses them until a feature uses them and they are verified on the sandbox.
+
+| Action | System | Purpose if used later |
+|---|---|---|
+| `GetPractitioners` | PM | Provider list for scheduling |
+| `GetFirstAvailableAppointments` | PM | First open slot for a provider |
+| `GetAllAvailableAppointments` | PM | Open slots across providers |
+| `GetCoverageTypes` | PM | Coverage type for `SaveAppointment` |
+| `GetPatientAilments` | PM | Ailment for `SaveAppointment` |
+| `GetTask`, `GetTaskList` | EHR | Read back staff tasks |
+| `GetDictionary` | EHR | Code lists (for example task types) |
+| `GetEncounterListForPatient` | EHR | A patient's encounters (diagnosis context) |
+| `SetPatientAccessReason` | EHR | Access reason for restricted (VIP) patients. Release 1.0 does not open restricted charts: the caller goes to staff |
+
+`CloseEncounter` is not declared: it writes to the chart, which Drawbridge does not do (owner decision, Oct 21, 2026).
+
 ## Removed from the configuration (never called)
 
 `SavePatient` is **not used in this release**. The sandbox evidence run (Oct 16, 2026) showed the request lacked the required AccountID ("AccountID must be an integer"), and no certified workflow needs patient registration or demographic updates. So the tools `unity_save_patient` and `unity_update_demographics` were removed from every tool list and dispatch, the phone agent's gate denies them, and `SavePatient` is not in `CERTIFIED_ACTIONS`: any attempt is refused with `ACTION_NOT_ALLOWED` before a request is sent. Adding it back means fixing the request and recertifying.
 
 `Echo` is not a declared action and is never sent. It was removed on Oct 16, 2026 with the unused `testConnection()` helper, its `npm run verify:sandbox` check (`GetServerInfo` is the connection check) and the Postman request.
 
-These names were in `unity-endpoints.ts` but no code called them. They were removed after a repo-wide search: `GetPatientFull` (and its unused helper), `GetChangedPatients`, `BookAppointment`, `GetRecallTypes`, `GetFirstAvailableAppointments`, `GetEncounter`, `GetEncounterList`, `SaveSimpleEncounter`, `GetEncounterSummary`, `SaveDocumentImage`, `GetPatientDemographics`, `GetProvider`, the duplicate `GET_AVAILABLE_SCHEDULE` key (`GET_OPEN_SLOTS` holds `GetAvailableSchedule`). Their `UNITY_ACTION_*` overrides now have no effect. `GetSchedulingLocations`, `GetSchedulingDepartments` and `GetAppointmentConfirmationResults` were removed in the same pass and added back on Oct 15, 2026, when `SaveAppointment` and `SetAppointmentStatus` moved to Veradigm's documented parameters (see the PM table). `npm run verify:sandbox` uses the configured names for every read in this document.
+These names were in `unity-endpoints.ts` but no code called them. They were removed after a repo-wide search: `GetPatientFull` (and its unused helper), `GetChangedPatients`, `BookAppointment`, `GetRecallTypes`, `GetFirstAvailableAppointments`, `GetEncounter`, `GetEncounterList`, `SaveSimpleEncounter`, `GetEncounterSummary`, `SaveDocumentImage`, `GetProvider`, the duplicate `GET_AVAILABLE_SCHEDULE` key (`GET_OPEN_SLOTS` holds `GetAvailableSchedule`). Their `UNITY_ACTION_*` overrides now have no effect. `GetSchedulingLocations`, `GetSchedulingDepartments` and `GetAppointmentConfirmationResults` were removed in the same pass and added back on Oct 15, 2026, when `SaveAppointment` and `SetAppointmentStatus` moved to Veradigm's documented parameters (see the PM table). `npm run verify:sandbox` uses the configured names for every read in this document.
 
 ## Calling rules that apply to every action
 
