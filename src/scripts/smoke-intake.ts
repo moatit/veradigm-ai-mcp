@@ -685,6 +685,32 @@ MRN: 771234                   COLL: 10/08/2026 07:10
   assert.deepStrictEqual([sandbox.patients[0].ssnLast4, toCands(sandbox)[0].ssnLast4, toCands(sandbox)[0].addresses?.length], [undefined, '', 1], 'what the sandbox returns (Oct 11 2026): blank SSN, address only');
   const full = await quiet(() => new UnityPatientTools(searchUnity([{ ...pmRow, ssn: '912-34-5678' }], [ehrRow]) as any).searchPatients({ lastName: 'Testpatient', firstName: 'Marigold', dateOfBirth: '03/14/1961' }));
   assert.ok(!JSON.stringify(full).includes('912') && full.patients[0].ssnLast4 === '5678', 'a full SSN from the search is cut to its last 4');
+  // PM → EHR by MRN: the chart MRN is the PM Patient_Number (GetPatientDemographics), then GetPatientByMRN (EHR)
+  const mrnUnity = (ehr: any[], byMrn: any[] | null, demoOk = true) => {
+    const sent: string[] = [];
+    return {
+      sent,
+      searchPatients: async (_c: any, t: string) => ({ success: true, data: [{ searchpatientsinfo: t === 'PM' ? [pmRow] : ehr }] }),
+      executeAction: async (a: string, p: any, pid: string, t: string) => {
+        sent.push(`${t}:${a}:${pid || p.Parameter1}`);
+        if (a === 'GetPatientDemographics') return demoOk ? { success: true, data: [{ getpatientdemographicsinfo: [{ Patient_Number: '188050', Patient_Med_Rec_No: '482913' }] }] } : { success: false, error: 'down' };
+        if (a === 'GetPatientByMRN') return byMrn ? { success: true, data: [{ getpatientbymrninfo: byMrn }] } : { success: false, error: 'down' };
+        throw new Error(`unexpected ${a}`);
+      },
+    };
+  };
+  const mrnSearch = async (u: any) => (await quiet(() => new UnityPatientTools(u).searchPatients({ lastName: 'Testpatient', firstName: 'Marigold', dateOfBirth: '03/14/1961' }))).patients.map((p) => `${p.patientId || '-'}/${p.chartPatientId || '-'}`);
+  const chart = (id: string, first = 'Marigold', dob = '03/14/1961') => ({ ID: id, LastName: 'Testpatient', FirstName: first, dateofbirth: dob });
+  const viaMrn = mrnUnity([], [chart('7002')]);
+  assert.deepStrictEqual(await mrnSearch(viaMrn), ['9001/7002'], 'MRN finds the chart the EHR name search missed');
+  assert.deepStrictEqual(viaMrn.sent, ['PM:GetPatientDemographics:9001', 'EHR:GetPatientByMRN:188050'], 'PM patient number, not the PM MRN, goes to GetPatientByMRN');
+  assert.deepStrictEqual(await mrnSearch(mrnUnity([ehrRow], [chart('4043', 'Lenore', '11/17/1936'), chart('7001')])), ['9001/7001'], 'MRN shared by two charts: the one with the same name and DOB');
+  assert.deepStrictEqual(await mrnSearch(mrnUnity([ehrRow], [chart('7001'), chart('7003')])), ['9001/7001'], 'two same-name charts on the MRN: name + DOB pairing decides');
+  assert.deepStrictEqual(await mrnSearch(mrnUnity([ehrRow], [chart('7002')])), ['9001/-', '-/7001'], 'MRN chart differs from the name-search chart: two entries (more than one), never a guess');
+  assert.deepStrictEqual(await mrnSearch(mrnUnity([ehrRow], null, false)), ['9001/7001'], 'GetPatientDemographics fails: name + DOB pairing');
+  assert.deepStrictEqual(await mrnSearch(mrnUnity([ehrRow], null)), ['9001/7001'], 'GetPatientByMRN fails: name + DOB pairing');
+  assert.deepStrictEqual(await mrnSearch(mrnUnity([], [])), ['9001/-'], 'no chart by MRN or name: PM only');
+  ok('PM to EHR by MRN: GetPatientDemographics Patient_Number then GetPatientByMRN, same name + DOB and exactly one, conflicting charts listed as more than one, name + DOB pairing when the lookup fails');
   ok(`third identifier matching (${thirdTable.length} + ${ndThird.length} cases): disagreeing SSN-4 or address goes to staff (also with an MRN), agreeing one recorded or used as the second identifier behind the look-alike guard, unchecked when none on file; Veradigm search rows carry address and SSN-4 (last 4 only, hidden flags honoured)`);
 
   // 7. Document types

@@ -54,6 +54,22 @@ function normalizeDob(v?: string): string {
   return `${m[1].padStart(2, "0")}/${m[2].padStart(2, "0")}/${m[3]}`;
 }
 
+/** One person across PM and EHR: same last name, first name and date of birth. */
+function personKey(p: ParsedPatient): string {
+  return `${(p.lastName || "").trim().toLowerCase()}|${(p.firstName || "").trim().toLowerCase()}|${normalizeDob(p.dateOfBirth)}`;
+}
+
+/** First data row of a Unity reply ([{ <action>info: [row] }] or [row]). */
+function firstRow(data: any): Record<string, any> | undefined {
+  const top = Array.isArray(data) ? data[0] : data;
+  if (!top || typeof top !== "object") return undefined;
+  const nested = Object.values(top).find(Array.isArray) as any[] | undefined;
+  return nested ? nested[0] : top;
+}
+
+/** At most this many PM patients per search get the MRN lookup (two calls each); the rest pair by name + DOB. */
+const MRN_LOOKUP_MAX = 3;
+
 /** American Soundex code ("Beasley" and "Beesly" are both B240). */
 function soundex(name: string): string {
   const s = name.toUpperCase().replace(/[^A-Z]/g, "");
@@ -261,11 +277,11 @@ export class UnityPatientTools {
     }
     const pm = pmRes.success ? keep(this.parsePatientsList(pmRes.data).filter((p) => p.id)) : [];
     const ehr = ehrRes.success ? keep(this.parsePatientsList(ehrRes.data).filter((p) => p.id)) : [];
-    const key = (p: ParsedPatient) =>
-      `${(p.lastName || "").trim().toLowerCase()}|${(p.firstName || "").trim().toLowerCase()}|${normalizeDob(p.dateOfBirth)}`;
-    // PM and EHR rows of one person are paired by name + DOB. Two different patients with the same name and DOB in
-    // one system are never merged (and never paired with the other system): they stay separate entries, so the
-    // result says "more than one" instead of verifying, or filing to, one of them (launch audit 2026-10-16).
+    const key = personKey;
+    // PM and EHR rows of one person are paired by MRN when one PM patient has that name + DOB (chartByPatientNumber),
+    // else by name + DOB. Two different patients with the same name and DOB in one system are never merged (and
+    // never paired with the other system): they stay separate entries, so the result says "more than one" instead
+    // of verifying, or filing to, one of them (launch audit 2026-10-16).
     const groups = new Map<string, ParsedPatient[]>();
     const seen = new Set<string>();
     for (const p of pm) {
@@ -275,6 +291,16 @@ export class UnityPatientTools {
       groups.set(k, [...(groups.get(k) || []), { ...p, patientId: p.id, pmMrn: p.mrn }]);
     }
     const pmCount = new Map<string, number>([...groups].map(([k, v]) => [k, v.length]));
+    const byMrn = new Map<string, ParsedPatient>();
+    await Promise.all(
+      [...groups]
+        .filter(([, v]) => v.length === 1)
+        .slice(0, MRN_LOOKUP_MAX)
+        .map(async ([k, [p]]) => {
+          const chart = await this.chartByPatientNumber(p).catch(() => undefined);
+          if (chart) byMrn.set(k, chart);
+        }),
+    );
     const ehrCount = new Map<string, number>();
     for (const p of ehr) {
       if (seen.has(`ehr|${p.id}`)) continue;
@@ -287,7 +313,8 @@ export class UnityPatientTools {
       seen.add(`ehr|${p.id}`);
       const k = key(p);
       const list = groups.get(k);
-      const existing = list && pmCount.get(k) === 1 && ehrCount.get(k) === 1 ? list[0] : undefined;
+      const viaMrn = byMrn.get(k);
+      const existing = list && pmCount.get(k) === 1 && (viaMrn ? viaMrn.id === p.id : ehrCount.get(k) === 1) ? list[0] : undefined;
       if (existing) {
         existing.chartPatientId = p.id;
         existing.chartMrn = p.mrn;
@@ -296,7 +323,37 @@ export class UnityPatientTools {
         if (!existing.ssnLast4 && p.ssnLast4) existing.ssnLast4 = p.ssnLast4;
       } else groups.set(k, [...(list || []), { ...p, chartPatientId: p.id, chartMrn: p.mrn }]);
     }
+    // The MRN found the chart but the EHR name search did not return it: pair it, unless another chart with this
+    // name + DOB came back (then the result already lists more than one).
+    for (const [k, chart] of byMrn) {
+      const list = groups.get(k);
+      if (list?.length === 1 && !list[0].chartPatientId) {
+        list[0].chartPatientId = chart.id;
+        list[0].chartMrn = chart.mrn;
+      }
+    }
     return { patients: [...groups.values()].flat(), pmOk: Boolean(pmRes.success) };
+  }
+
+  /**
+   * The EHR chart of one verified PM patient, by MRN: the EHR chart MRN is the PM patient number
+   * (GetPatientDemographics Patient_Number; the PM Patient_Med_Rec_No is a different number). GetPatientByMRN can
+   * return more than one patient (sandbox Oct 21: two charts share one MRN), so only a chart with the PM patient's
+   * name and DOB counts, and only when exactly one does. undefined: no number, no such chart, or more than one.
+   */
+  private async chartByPatientNumber(pm: ParsedPatient): Promise<ParsedPatient | undefined> {
+    const demo = await this.unityService.executeAction<any>(UnityActions.Patient.GET_PATIENT_DEMOGRAPHICS, {}, pm.id, "PM");
+    const number = demo.success ? String(firstRow(demo.data)?.Patient_Number ?? "").trim() : "";
+    if (!number) return undefined;
+    const res = await this.unityService.executeAction<any>(
+      UnityActions.Patient.GET_PATIENT_BY_MRN,
+      { Parameter1: number, Parameter2: "" },
+      "",
+      "EHR",
+    );
+    if (!res.success) return undefined;
+    const same = this.parsePatientsList(res.data).filter((c) => c.id && personKey(c) === personKey(pm));
+    return same.length === 1 ? { ...same[0], mrn: same[0].mrn || number } : undefined;
   }
 
   /**

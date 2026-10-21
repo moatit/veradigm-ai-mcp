@@ -91,6 +91,8 @@ export const UnityActions = {
   Patient: {
     GET_PATIENT: action('GET_PATIENT', 'GetPatient'),
     GET_PATIENT_BY_MRN: action('GET_PATIENT_BY_MRN', 'GetPatientByMRN'),
+    // PM: the verified PM patient's MRN, which GetPatientByMRN (EHR) maps to the chart (Veradigm QA review, Oct 21).
+    GET_PATIENT_DEMOGRAPHICS: action('GET_PATIENT_DEMOGRAPHICS', 'GetPatientDemographics'),
     SEARCH_PATIENTS: action('SEARCH_PATIENTS', 'SearchPatients')
     // SavePatient is not used in this release (sandbox: "AccountID must be an integer"; no certified
     // workflow needs it). It is not in CERTIFIED_ACTIONS, so it is refused with ACTION_NOT_ALLOWED.
@@ -183,7 +185,7 @@ export const UnityActions = {
  */
 export const CERTIFIED_ACTIONS: ReadonlySet<string> = new Set([
   'GetUserAuthentication', 'GetServerInfo', 'LastLogs',
-  'SearchPatients', 'GetPatient', 'GetPatientByMRN',
+  'SearchPatients', 'GetPatient', 'GetPatientByMRN', 'GetPatientDemographics',
   'GetSchedule', 'GetScheduleByPatientID', 'GetAppointmentById', 'GetAvailableSchedule', 'GetResources',
   'GetAppointmentTypes', 'GetAppointmentCancellationReasons', 'GetAppointmentConfirmationResults',
   'GetSchedulingLocations', 'GetSchedulingDepartments', 'SaveAppointment', 'SetAppointmentStatus',
