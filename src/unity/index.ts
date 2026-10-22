@@ -143,8 +143,6 @@ class VeradigmUnityMCPServer {
           result = await this.clinicalTools.getPatientMedications(args as any);
         } else if (name === "unity_get_patient_allergies") {
           result = await this.clinicalTools.getPatientAllergies(args as any);
-        } else if (name === "unity_get_patient_diagnosis") {
-          result = await this.clinicalTools.getPatientDiagnosis(args as any);
         } else if (name === "unity_get_recent_results") {
           result = await this.clinicalTools.getRecentResults(args as any);
         }

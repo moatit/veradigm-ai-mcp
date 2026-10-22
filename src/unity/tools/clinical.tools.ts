@@ -244,59 +244,6 @@ export class UnityClinicalTools {
     }
   }
 
-  /**
-   * Get patient's diagnoses
-   */
-  async getPatientDiagnosis(args: {
-    patientId: string;
-    encounterId?: string;
-  }): Promise<{
-    success: boolean;
-    diagnoses: any[];
-    total: number;
-    message: string;
-  }> {
-    try {
-      if (!args.patientId) {
-        throw UnityErrorHandler.createValidationError("Patient ID is required");
-      }
-
-      console.error(
-        `[Unity Clinical] Getting diagnoses for patient ${args.patientId}`,
-      );
-
-      const response = await this.unityService.executeAction<any>(
-        UnityActions.Clinical.GET_PATIENT_DIAGNOSIS,
-        {
-          Parameter1: args.encounterId || "",
-          Parameter2: "",
-          Parameter3: "",
-        },
-        args.patientId,
-        "EHR",
-      );
-
-      // A failed call is an error, never an empty diagnoses list (CLAUDE.md rule 5).
-      if (!response.success) {
-        throw UnityErrorHandler.createAPIError(response.error || "Failed to get diagnoses");
-      }
-
-      const diagnoses = this.parseDiagnoses(response.data);
-
-      return {
-        success: true,
-        diagnoses,
-        total: diagnoses.length,
-        message: `Found ${diagnoses.length} diagnosis(es)`,
-      };
-    } catch (error) {
-      if (error instanceof UnityMCPError) {
-        throw error;
-      }
-      throw UnityErrorHandler.handleUnknownError(error, "GetPatientDiagnosis");
-    }
-  }
-
   // ============================================
   // Helper Methods
   // ============================================
@@ -365,20 +312,6 @@ export class UnityClinicalTools {
         source: pick(item, "Source", "ReportedBy"),
       }))
       .filter((a) => a.id || a.allergen);
-  }
-
-  private parseDiagnoses(data: any): any[] {
-    return unityRows(data)
-      .map((item) => ({
-        id: pick(item, "DiagnosisID", "ID"),
-        code: pick(item, "Code", "ICD10Code", "DiagnosisCode"),
-        description: pick(item, "Description", "DiagnosisDescription"),
-        type: pick(item, "Type", "DiagnosisType"),
-        status: pick(item, "Status"),
-        date: pick(item, "Date", "DiagnosisDate"),
-        provider: pick(item, "Provider", "DiagnosingProvider"),
-      }))
-      .filter((d) => d.id || d.code || d.description);
   }
 
   /**
@@ -455,25 +388,6 @@ export class UnityClinicalTools {
               description: "chartPatientId (Veradigm EHR ID) from unity_search_patients",
             },
             limit: { type: "number", description: "Most items to return (default 10)" },
-          },
-          required: ["patientId"],
-        },
-      },
-      {
-        name: "unity_get_patient_diagnosis",
-        description:
-          "Get patient diagnoses from Veradigm EHR via Unity API. Returns diagnosis codes and descriptions.",
-        inputSchema: {
-          type: "object",
-          properties: {
-            patientId: {
-              type: "string",
-              description: "chartPatientId (Veradigm EHR ID) from unity_search_patients",
-            },
-            encounterId: {
-              type: "string",
-              description: "Optional encounter ID to filter diagnoses",
-            },
           },
           required: ["patientId"],
         },
