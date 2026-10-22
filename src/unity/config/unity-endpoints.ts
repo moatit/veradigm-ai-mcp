@@ -141,7 +141,8 @@ export const UnityActions = {
     // Sandbox Oct 9: GetClinicalSummary with a section name (Parameter1) returns the chart summary rows for
     // medications / allergies / problems. GetProblems returns the full history (250 rows), GetAllergies 0 rows.
     GET_PATIENT_PROBLEMS: action('GET_PATIENT_PROBLEMS', 'GetClinicalSummary'),
-    GET_PATIENT_DIAGNOSIS: action('GET_PATIENT_DIAGNOSIS', 'GetPatientDiagnosis'),
+    // GetPatientDiagnosis is not used: it opens an encounter that must be released with CloseEncounter, a chart
+    // write Drawbridge does not make (Veradigm QA, Oct 22, 2026).
     GET_PATIENT_MEDICATIONS: action('GET_PATIENT_MEDICATIONS', 'GetClinicalSummary'), // sandbox Oct 8: GetPatientMedications = not valid for license
     GET_PATIENT_ALLERGIES: action('GET_PATIENT_ALLERGIES', 'GetClinicalSummary') // sandbox Oct 8: GetPatientAllergies = not valid for license
   },
@@ -191,7 +192,7 @@ export const CERTIFIED_ACTIONS: ReadonlySet<string> = new Set([
   'GetSchedulingLocations', 'GetSchedulingDepartments', 'SaveAppointment', 'SetAppointmentStatus',
   'GetAppointmentsByChangeDTTM', 'GetRecalls',
   'GetPatientAccountBalance', 'GetPatientPolicy',
-  'GetClinicalSummary', 'GetPatientDiagnosis', 'GetLocation', 'GetProviders',
+  'GetClinicalSummary', 'GetLocation', 'GetProviders',
   'GetDocumentType', 'GetDocuments', 'GetDocumentsByDocumentType', 'GetDocumentImage', 'SaveScanDocument', 'SaveTask',
 ]);
 

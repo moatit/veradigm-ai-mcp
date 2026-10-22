@@ -54,7 +54,6 @@ Notes on the table:
 | `GetPatient` | R | Phone agent `unity_get_patient` | Gets a patient's demographics. |
 | `GetPatientByMRN` | R | Phone agent `unity_get_patient_by_mrn`; patient matching inside `unity_search_patients` | Looks up a patient by MRN. If that fails, Drawbridge searches by MRN instead. In patient matching it takes the PM `Patient_Number`; one MRN can return more than one chart, so only a chart with the PM patient's name and DOB counts, and only when exactly one does. |
 | `GetClinicalSummary` | R | Phone agent `unity_get_patient_problems`, `unity_get_patient_medications`, `unity_get_patient_allergies`, `unity_get_recent_results` (sections `results`, `vitals`); huddle brief (allergy and problem counts) | Gets one chart summary section (Parameter1 = section). |
-| `GetPatientDiagnosis` | R | Phone agent `unity_get_patient_diagnosis` | Gets the patient's diagnoses. |
 | `SaveTask` | W | Phone agent `unity_create_staff_task` (the agent's only EHR write); intake review task linked to a filed document | Creates a staff task. |
 | `GetLocation` | R | `unity_get_location_hours` (scheduling) | Gets location details and business hours. |
 | `GetProviders` | R | Intake clinic rules: who gets the review task | Lists providers and users (inactive ones are skipped). |
@@ -95,6 +94,8 @@ Veradigm QA (review of Oct 21, 2026) recommended declaring these now so that a l
 `CloseEncounter` is not declared: it writes to the chart, which Drawbridge does not do (owner decision, Oct 21, 2026).
 
 ## Removed from the configuration (never called)
+
+`GetPatientDiagnosis` was removed on Oct 22, 2026. Veradigm QA reported that it opens an encounter, which must then be released with `CloseEncounter` every time. `CloseEncounter` writes to the chart, which Drawbridge does not do, and no certified workflow needs the diagnosis list (the problem list comes from `GetClinicalSummary`). The tool `unity_get_patient_diagnosis` is gone from every tool list and dispatch, and the action is not in `CERTIFIED_ACTIONS`, so it is refused with `ACTION_NOT_ALLOWED` before any request.
 
 `SavePatient` is **not used in this release**. The sandbox evidence run (Oct 16, 2026) showed the request lacked the required AccountID ("AccountID must be an integer"), and no certified workflow needs patient registration or demographic updates. So the tools `unity_save_patient` and `unity_update_demographics` were removed from every tool list and dispatch, the phone agent's gate denies them, and `SavePatient` is not in `CERTIFIED_ACTIONS`: any attempt is refused with `ACTION_NOT_ALLOWED` before a request is sent. Adding it back means fixing the request and recertifying.
 
