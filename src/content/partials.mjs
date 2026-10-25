@@ -282,7 +282,7 @@ export const FAQS = [
   },
   {
     q: "Is our patient data used to train AI models?",
-    a: "No. Drawbridge does not train AI models on your practice's data. Documents are read by OCR running on MOATiT's own servers, and the decision of which chart a document goes to is made by rules you can audit. The phone assistant runs on MOATiT's own voice platform, so no voice training happens on your calls.",
+    a: "No. No AI models are trained on your data, including your calls. Documents are read by OCR running on MOATiT's own servers, and the decision of which chart a document goes to is made by rules you can audit.",
   },
   {
     q: "Where is our data stored, and for how long?",

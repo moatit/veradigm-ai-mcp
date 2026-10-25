@@ -74,7 +74,7 @@ export const security = {
           ${row("Retention", "Original faxes deleted 30 days after filing (the chart copy is the record); patient details on intake records after 90 days; call records after 30 days.", "ok")}
           ${row("Backups", "Every two hours, kept six months, encrypted and immutable: required for every production deployment.", "req")}
           ${row("Document integrity", "Each document is fingerprinted on arrival and checked again before it is filed.", "ok")}
-          ${row("No model training on your data", "Drawbridge does not train AI models on your data. The phone assistant runs on MOATiT's own voice platform, so no voice training happens on your calls.", "ok")}
+          ${row("No model training on your data", "No AI models are trained on your data, including your calls.", "ok")}
         </tbody>
       </table>
     </div>
