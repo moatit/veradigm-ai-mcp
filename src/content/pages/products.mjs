@@ -179,11 +179,91 @@ ${liveCallDialog()}
 ${ctaBand({ title: "Hear it on a call.", text: "In a 20-minute walkthrough we call a test line together with a synthetic patient: verify, check visits, reschedule, leave a message. Then we talk through your hours, transfers and on-call routing." })}`,
 };
 
+const confirmFaqs = FAQS.filter((f) => /Call & Confirm/.test(f.q));
+
+export const callConfirm = {
+  path: "/call-and-confirm/",
+  title: "Call & Confirm: appointment confirmation calls for medical practices",
+  description:
+    "Drawbridge Call & Confirm calls patients one to three business days before their visit to confirm, move or cancel it, and writes the result into Veradigm® Practice Management. It also follows up on no-shows and calls patients due for a recall visit.",
+  crumbs: [{ name: "Call & Confirm", href: "/call-and-confirm/" }],
+  schema: [faqSchema(confirmFaqs)],
+  body: `${pageHero({
+    eyebrow: "Call &amp; Confirm",
+    title: 'Visits confirmed, moved or cancelled, <span class="accent-i">days ahead.</span>',
+    lede: "Drawbridge calls your patients one to three business days before their visit so they can confirm it, move it or cancel it, and writes the result straight into Veradigm® Practice Management. It also follows up on no-shows and calls patients who are due for a recall visit. Your staff approve each day's list.",
+    crumbs: [{ name: "Call & Confirm", href: "/call-and-confirm/" }],
+    actions: btnPrimary(),
+    note: '<span class="pill pill-prog">In development</span> Call &amp; Confirm is new. Ask us when it can start at your practice.',
+  })}
+<section class="section" id="how-it-works" aria-labelledby="cc-flow-title">
+  <div class="wrap">
+    <div class="section-head">
+      <p class="eyebrow">How a day of calls works</p>
+      <h2 id="cc-flow-title">Your staff approve the list. <span class="accent-i">Drawbridge makes the calls.</span></h2>
+    </div>
+    <ol class="flow cols-4">
+      <li><h3>Approve the list</h3><p>Each day your staff see who Drawbridge plans to call and approve the list. No call goes out without that approval.</p></li>
+      <li><h3>Call ahead</h3><p>One to three business days before the visit, Drawbridge calls the patient, who can confirm, move or cancel the visit on the call.</p></li>
+      <li><h3>Write it to the schedule</h3><p>The result goes straight into Veradigm® Practice Management, so the schedule your staff already use is up to date.</p></li>
+      <li><h3>Hand over the rest</h3><p>Patients who haven't confirmed are on an unconfirmed list for your morning huddle, so your team knows who to follow up with.</p></li>
+    </ol>
+  </div>
+</section>
+<section class="section on-white" aria-labelledby="cc-calls-title">
+  <div class="wrap">
+    <div class="section-head">
+      <p class="eyebrow">Three kinds of calls</p>
+      <h2 id="cc-calls-title">The outbound calls your front desk makes every week.</h2>
+    </div>
+    <div class="grid grid-3">
+      <div class="card"><div class="icon">${icon("calendar")}</div><h3>Visit confirmations</h3><p>A call one to three business days ahead. The patient confirms, moves the visit to another open time or cancels it.</p></div>
+      <div class="card"><div class="icon">${icon("refresh")}</div><h3>No-show follow-up</h3><p>Patients who missed a visit get a call so they can book again, instead of waiting for someone at the desk to find the time.</p></div>
+      <div class="card"><div class="icon">${icon("bell")}</div><h3>Recall calls</h3><p>Patients who are due for a recall visit get a call to book it, from the list your staff approve.</p></div>
+    </div>
+  </div>
+</section>
+<section class="section on-night blueprint" aria-labelledby="cc-limits-title">
+  <div class="wrap">
+    <div class="section-head">
+      <p class="eyebrow">Call limits and privacy</p>
+      <h2 id="cc-limits-title">Persistent enough to reach people. <span class="accent-i">Never a nuisance.</span></h2>
+    </div>
+    <div class="grid grid-3">
+      <div class="card"><div class="icon">${icon("clock")}</div><h3>Three tries, at different times</h3><p>Drawbridge tries up to three times, at different times of day, to reach people who work or keep different hours.</p></div>
+      <div class="card"><div class="icon">${icon("shield")}</div><h3>Firm limits</h3><p>Never more than one call a day to a patient, and never more than three in a week.</p></div>
+      <div class="card"><div class="icon">${icon("lock")}</div><h3>Voicemails without details</h3><p>Voicemails are short and leave out the details of the visit, so nothing private is left on a shared phone or answering machine.</p></div>
+      <div class="card"><div class="icon">${icon("user")}</div><h3>Opt out on the call</h3><p>A patient who doesn't want these calls can say so on the call, and Drawbridge stops calling them.</p></div>
+      <div class="card"><div class="icon">${icon("clipboard")}</div><h3>Staff approve every list</h3><p>Your team sees and approves each day's call list before any call is made.</p></div>
+      <div class="card"><div class="icon">${icon("list")}</div><h3>Every result recorded</h3><p>Each confirmation, move and cancellation is written to the schedule, and every call is logged.</p></div>
+    </div>
+  </div>
+</section>
+<section class="section" aria-labelledby="cc-benefits-title">
+  <div class="wrap split">
+    <div>
+      <p class="eyebrow">What it gives back</p>
+      <h2 id="cc-benefits-title">A fuller schedule, <span class="accent-i">without the phone time.</span></h2>
+      <p class="lede">We don't quote a no-show rate for Call &amp; Confirm. Every practice is different, so we measure it with yours.</p>
+    </div>
+    <ul class="checks">
+      <li><span><strong>Fewer no-shows.</strong> Patients hear about their visit ahead of time, and those who can't make it can move it on the call.</span></li>
+      <li><span><strong>Staff time back.</strong> Drawbridge makes the routine confirmation, no-show and recall calls, so your team calls only the patients on the unconfirmed list.</span></li>
+      <li><span><strong>Open slots freed early.</strong> A visit cancelled or moved days ahead opens that time for another patient who needs it.</span></li>
+    </ul>
+  </div>
+</section>
+<section class="section on-white" aria-labelledby="cc-faq-title">
+  <div class="wrap narrow"><h2 id="cc-faq-title">Questions about Call &amp; Confirm</h2>${faqList(confirmFaqs)}</div>
+</section>
+${ctaBand({ title: "Talk through your call list.", text: "In a 20-minute walkthrough we go through how your practice confirms visits today, which confirmation, no-show and recall calls Drawbridge would make, and how your staff approve the list." })}`,
+};
+
 export const platform = {
   path: "/platform/",
-  title: "Staff tools: reminders, huddle brief, on-call notebook, audit",
+  title: "Staff tools: Call & Confirm, huddle brief, on-call notebook, audit",
   description:
-    "Beyond fax intake and the phone assistant, Drawbridge gives your staff reminder and recall calls, a morning huddle brief, pre-visit checks, an on-call notebook, system status alerts, a tamper-evident audit log and patient access reports.",
+    "Beyond fax intake and the phone assistant, Drawbridge gives your staff Call & Confirm appointment calls, a morning huddle brief, pre-visit checks, an on-call notebook, system status alerts, a tamper-evident audit log and patient access reports.",
   crumbs: [{ name: "Staff tools", href: "/platform/" }],
   body: `${pageHero({
     eyebrow: "Staff tools",
@@ -196,7 +276,7 @@ export const platform = {
   <div class="wrap">
     <h2 id="tools-title" class="visually-hidden">Tools</h2>
     <div class="grid grid-3">
-      <div class="card"><div class="icon">${icon("bell")}</div><h3>Reminder &amp; recall calls</h3><p>Appointment reminder calls, no-show follow-up and recall outreach. Calls go out only after a staff click or on a schedule you set, and patients can opt out.</p></div>
+      <a class="card card-link" href="/call-and-confirm/"><div class="icon">${icon("bell")}</div><h3>Call &amp; Confirm <span class="pill pill-prog">In development</span></h3><p>Confirmation calls one to three business days before each visit, no-show follow-up and recall calls, with results written to the schedule. Staff approve each day's list, and patients can opt out.</p><span class="btn-link">Call &amp; Confirm</span></a>
       <div class="card"><div class="icon">${icon("sun")}</div><h3>Morning huddle brief</h3><p>The day's schedule summarized for the team huddle, so everyone starts with the same picture.</p></div>
       <div class="card"><div class="icon">${icon("clipboard")}</div><h3>Pre-visit check</h3><p>A quick check of each upcoming visit so gaps are found before the patient arrives, not at the desk.</p></div>
       <div class="card"><div class="icon">${icon("moon")}</div><h3>On-call notebook</h3><p>Every after-hours call and message, with the brief prepared for the on-call provider, ready for the morning team.</p></div>

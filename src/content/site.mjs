@@ -68,6 +68,7 @@ export const CLAIMS = {
 export const NAV = [
   { href: "/fax-lab-intake/", label: "Fax & Labs" },
   { href: "/phone-assistant/", label: "Phone Assistant" },
+  { href: "/call-and-confirm/", label: "Call & Confirm" },
   { href: "/platform/", label: "Staff Tools" },
   { href: "/security/", label: "Security" },
   { href: "/integrations/", label: "Integrations" },

@@ -222,7 +222,7 @@ export const ctaBand = ({
 export const FAQS = [
   {
     q: "What does Drawbridge do?",
-    a: "Drawbridge is MOATiT's AI technology for healthcare practices. It reads incoming faxes and lab results and files them to the right patient's chart, and its phone assistant answers the calls you route to it, day and night: it verifies callers, handles appointments and takes messages for your staff. Staff tools such as reminder calls, a morning huddle brief and an on-call notebook come with it.",
+    a: "Drawbridge is MOATiT's AI technology for healthcare practices. It reads incoming faxes and lab results and files them to the right patient's chart, and its phone assistant answers the calls you route to it, day and night: it verifies callers, handles appointments and takes messages for your staff. Call & Confirm calls patients ahead of their visits to confirm, move or cancel them, and staff tools such as a morning huddle brief and an on-call notebook come with it.",
     home: true,
   },
   {
@@ -252,6 +252,14 @@ export const FAQS = [
   {
     q: "How does the phone assistant verify callers?",
     a: "It asks for first name, last name and date of birth, and these must match exactly one patient. This is enforced by Drawbridge's server, not just by the assistant's instructions: until a caller is verified on that call, the system refuses to return or change any patient record. Each call can verify at most two people (for example, a parent and a child), and repeated lookups are capped and logged.",
+  },
+  {
+    q: "How often does Call & Confirm call a patient, and what does it say in a voicemail?",
+    a: "Drawbridge calls one to three business days before the visit and tries up to three times, at different times of day. It never calls a patient more than once a day or more than three times a week. Voicemails are short and leave out the details of the visit, so nothing private is left on a shared phone. Patients can opt out on the call, and your staff approve each day's call list before any call goes out.",
+  },
+  {
+    q: "What happens after a Call & Confirm call?",
+    a: "The result is written straight into Veradigm® Practice Management: the visit is confirmed, moved to a new time or cancelled. Patients Drawbridge couldn't reach, or who haven't confirmed, are on an unconfirmed list for your morning huddle, so your staff know who to follow up with.",
   },
   {
     q: "Does Drawbridge replace our staff or our current systems?",

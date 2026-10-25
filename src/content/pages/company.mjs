@@ -189,7 +189,7 @@ export const pricing = {
         <li><span><strong>Which parts you use:</strong> fax &amp; lab intake, the phone assistant, or both</span></li>
         <li><span><strong>Volume:</strong> documents and calls per month</span></li>
         <li><span><strong>Locations and phone lines</strong></span></li>
-        <li><span><strong>Outreach:</strong> reminder and recall calls, if you use them</span></li>
+        <li><span><strong>Call &amp; Confirm:</strong> confirmation, no-show and recall calls, if you use them</span></li>
       </ul>
       <div class="aside-card mt-2">
         <h3>Ask us now</h3>

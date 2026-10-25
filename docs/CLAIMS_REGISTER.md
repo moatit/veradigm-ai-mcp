@@ -59,6 +59,21 @@ Status: **OK** = verified against a source; **CONFIRM** = Ali/Musab to confirm b
 | Audit release-1 item waiting on Ali: H3 ("Test a live call now"). H1 was decided on Oct 18 and the copy now describes the real process (rows above) | `audits/release-1-2026-10-18/marketing-site.md` | H3 copy unchanged on purpose; **GATE 1B.2** |
 | The home-page note is signed "Ali Khan, CEO, MOATiT" | Home | Ali's direction (Oct 17) | OK |
 
+## Call & Confirm (added Oct 24, 2026)
+
+Page `/call-and-confirm/`, plus the nav, footer, home product cards, staff tools card, pricing line, JSON-LD feature list and two FAQ entries. The engine is being built on branch `claude/call-and-confirm-201a88` of `veradigm-ai-mcp`; no spec document is committed there yet. Every row below is labeled **In development** on the site (a gold "In development" pill in the page hero, on the home card and on the staff-tools card).
+
+| Claim on site | Where | Source | Status |
+|---|---|---|---|
+| Calls patients 1–3 business days before the visit to confirm, move or cancel it; the result is written straight into Veradigm® PM | Call & Confirm page, home, staff tools, FAQ, JSON-LD | Ali's decision (Oct 24, 2026) | **GATE**: true once the engine ships and passes its tests. Until then keep the "In development" pill; remove it only when the engine is live for a practice |
+| Follows up on no-shows; calls patients due for a recall visit | same | Ali's decision (Oct 24, 2026); recall and no-show outreach already listed under "Outreach only with a staff click or a schedule" above | **GATE** (as above) |
+| Three tries at different times of day; never more than one call a day or three a week | Call & Confirm page, home card, FAQ | Ali's decision (Oct 24, 2026) | **GATE**: confirm the engine enforces both limits server-side before removing the pill |
+| Short voicemails that leave out visit details ("nothing private is left on a shared phone") | Call & Confirm page, home card, FAQ | Ali's decision (Oct 24, 2026) | **GATE**: confirm the voicemail script with engineering |
+| Patients can opt out on the call, and Drawbridge stops calling them | Call & Confirm page, home card, staff tools, FAQ | Ali's decision (Oct 24, 2026); opt-out list (`PLATFORM_PLAN.md` rule 6; `SECURITY_CONTROLS.md` §4) | **GATE** (the opt-out list exists; opt-out *on the call* ships with the engine) |
+| Staff approve each day's call list before any call goes out; an unconfirmed list for the morning huddle | Call & Confirm page, home card, staff tools, FAQ | Ali's decision (Oct 24, 2026); consistent with "Outreach only with a staff click or a schedule" | **GATE** (staff portal is being built in parallel) |
+| Every call is logged | Call & Confirm page | Audit log covers every tool call (`SECURITY_CONTROLS.md` §3.2) | **GATE**: confirm outbound calls write audit entries |
+| Benefits: fewer no-shows; staff time back from reminder calls; open slots freed early for other patients | Call & Confirm page ("What it gives back") | Ali's brief (Oct 24, 2026). Qualitative only | OK as worded: no number is quoted, and the page says "We don't quote a no-show rate for Call & Confirm … we measure it with yours". Do **not** add a no-show, voicemail or call-volume number (the pilot measurements are not cleared for public use) |
+
 ## Security and compliance
 
 | Claim | Source | Status |

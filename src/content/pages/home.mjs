@@ -149,10 +149,10 @@ ${demoBand()}
 <section class="section on-paper-2" id="products" aria-labelledby="products-title">
   <div class="wrap">
     <div class="section-head">
-      <p class="eyebrow">Two products, one platform</p>
+      <p class="eyebrow">Three products, one platform</p>
       <h2 id="products-title">What Drawbridge handles</h2>
     </div>
-    <div class="grid grid-2">
+    <div class="grid grid-3">
       <a class="card card-link" href="/fax-lab-intake/">
         <div class="icon">${icon("fax")}</div>
         <h3>Fax &amp; lab-result intake</h3>
@@ -175,9 +175,20 @@ ${demoBand()}
         </ul>
         <span class="btn-link">Phone assistant</span>
       </a>
+      <a class="card card-link" href="/call-and-confirm/">
+        <div class="icon">${icon("calendar")}</div>
+        <h3>Call &amp; Confirm <span class="pill pill-prog">In development</span></h3>
+        <p>Calls patients one to three business days before their visit to confirm, move or cancel it, and writes the result into Veradigm® Practice Management. Also follows up on no-shows and calls patients due for a recall visit.</p>
+        <ul class="checks">
+          <li><span>Three tries at different times; never more than once a day or three times a week</span></li>
+          <li><span>Short voicemails with no visit details; patients can opt out</span></li>
+          <li><span>Staff approve each day's list and get an unconfirmed list for the huddle</span></li>
+        </ul>
+        <span class="btn-link">Call &amp; Confirm</span>
+      </a>
     </div>
     <div class="grid grid-4 mt-2">
-      <div class="card"><div class="icon">${icon("bell")}</div><h3>Reminders &amp; recalls</h3><p>Reminder calls, no-show follow-up and recall outreach, only with a staff click or a schedule you set.</p></div>
+      <div class="card"><div class="icon">${icon("chat")}</div><h3>Staff assistant</h3><p>Ask in plain words, such as "who has an opening Tuesday afternoon?", and get the answer from the live schedule.</p></div>
       <div class="card"><div class="icon">${icon("sun")}</div><h3>Huddle brief</h3><p>A morning summary of the day's schedule, plus a pre-visit check for each patient.</p></div>
       <div class="card"><div class="icon">${icon("moon")}</div><h3>On-call notebook</h3><p>Every after-hours call and message in one place for the on-call provider and the morning team.</p></div>
       <div class="card"><div class="icon">${icon("gauge")}</div><h3>Status &amp; alerts</h3><p>System status on every staff screen and automatic alerts to MOATiT's help desk if the EHR connection drops.</p></div>

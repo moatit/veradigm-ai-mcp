@@ -18,7 +18,7 @@ No runtime dependencies. The npm dev-dependencies are only the font packages the
 | Path | What |
 |---|---|
 | `src/content/site.mjs` | Single source of truth: domain, contact details, claims (proof numbers), nav and CTA labels |
-| `src/content/pages/*.mjs` | Page content: home, fax & labs, phone assistant, staff tools, security/trust center, integrations, about, contact (walkthrough form), ROI calculator, pricing, FAQ, legal (privacy, terms, HIPAA notice, accessibility), A/B landing variants, brand kit |
+| `src/content/pages/*.mjs` | Page content: home, fax & labs, phone assistant, Call & Confirm, staff tools, security/trust center, integrations, about, contact (walkthrough form), ROI calculator, pricing, FAQ, legal (privacy, terms, HIPAA notice, accessibility), A/B landing variants, brand kit |
 | `src/content/partials.mjs`, `layout.mjs` | Shared components, FAQ data, ROI calculator, page layout, schema.org JSON-LD |
 | `src/assets/` | CSS (inlined at build; all styling lives here because the CSP blocks inline `style` attributes), JS, self-hosted Poppins and Barlow (OFL), brand SVGs, the Open Graph image |
 | `scripts/build.mjs` | Build: pages, sitemap, robots, manifest, security.txt, `_headers` with CSP |

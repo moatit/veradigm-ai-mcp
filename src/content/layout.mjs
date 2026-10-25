@@ -53,7 +53,8 @@ export const appSchema = () => ({
     "Staff review queue with one-click file or correct",
     "AI phone assistant, day and night, with server-enforced caller verification",
     "Appointment booking, rescheduling, cancellation and confirmation with read-back",
-    "Reminder calls, recalls, huddle brief, pre-visit check and on-call notebook",
+    "Call & Confirm: appointment confirmation, no-show follow-up and recall calls, with results written to the schedule",
+    "Huddle brief, pre-visit check and on-call notebook",
     "Tamper-evident audit log and patient access reports",
   ],
 });
@@ -113,6 +114,7 @@ const footer = () => `<footer class="site-footer">
         <ul>
           <li><a href="/fax-lab-intake/">Fax &amp; lab-result intake</a></li>
           <li><a href="/phone-assistant/">AI phone assistant</a></li>
+          <li><a href="/call-and-confirm/">Call &amp; Confirm</a></li>
           <li><a href="/platform/">Staff tools</a></li>
           <li><a href="/integrations/">Integrations</a></li>
           <li><a href="/roi/">Time savings calculator</a></li>
@@ -207,12 +209,13 @@ ${footer()}
 `;
 }
 
-export const pageHero = ({ eyebrow, title, lede, crumbs = [], actions = "" }) => `<section class="page-hero">
+export const pageHero = ({ eyebrow, title, lede, crumbs = [], actions = "", note = "" }) => `<section class="page-hero">
   <div class="wrap">
     ${crumbs.length ? `<nav class="breadcrumb" aria-label="Breadcrumb"><ol><li><a href="/">Home</a></li>${crumbs.map((c, i) => (i === crumbs.length - 1 ? `<li aria-current="page">${esc(c.name)}</li>` : `<li><a href="${c.href}">${esc(c.name)}</a></li>`)).join("")}</ol></nav>` : ""}
     <p class="eyebrow">${eyebrow}</p>
     <h1>${title}</h1>
     ${lede ? `<p class="lede">${lede}</p>` : ""}
     ${actions ? `<div class="btn-row">${actions}</div>` : ""}
+    ${note ? `<p class="hero-note">${note}</p>` : ""}
   </div>
 </section>`;

@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url";
 import { SITE, ORG } from "../src/content/site.mjs";
 import { render, pageHero } from "../src/content/layout.mjs";
 import home from "../src/content/pages/home.mjs";
-import { fax, phone, platform } from "../src/content/pages/products.mjs";
+import { fax, phone, callConfirm, platform } from "../src/content/pages/products.mjs";
 import { security, integrations } from "../src/content/pages/trust.mjs";
 import { about, contact, roi, pricing, faq } from "../src/content/pages/company.mjs";
 import { privacy, terms, hipaa, accessibility } from "../src/content/pages/legal.mjs";
@@ -57,7 +57,7 @@ const notFound = {
 
 // The internal brand-kit page ships only in the preview build (DRAWBRIDGE_PREVIEW=1), never to production.
 const previewBuild = process.env.DRAWBRIDGE_PREVIEW === "1";
-const pages = [home, fax, phone, platform, security, integrations, about, contact, roi, pricing, faq, privacy, terms, hipaa, accessibility, lpFax, lpPhone, ...(previewBuild ? [brand] : []), notFound];
+const pages = [home, fax, phone, callConfirm, platform, security, integrations, about, contact, roi, pricing, faq, privacy, terms, hipaa, accessibility, lpFax, lpPhone, ...(previewBuild ? [brand] : []), notFound];
 
 rmSync(DIST, { recursive: true, force: true });
 mkdirSync(DIST, { recursive: true });
