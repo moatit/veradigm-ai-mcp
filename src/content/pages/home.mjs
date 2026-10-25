@@ -230,7 +230,7 @@ ${rolloutSection()}
     <div>
       <p class="eyebrow">Security &amp; HIPAA</p>
       <h2 id="sec-title">Built by a security-first IT company.</h2>
-      <p class="lede">MOATiT has run IT, phones and security for businesses since 2013. Drawbridge was built to the HIPAA Security Rule from the first line of code, and its code passed an independent audit in October 2026; the production re-review is pending.</p>
+      <p class="lede">MOATiT has run IT, phones and security for businesses since 2013. Drawbridge was built to the HIPAA Security Rule from the first line of code, and its code passed an independent audit by MOATiT's compliance officer, who is not involved in its development, in October 2026.</p>
       <div class="btn-row mt-1">${btnSecondary(CTA.security.label, CTA.security.href)}</div>
     </div>
     <ul class="checks">
@@ -239,7 +239,7 @@ ${rolloutSection()}
       <li><span><strong>Encryption</strong> in transit (TLS 1.2+) and at rest, and US hosting: required for every production deployment before patient data flows</span></li>
       <li><span><strong>Tamper-evident audit log</strong> kept six years, with patient access reports</span></li>
       <li><span><strong>Minimum necessary</strong>: the phone assistant sees only what the verified caller's request needs</span></li>
-      <li><span><strong>Code audit passed</strong> (Oct 2026), production re-review pending; SOC 2 in process, to be completed before the end of 2027</span></li>
+      <li><span><strong>Independent code audit passed</strong> (Oct 2026); SOC 2 in process, to be completed before the end of 2027</span></li>
     </ul>
   </div>
 </section>

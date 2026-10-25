@@ -278,11 +278,11 @@ export const FAQS = [
   },
   {
     q: "Is Drawbridge HIPAA compliant? Will you sign a BAA?",
-    a: "MOATiT signs a business associate agreement with every practice before any patient data flows. Drawbridge was built around the HIPAA Security Rule: multi-factor sign-in for every user, a tamper-evident audit log kept six years, minimum-necessary access and per-call caller verification. Encryption in transit and at rest and US hosting are required for every production deployment before patient data flows. There is no official HIPAA 'certification', so we publish our controls on the Security page instead.",
+    a: "MOATiT signs a business associate agreement with every practice before any patient data flows, and has signed BAAs with every service provider that handles patient information for it. Drawbridge was built around the HIPAA Security Rule: multi-factor sign-in for every user, a tamper-evident audit log kept six years, minimum-necessary access and per-call caller verification. Encryption in transit and at rest and US hosting are required for every production deployment before patient data flows. There is no official HIPAA 'certification', so we publish our controls on the Security page instead.",
   },
   {
     q: "Is our patient data used to train AI models?",
-    a: "Drawbridge's own software does not train AI models on your practice's data: documents are read by OCR running on MOATiT's own servers, and the decision of which chart a document goes to is made by rules you can audit. For calls, written confirmation that the voice platform the assistant runs on does not train on your data is in progress.",
+    a: "No. Drawbridge does not train AI models on your practice's data. Documents are read by OCR running on MOATiT's own servers, and the decision of which chart a document goes to is made by rules you can audit. The phone assistant runs on MOATiT's own voice platform, so no voice training happens on your calls.",
   },
   {
     q: "Where is our data stored, and for how long?",

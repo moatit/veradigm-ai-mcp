@@ -16,7 +16,7 @@ export const security = {
   path: "/security/",
   title: "Security & HIPAA trust center",
   description:
-    "How Drawbridge protects patient information: BAA, multi-factor sign-in, a tamper-evident six-year audit log, per-call caller verification, the encryption and US hosting every production deployment requires, a code audit and SOC 2 in process.",
+    "How Drawbridge protects patient information: BAA, multi-factor sign-in, a tamper-evident six-year audit log, per-call caller verification, no model training on your data, the encryption and US hosting every production deployment requires, an independent code audit and SOC 2 in process.",
   crumbs: [{ name: "Security & HIPAA", href: "/security/" }],
   body: `${pageHero({
     eyebrow: "Trust center",
@@ -36,7 +36,7 @@ export const security = {
       <div class="card"><div class="icon">${icon("phone")}</div><h3>Calls to your line</h3><p>Who is calling and what they need, so the assistant can verify them and help with visits, balances and messages.</p></div>
       <div class="card"><div class="icon">${icon("calendar")}</div><h3>Schedule and chart data</h3><p>Only what each task needs, read from and written to your EHR and practice-management system through a dedicated Drawbridge user that your practice administrator creates.</p></div>
     </div>
-    <p class="mt-2 lede">MOATiT is your business associate under HIPAA. We sign a BAA with every practice before any patient data flows. BAAs with the service providers that handle patient information for us are required before patient data flows, and are in progress.</p>
+    <p class="mt-2 lede">MOATiT is your business associate under HIPAA. We sign a BAA with every practice before any patient data flows, and we have signed BAAs with every service provider that handles patient information for us.</p>
   </div>
 </section>
 <section class="section on-white" aria-labelledby="controls-title">
@@ -74,7 +74,7 @@ export const security = {
           ${row("Retention", "Original faxes deleted 30 days after filing (the chart copy is the record); patient details on intake records after 90 days; call records after 30 days.", "ok")}
           ${row("Backups", "Every two hours, kept six months, encrypted and immutable: required for every production deployment.", "req")}
           ${row("Document integrity", "Each document is fingerprinted on arrival and checked again before it is filed.", "ok")}
-          ${row("No model training on your data", "Drawbridge's own software does not train AI models on your data. Written confirmation for the voice platform the assistant runs on is in progress.", "prog")}
+          ${row("No model training on your data", "Drawbridge does not train AI models on your data. The phone assistant runs on MOATiT's own voice platform, so no voice training happens on your calls.", "ok")}
         </tbody>
       </table>
     </div>
@@ -96,12 +96,12 @@ export const security = {
         <caption>Program, people and assurance</caption>
         <thead><tr><th scope="col">Item</th><th scope="col">Detail</th><th scope="col">Status</th></tr></thead>
         <tbody>
-          ${row("Business associate agreements", "With every practice before any patient data flows. BAAs with every provider that handles patient information for us are required before patient data flows, and are in progress.", "prog")}
+          ${row("Business associate agreements", "Signed with every practice before any patient data flows, and with every service provider that handles patient information for us.", "ok")}
           ${row("HIPAA training", "Annual HIPAA security and privacy training for the MOATiT workforce.", "org")}
           ${row("Incident response", "Documented incident response plan, with breach notification to practices as set out in the BAA.", "org")}
           ${row("Disaster recovery &amp; continuity", "Documented disaster recovery and business continuity plans.", "org")}
           ${row("Independent testing", "Annual vulnerability scans and penetration tests by an independent outside firm.", "org")}
-          ${row("Independent code audit", "Security and HIPAA technical-safeguards audit of the Drawbridge code by a reviewer who did not write it, October 2026: code audit passed, with every high-severity finding fixed; production re-review pending.", "prog")}
+          ${row("Independent code audit", "Security and HIPAA technical-safeguards audit of the Drawbridge code by MOATiT's compliance officer, who is not involved in Drawbridge's development, October 2026: audit passed, with every high-severity finding fixed.", "ok")}
           ${row("SOC 2", "In process; the audit is to be completed before the end of 2027.", "prog")}
           ${row("Veradigm Connect certification", "MOATiT's certification for Drawbridge is in progress.", "prog")}
         </tbody>
