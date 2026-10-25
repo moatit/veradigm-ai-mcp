@@ -306,9 +306,32 @@ Taken from `npm run demo:outreach -- --warm`: the real staff screens on the synt
 | Simulated week (outcome mix, calls per day and window) | ![](call-and-confirm/05-simulated-week.png) |
 | Huddle brief with the Unconfirmed flag | ![](call-and-confirm/06-huddle-unconfirmed-flag.png) |
 
+## Sandbox verification (Oct 24, 2026)
+
+The Veradigm® PM reads were checked read-only against the sandbox. Only the PM target was used: no EHR action, no writes, no calls. The compiled code ran in a throwaway folder in the local Unity container, with an in-memory job store. Field names and parameter formats are in the module README ("Veradigm® PM reads").
+
+Fixed after the check:
+- **`GetSchedule` range**: the range is `Parameter1 = "start|end"`. The assumed `Parameter2` end date returned 0 rows.
+- **`GetSchedule` dates**: the visit date is only in `ApptTime2`, and one date alone also returns the next day's visits. Rows are now re-filtered by that date.
+- **`GetPatient` phones**: the fields are `Patient_Cell_Phone` / `Patient_Home_Phone` / `Patient_Work_Phone`. Before the fix no phone was found, so every job would have been skipped. Non-US numbers are now skipped too.
+- **Confirmation codes**: they are on `GetScheduleByPatientID` rows, not `GetSchedule`. The confirm builder and the pre-call re-read now check them. "Acknowledge" counts as confirmed, and "Answered - Confirmed Repeated" does not.
+- **Provider and recall type**: read from `Attending*` (no-show rows) and `Recall_Type_Desc` (recalls).
+
+Lists built from real sandbox rows (dry run, Saturday Oct 24, 23:57 MT; counts only):
+
+| List | Rows read | Matched | New jobs | Not called |
+|---|---:|---:|---:|---|
+| Confirm (Mon 10/26 – Wed 10/28) | 164 | 37 | 19 | 2 already confirmed, 13 no attempt fits before the visit, 5 no usable US phone |
+| No-show (Fri 10/23 – Sat 10/24) | 94 | 0 | 0 | the sandbox has no no-shows in the last 14 days |
+| Recall (due in the past year) | 58 (20 patients) | 58 | 13 | 3 visit already booked, 4 no usable US phone |
+
+Every new job had a +1 phone, a first name, a parsed visit date and time (or recall date) and a provider or recall type. Reads used: `GetSchedule` 3, `GetScheduleByPatientID` 80, `GetPatient` 74, `GetAppointmentsByChangeDTTM` 3, `GetRecalls` 2.
+- **"No attempt fits"**: on a Saturday night there is no business day left before Monday's visits. The sandbox's training patients also have several visits each, and the one-call-a-day limit keeps one.
+- **Counts vary by run**: confirm counts move by a few between runs because the shared sandbox returns rows in a different order.
+
 ## Before any real call
 
-1. Verify the PM parameter assumptions in the sandbox (`GetSchedule` range, `GetAppointmentsByChangeDTTM`, `GetRecalls`, the confirmation result field). See the module README.
+1. The PM reads are verified (above). The no-show path still has no real sandbox row, so confirm it the first time a no-show appears.
 2. Set `CLINIC_CALLBACK_NUMBER` and create the outbound Retell agent with the updated prompt.
 3. Test calls to staff phones only: `test_allowlist`, `OUTBOUND_ENABLED=true`, `mode: "live"`.
 4. Calling real patients needs the owner's go-ahead and a code change, because live mode only ever dials allowlisted numbers.

@@ -1,7 +1,7 @@
 import axios from 'axios';
 import { UnityTaskTools } from '../../../unity/tools/task.tools';
 import { clinicLabel } from '../../clinic';
-import { BuildCtx, bookedFrom, isCancelled, isConfirmedStatus, lookupPhone, patientSchedule } from './generators';
+import { BuildCtx, bookedFrom, isCancelled, lookupPhone, patientSchedule, visitConfirmed } from './generators';
 import { inWindow, isCallingDay, remaining, windowStillOpen, withinCallingHours } from './scheduler';
 import { CallConfirmSettings, defaultSettings, envAllowlist } from './settings';
 import type { JobStore } from './store';
@@ -119,7 +119,7 @@ export async function preAttemptCheck(ctx: BuildCtx, job: OutreachJob): Promise<
     const row = rows.find((r) => r.id && r.id === job.appointment!.id);
     if (!row) return { stop: 'moved' };
     if (isCancelled(row.status)) return { stop: 'cancelled' };
-    if (isConfirmedStatus(row.status)) return { stop: 'confirmed' };
+    if (await visitConfirmed(ctx.unity, row)) return { stop: 'confirmed' };
     const d = parseDate(row.date);
     if (d && visit && cmpDate(d, visit) !== 0) return { stop: 'moved' };
     if (row.time && job.appointment.time && spokenTime(row.time) !== spokenTime(job.appointment.time)) return { stop: 'moved' };

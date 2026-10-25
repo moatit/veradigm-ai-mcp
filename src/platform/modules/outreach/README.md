@@ -150,15 +150,15 @@ No diagnoses, medications or other chart data.
 4. Put the agent ID, outbound number and key in `.env` / SSM only.
 5. Test in dry run, then with the simulation. Only then set `test_allowlist` to staff phones, `OUTBOUND_ENABLED=true` and `mode: "live"`.
 
-## Veradigm® PM parameter assumptions (verify in the sandbox)
+## Veradigm® PM reads (verified in the sandbox, Oct 24, 2026)
 
-The Veradigm reference lists action names only. Rows are parsed with several candidate field names.
+Checked read-only against the Veradigm® PM sandbox (PM target only, no writes). Rows are still parsed with several candidate field names (`pick()`: case- and underscore-insensitive), in case another PM version names them differently.
 
-| Action | Sent | Fields read |
-|---|---|---|
-| `GetSchedule` | Parameter1 = start date MM/DD/YYYY, Parameter2 = end date; rows re-filtered by date | patientid, apptid/appointmentid, apptdate/appointmentdate/startdatetime, appttime, resourcename/providername, status, Appt_Confirmation_Result_ID / ConfirmationResultID |
-| `GetAppointmentConfirmationResults` | none (read when a schedule row carries a result code) | Appt_Confirmation_Result_ID, Short_Description |
-| `GetAppointmentsByChangeDTTM` | Parameter1 = "MM/DD/YYYY 00:00:00" (previous business day), Parameter2 = "MM/DD/YYYY 23:59:59" (today) | as GetSchedule; status matched by "no show" / "missed" / "N" |
-| `GetRecalls` | Parameter1 = due-date start (a year back), Parameter2 = yesterday | patientid, recalltype, duedate, status (completed/closed skipped) |
-| `GetScheduleByPatientID` | PatientID in the envelope | Appointment_ID, Appointment_DateTime, Status (C / X / N letters) |
-| `GetPatient` | PatientID in the envelope, Parameter1 = `N` | cellphone/mobilephone, homephone/phone, workphone, firstname |
+| Action | Sent | Fields read (sandbox names) | Notes |
+|---|---|---|---|
+| `GetSchedule` | Parameter1 = `"MM/DD/YYYY\|MM/DD/YYYY"` (range) | `AppointmentID`, `patientID`, `PatientFirstName`, `ApptTime2` (date: `10/26/2026 08:00:00 AM`), `ApptTime` (`08:00`), `Provider` (Last, First), `Status` | Parameter2 as an end date returns **no rows**. One date alone also returns the next day's visits, so rows are re-filtered by the `ApptTime2` date. Statuses: `Scheduled`, `Confirmed`, `canceled`, `Acknowledge`, `Bumped`. No confirmation result on these rows. |
+| `GetScheduleByPatientID` | PatientID in the envelope | `Appointment_ID`, `Appointment_DateTime` (`9/1/2026 9:00:00 AM`), `Status` (S / C / A / X / B), `Appt_Confirmation_Result_ID` | Used for the confirmation code at list build, the pre-call re-read and the recall "nothing booked" check. |
+| `GetAppointmentConfirmationResults` | none (read when a code is present; cached 1 h) | `Appt_Confirmation_Result_ID`, `Short_Description` | 26 results. Counted as confirmed: Answered - Yes, Answered - Confirmed Yes, Email Confirmed, Text Confirmed, and the three "Patient Confirmed - …" results. |
+| `GetAppointmentsByChangeDTTM` | Parameter1 = `"MM/DD/YYYY 00:00:00"` (previous business day), Parameter2 = `"MM/DD/YYYY 23:59:59"` (today) | `Appointment_ID`, `Patient_ID`, `Patient_First_Name`, `Appointment_DateTime` (`10/21/2026 9:00am`), `Status` letters, `DateTime_NoShow`, `AttendingLastName` / `AttendingFirstName` | Dates without a time work too. The sandbox returned visits dated inside the window. No-show = status `N` / "No Show", or `DateTime_NoShow` set; the sandbox had none in the last 14 days, so this path is tested with sandbox-shaped rows only. |
+| `GetRecalls` | Parameter1 = due-date start (a year back), Parameter2 = yesterday | `Patient_ID`, `Patient_First_Name`, `Recall_Date` (`9/15/2026 12:00:00 AM`), `Recall_Type_Desc` | Parameter1 alone returns nothing; `"a\|b"` is an error. No status field. `Linked_Appointment_ID` is set on every sandbox row, so "nothing booked" is checked with `GetScheduleByPatientID`. |
+| `GetPatient` | PatientID in the envelope, Parameter1 = `N` | `Patient_Cell_Phone`, `Patient_Home_Phone` (`2085550101`), `Patient_Work_Phone` (`208-555-0101`), `Patient_First_Name` | US numbers only: a non-+1 number (some sandbox cell numbers are international) is skipped for the next field. |

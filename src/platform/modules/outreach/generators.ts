@@ -22,10 +22,9 @@ import { addDays, CalDate, cmpDate, mdy, parseDate, splitDateTime, todayInClinic
  * Errors are never "nothing to do" (CLAUDE.md rule 5): if any read fails, the builder throws and saves
  * nothing, so staff see an error instead of an empty list.
  *
- * PARAMETER LAYOUTS ARE UNVERIFIED. Veradigm's PM reference lists action names only. Every Parameter
- * assumption below follows Unity conventions (MM/DD/YYYY dates, PatientID in the envelope) and is marked
- * ASSUMPTION; check each one with `npm run verify:sandbox` / sandbox logs before the first real run.
- * Field names are read with several candidates via pick().
+ * Parameter layouts and field names were checked against the Veradigm® PM sandbox on Oct 24, 2026 (read-only,
+ * marked VERIFIED below; README "Veradigm® PM reads"). Field names are still read with several candidates via
+ * pick() (case- and underscore-insensitive) in case another PM version names them differently.
  */
 export type UnityLike = Pick<UnityService, 'executeAction'>;
 
@@ -78,9 +77,11 @@ export async function read(unity: UnityLike, action: string, params: Record<stri
 
 export const PATIENT_ID = ['PatientID', 'PatID', 'PID', 'PatientNumber', 'Patient_ID'];
 const APPT_ID = ['AppointmentID', 'ApptID', 'Appointment_ID', 'SchedulingID', 'AppointmentNumber', 'ID'];
-const APPT_DATE = ['ApptDate', 'AppointmentDate', 'StartDate', 'Date', 'ApptDateTime', 'AppointmentDateTime', 'Appointment_DateTime', 'StartDateTime'];
+// Sandbox: GetSchedule carries the visit date only in ApptTime2 ("10/26/2026 08:00:00 AM"; ApptTime is "08:00");
+// GetScheduleByPatientID and GetAppointmentsByChangeDTTM use Appointment_DateTime.
+const APPT_DATE = ['ApptDate', 'AppointmentDate', 'StartDate', 'Date', 'ApptDateTime', 'AppointmentDateTime', 'StartDateTime', 'ApptTime2'];
 const APPT_TIME = ['ApptTime', 'AppointmentTime', 'StartTime', 'Time'];
-const PROVIDER = ['ResourceName', 'ProviderName', 'Provider', 'Resource', 'DoctorName', 'ResourceDescription', 'Doctor'];
+const PROVIDER = ['ResourceName', 'ProviderName', 'Provider', 'Practitioner_Name', 'Resource', 'DoctorName', 'ResourceDescription', 'Resource_Desc', 'Doctor'];
 const STATUS = ['Status', 'ApptStatus', 'AppointmentStatus', 'StatusDescription', 'ApptStatusDescription', 'StatusName'];
 const CONFIRM_RESULT = ['Appt_Confirmation_Result_ID', 'ConfirmationResultID', 'Confirmation_Result_ID', 'ConfirmationResult', 'ConfirmResult', 'ConfirmationStatus'];
 const FIRST_NAME = ['PatientFirstName', 'FirstName', 'PatFirstName', 'First', 'FName'];
@@ -96,23 +97,30 @@ export function firstNameOf(row: Record<string, any>): string {
   return full.split(/\s+/)[0];
 }
 
-export function appointmentOf(row: Record<string, any>): Candidate['appointment'] & { status: string } {
+export function appointmentOf(row: Record<string, any>): Candidate['appointment'] & { status: string; confirmResult: string; noShowAt: string } {
   let date = pick(row, ...APPT_DATE);
   let time = pick(row, ...APPT_TIME);
   if (date && !time) ({ date, time } = splitDateTime(date));
   else if (date) date = splitDateTime(date).date;
+  // GetAppointmentsByChangeDTTM names the provider only as Attending* (Last, First).
+  const attending = [pick(row, 'AttendingLastName'), pick(row, 'AttendingFirstName')].filter(Boolean).join(', ');
   return {
     id: pick(row, ...APPT_ID),
     date,
     time,
-    provider: pick(row, ...PROVIDER),
+    provider: pick(row, ...PROVIDER) || attending,
     status: pick(row, ...STATUS),
+    confirmResult: pick(row, ...CONFIRM_RESULT),
+    noShowAt: pick(row, 'DateTime_NoShow'),
   };
 }
 
-export const isCancelled = (status: string) => /^x$|cancel|deleted|bumped|void/i.test(String(status || '').trim());
+// Sandbox statuses: GetSchedule "Scheduled" / "Confirmed" / "canceled" / "Acknowledge" / "Bumped";
+// GetScheduleByPatientID and GetAppointmentsByChangeDTTM letters S / C / A / X / B (N = no show).
+export const isCancelled = (status: string) => /^[xb]$|cancel|deleted|bumped|void/i.test(String(status || '').trim());
 export const isNoShow = (status: string) => /^n$|no[\s_-]?show|missed/i.test(String(status || '').trim());
-export const isConfirmedStatus = (status: string) => /^c$|^confirm/i.test(String(status || '').trim());
+/** Confirmed, or Acknowledged (the patient already answered the reminder). */
+export const isConfirmedStatus = (status: string) => /^[ca]$|^confirm|^acknowledg/i.test(String(status || '').trim());
 
 /**
  * A confirmation result that means "the patient said yes" (GetAppointmentConfirmationResults descriptions such
@@ -121,7 +129,7 @@ export const isConfirmedStatus = (status: string) => /^c$|^confirm/i.test(String
 export function isPositiveConfirmation(description: string): boolean {
   const d = String(description || '');
   if (!d) return false;
-  if (/\bno\b|\bnot\b|left|message|voice ?mail|unable|busy|wrong|disconnect|cancel/i.test(d)) return false;
+  if (/\bno\b|\bnot\b|left|message|voice ?mail|unable|busy|wrong|disconnect|cancel|repeat/i.test(d)) return false;
   return /\byes\b|confirm|will (attend|come|be there)|attending/i.test(d);
 }
 
@@ -135,26 +143,48 @@ export function phoneFromPatientRows(rows: Record<string, any>[]): { phone: stri
   const row = rows[0];
   if (!row) return { phone: '', firstName: '' };
   const candidates = [
-    pick(row, 'CellPhone', 'MobilePhone', 'Mobile', 'Cell', 'CellPhoneNumber', 'PhoneCell'),
-    pick(row, 'HomePhone', 'Phone', 'PhoneNumber', 'HomePhoneNumber', 'PhoneHome', 'PrimaryPhone'),
-    pick(row, 'WorkPhone', 'BusinessPhone', 'PhoneWork'),
+    // Sandbox GetPatient (PM): Patient_Cell_Phone, Patient_Home_Phone ("2085550101"), Patient_Work_Phone ("208-555-0101").
+    pick(row, 'Patient_Cell_Phone', 'CellPhone', 'MobilePhone', 'Mobile', 'Cell', 'CellPhoneNumber', 'PhoneCell'),
+    pick(row, 'Patient_Home_Phone', 'HomePhone', 'Phone', 'PhoneNumber', 'HomePhoneNumber', 'PhoneHome', 'PrimaryPhone'),
+    pick(row, 'Patient_Work_Phone', 'WorkPhone', 'BusinessPhone', 'PhoneWork'),
   ];
+  const firstName = pick(row, 'Patient_First_Name', 'FirstName', 'First', 'FName');
   for (const c of candidates) {
     const e = toE164(c);
-    if (e) return { phone: e, firstName: pick(row, 'FirstName', 'First', 'FName') };
+    // US numbers only (the sandbox has international "+CC..." cell numbers): otherwise try the next field.
+    if (/^\+1\d{10}$/.test(e)) return { phone: e, firstName };
   }
-  return { phone: '', firstName: pick(row, 'FirstName', 'First', 'FName') };
+  return { phone: '', firstName };
 }
 
 export async function lookupPhone(unity: UnityLike, id: string): Promise<{ phone: string; firstName: string }> {
-  // ASSUMPTION: GetPatient (Veradigm® PM) takes the patient in the PatientID envelope field;
-  // Parameter1 = include picture Y/N, as the existing EHR call sends it.
+  // VERIFIED (sandbox, Oct 24): GetPatient (PM) takes the patient in the PatientID envelope; Parameter1 = N (no picture).
   return phoneFromPatientRows(await read(unity, UnityActions.Patient.GET_PATIENT, { Parameter1: 'N' }, id));
 }
 
-/** A patient's PM appointment rows (GetScheduleByPatientID); failures throw. */
+/** A patient's PM appointment rows (GetScheduleByPatientID, PatientID envelope; VERIFIED in the sandbox); failures throw. */
 export async function patientSchedule(unity: UnityLike, patientId: string): Promise<Array<ReturnType<typeof appointmentOf>>> {
   return (await read(unity, UnityActions.Scheduling.GET_APPOINTMENTS, {}, patientId)).map(appointmentOf);
+}
+
+/** GetAppointmentConfirmationResults (ID → short description), cached 1 hour per client; a failed read throws. */
+const confirmCache = new WeakMap<object, { at: number; map: Map<string, string> }>();
+export async function confirmationResults(unity: UnityLike): Promise<Map<string, string>> {
+  const hit = confirmCache.get(unity);
+  if (hit && Date.now() - hit.at < 3_600_000) return hit.map;
+  const list = await read(unity, UnityActions.Scheduling.GET_CONFIRMATION_RESULTS, {});
+  const map = new Map(
+    list.map((r) => [pick(r, 'Appt_Confirmation_Result_ID', 'ConfirmationResultID', 'ID'), pick(r, 'Short_Description', 'Description', 'Long_Description')])
+  );
+  confirmCache.set(unity, { at: Date.now(), map });
+  return map;
+}
+
+/** The visit is confirmed: by status (C / Confirmed / Acknowledged) or by a positive confirmation result code. */
+export async function visitConfirmed(unity: UnityLike, a: { status: string; confirmResult: string }): Promise<boolean> {
+  if (isConfirmedStatus(a.status)) return true;
+  if (!a.confirmResult) return false;
+  return isPositiveConfirmation((await confirmationResults(unity)).get(a.confirmResult) || a.confirmResult);
 }
 
 /** A non-cancelled, non-no-show visit on or after `from`. */
@@ -249,18 +279,10 @@ export async function confirmCandidates(
   from: CalDate,
   to: CalDate
 ): Promise<{ rows: number; unusable: number; candidates: Candidate[]; alreadyConfirmed: number }> {
-  // ASSUMPTION: GetSchedule (Veradigm® PM) Parameter1 = start date MM/DD/YYYY, Parameter2 = end date
-  // MM/DD/YYYY. Other Parameters blank = all providers/locations. Rows are re-filtered by date below.
-  const rows = await read(unity, UnityActions.Scheduling.GET_SCHEDULE, { Parameter1: mdy(from), Parameter2: mdy(to) });
-  // Confirmation result codes (Appt_Confirmation_Result_ID on the row) → descriptions. Only read when a row
-  // carries one; a failed read is an error (we can't tell who already confirmed).
-  let results: Map<string, string> | null = null;
-  if (rows.some((r) => pick(r, ...CONFIRM_RESULT))) {
-    const list = await read(unity, UnityActions.Scheduling.GET_CONFIRMATION_RESULTS, {});
-    results = new Map(
-      list.map((r) => [pick(r, 'Appt_Confirmation_Result_ID', 'ConfirmationResultID', 'ID'), pick(r, 'Short_Description', 'Description', 'Long_Description')])
-    );
-  }
+  // VERIFIED (sandbox, Oct 24): a date range is Parameter1 = "MM/DD/YYYY|MM/DD/YYYY" (Parameter2 as an end date
+  // returns no rows; one date alone also returns the next day's visits). Rows carry the visit date only in
+  // ApptTime2, so they are re-filtered by that date here.
+  const rows = await read(unity, UnityActions.Scheduling.GET_SCHEDULE, { Parameter1: `${mdy(from)}|${mdy(to)}` });
   let unusable = 0;
   let alreadyConfirmed = 0;
   const candidates: Candidate[] = [];
@@ -269,8 +291,8 @@ export async function confirmCandidates(
     const d = parseDate(a.date);
     if (!d || cmpDate(d, from) < 0 || cmpDate(d, to) > 0) continue;
     if (isCancelled(a.status) || isNoShow(a.status)) continue;
-    const code = pick(r, ...CONFIRM_RESULT);
-    if (isConfirmedStatus(a.status) || isPositiveConfirmation(results?.get(code) || code)) {
+    // GetSchedule rows have no confirmation result in the sandbox; another PM version may send one.
+    if (await visitConfirmed(unity, a)) {
       alreadyConfirmed++;
       continue;
     }
@@ -292,7 +314,23 @@ export async function buildConfirmList(ctx: BuildCtx): Promise<GenerateResult> {
   const c = await confirmCandidates(ctx.unity, from, to);
   const skipped: Record<string, number> = {};
   if (c.alreadyConfirmed) skipped['Already confirmed'] = c.alreadyConfirmed;
-  return propose(ctx, 'confirm', c.candidates, {
+  // The confirmation result code (GetAppointmentConfirmationResults) is on the patient's own schedule rows
+  // (GetScheduleByPatientID), not on GetSchedule: one read per new candidate patient.
+  const keep: Candidate[] = [];
+  const schedules = new Map<string, Array<ReturnType<typeof appointmentOf>>>();
+  for (const cand of c.candidates) {
+    const key = `confirm|${cand.patientId}|${cand.appointment!.id || `${cand.appointment!.date} ${cand.appointment!.time}`}`;
+    if (ctx.store.findByDedupeKey(key) || ctx.store.isOptedOut(cand.patientId) || !cand.appointment!.id) {
+      keep.push(cand); // propose() counts duplicates and opt-outs
+      continue;
+    }
+    if (!schedules.has(cand.patientId)) schedules.set(cand.patientId, await patientSchedule(ctx.unity, cand.patientId));
+    const row = schedules.get(cand.patientId)!.find((x) => x.id === cand.appointment!.id);
+    if (row && (await visitConfirmed(ctx.unity, row))) skipped['Already confirmed'] = (skipped['Already confirmed'] || 0) + 1;
+    else if (row && isCancelled(row.status)) skipped['Cancelled since the schedule was read'] = (skipped['Cancelled since the schedule was read'] || 0) + 1;
+    else keep.push(cand);
+  }
+  return propose(ctx, 'confirm', keep, {
     rows: c.rows,
     matched: c.candidates.length + c.unusable,
     unusable: c.unusable,
@@ -305,8 +343,9 @@ export async function buildConfirmList(ctx: BuildCtx): Promise<GenerateResult> {
 export async function buildNoShowList(ctx: BuildCtx): Promise<GenerateResult> {
   const today = todayInClinic(ctx.now);
   const start = shiftCallingDays(today, -1, ctx.settings);
-  // ASSUMPTION: GetAppointmentsByChangeDTTM Parameter1 = changed-since "MM/DD/YYYY HH:MM:SS",
-  // Parameter2 = changed-until. Rows are filtered by status and by visit date (not in the future) here.
+  // VERIFIED (sandbox, Oct 24): Parameter1 = "MM/DD/YYYY HH:MM:SS", Parameter2 = "MM/DD/YYYY HH:MM:SS" (dates alone
+  // work too). The sandbox returned visits dated inside the window. Rows are filtered by status (N / No Show, or
+  // DateTime_NoShow set) and by visit date here.
   const rows = await read(ctx.unity, UnityActions.Scheduling.GET_APPOINTMENTS_BY_CHANGE, {
     Parameter1: `${mdy(start)} 00:00:00`,
     Parameter2: `${mdy(today)} 23:59:59`,
@@ -315,7 +354,7 @@ export async function buildNoShowList(ctx: BuildCtx): Promise<GenerateResult> {
   const candidates: Candidate[] = [];
   for (const r of rows) {
     const a = appointmentOf(r);
-    if (!isNoShow(a.status)) continue;
+    if (!isNoShow(a.status) && !a.noShowAt) continue;
     const d = parseDate(a.date);
     if (d && (cmpDate(d, today) > 0 || cmpDate(d, start) < 0)) continue;
     const patientId = pick(r, ...PATIENT_ID);
@@ -338,8 +377,10 @@ export async function buildRecallList(ctx: BuildCtx, opts: { lookbackDays?: numb
   const today = todayInClinic(ctx.now);
   const from = addDays(today, -(opts.lookbackDays ?? 365));
   const to = addDays(today, -1);
-  // ASSUMPTION: GetRecalls Parameter1 = due-date start MM/DD/YYYY, Parameter2 = due-date end MM/DD/YYYY,
-  // blank PatientID = all patients. Rows are re-filtered by due date below.
+  // VERIFIED (sandbox, Oct 24): Parameter1 = due-date start MM/DD/YYYY, Parameter2 = due-date end, blank PatientID =
+  // all patients (Parameter1 alone returns nothing; "a|b" is an error). Rows: Patient_ID, Recall_Date
+  // ("9/15/2026 12:00:00 AM"), Recall_Type_Desc, Linked_Appointment_ID (set on every sandbox row, so it is not a
+  // "booked" flag), no status field. Rows are re-filtered by due date below.
   const rows = await read(ctx.unity, UnityActions.Scheduling.GET_RECALLS, { Parameter1: mdy(from), Parameter2: mdy(to) });
   let unusable = 0;
   const due: Array<Candidate & { d: CalDate }> = [];
@@ -358,7 +399,7 @@ export async function buildRecallList(ctx: BuildCtx, opts: { lookbackDays?: numb
       d,
       patientId,
       firstName: firstNameOf(r),
-      recall: { type: pick(r, 'RecallType', 'RecallTypeDescription', 'RecallDescription', 'Description', 'RecallReason', 'Type', 'Reason'), due: dueText },
+      recall: { type: pick(r, 'Recall_Type_Desc', 'RecallType', 'RecallTypeDescription', 'RecallDescription', 'Description', 'RecallReason', 'Type', 'Reason'), due: dueText },
     });
   }
   due.sort((a, b) => cmpDate(a.d, b.d));

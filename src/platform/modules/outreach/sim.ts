@@ -8,8 +8,10 @@ import { addDays, CalDate, cmpDate, isoDate, mdy, parseDate } from './util';
  *
  * Everything here is made up: names come from fixed synthetic lists, phone numbers are in the fictional
  * 555-01XX range, IDs are invented. SimUnity answers the Veradigm® PM actions Call & Confirm and the phone
- * agent's tools use (same row shapes the parsers expect) and keeps every write in `writes`, so a run can
- * prove that only SetAppointmentStatus, SaveAppointment and SaveTask were written. Nothing leaves the process.
+ * agent's tools use, with the row shapes and quirks seen in the Veradigm® PM sandbox on Oct 24, 2026 (field
+ * names, date formats, status words; GetSchedule ranges as "a|b", a single date also returning the next day),
+ * and keeps every write in `writes`, so a run can prove that only SetAppointmentStatus, SaveAppointment and
+ * SaveTask were written. Nothing leaves the process.
  */
 const S = UnityActions.Scheduling;
 
@@ -52,7 +54,8 @@ const CONFIRM_RESULTS = [
   { Appt_Confirmation_Result_ID: '3', Short_Description: 'No Answer' },
   { Appt_Confirmation_Result_ID: '4', Short_Description: 'Confirmed by text' },
 ];
-const STATUS_LABEL: Record<string, string> = { S: 'Scheduled', C: 'Confirmed', X: 'Cancelled', N: 'No Show', O: 'Checked Out' };
+/** GetSchedule status words as the sandbox sends them (GetScheduleByPatientID / ByChangeDTTM send the letter). */
+const STATUS_LABEL: Record<string, string> = { S: 'Scheduled', C: 'Confirmed', X: 'canceled', N: 'No Show', O: 'Checked Out' };
 
 export interface SimPatient {
   id: string;
@@ -100,6 +103,17 @@ const ampm = (t: string) => {
   const h = Math.floor(m / 60);
   return `${h % 12 || 12}:${pad(m % 60)}:00 ${h >= 12 ? 'PM' : 'AM'}`;
 };
+/** "9:00am" (GetAppointmentsByChangeDTTM's Appointment_DateTime time, no seconds, no space). */
+const ampmShort = (t: string) => {
+  const m = toMin(t);
+  const h = Math.floor(m / 60);
+  return `${h % 12 || 12}:${pad(m % 60)}${h >= 12 ? 'pm' : 'am'}`;
+};
+/** "9/15/2026" (no leading zeros, as GetRecalls and GetScheduleByPatientID send dates). */
+const mdyLoose = (iso: string) => {
+  const [y, m, d] = iso.split('-').map(Number);
+  return `${m}/${d}/${y}`;
+};
 const isoFromMdy = (s: string) => {
   const c = parseDate(s);
   return c ? isoDate(c) : '';
@@ -139,30 +153,57 @@ export class SimUnity {
     return true;
   }
 
+  /** GetSchedule row (sandbox shape: the date only in ApptTime2, no confirmation result). */
   private rowForSchedule(a: SimAppt) {
     const p = this.patients.get(a.patientId)!;
     const r = SIM_PROVIDERS.find((x) => x.id === a.resourceId);
     return {
-      apptid: a.id,
-      patientid: a.patientId,
-      patientname: `${p.last}, ${p.first}`,
-      apptdate: mdy(parseDate(a.date)!),
-      appttime: a.time,
-      resourcename: r?.name || '',
-      status: STATUS_LABEL[a.status],
-      Appt_Confirmation_Result_ID: a.confirmResultId,
-      appttype: TYPES.find((t) => t.Appointment_Type_ID === a.typeId)?.Description || '',
+      AppointmentID: a.id,
+      patientID: a.patientId,
+      PatientFirstName: p.first,
+      PatientLastName: p.last,
+      patient: `${p.last}, ${p.first}`,
+      ApptTime: a.time,
+      ApptTime2: `${mdy(parseDate(a.date)!)} ${ampm(a.time).padStart(11, '0')}`,
+      Provider: r?.name || '',
+      Practitioner_Name: r?.name || '',
+      ProviderID: a.resourceId,
+      Duration: String(a.duration),
+      Status: STATUS_LABEL[a.status],
+      appttype: TYPES.find((t) => t.Appointment_Type_ID === a.typeId)?.Abbreviation || '',
+      type: TYPES.find((t) => t.Appointment_Type_ID === a.typeId)?.Description || '',
     };
   }
 
+  /** GetAppointmentsByChangeDTTM row (sandbox shape: status letter, Attending* provider). */
+  private rowForChange(a: SimAppt) {
+    const p = this.patients.get(a.patientId)!;
+    const r = SIM_PROVIDERS.find((x) => x.id === a.resourceId);
+    const [last, first] = (r?.name || '').split(',').map((s) => s.trim());
+    return {
+      Appointment_ID: a.id,
+      Patient_ID: a.patientId,
+      Patient_First_Name: p.first,
+      Appointment_DateTime: `${mdy(parseDate(a.date)!)} ${ampmShort(a.time)}`,
+      Status: a.status === 'O' ? 'S' : a.status,
+      DateTime_NoShow: a.status === 'N' ? `${mdyLoose(a.date)} 5:30:00 PM` : '',
+      Resource_ID: a.resourceId,
+      Resource_Abbr: r?.abbr || '',
+      AttendingLastName: last || '',
+      AttendingFirstName: (first || '').replace(/\s+(MD|DO|NP)$/, ''),
+    };
+  }
+
+  /** GetScheduleByPatientID row (sandbox shape). */
   private rowForPatientSchedule(a: SimAppt) {
     return {
       Appointment_ID: a.id,
       Patient_ID: a.patientId,
-      Appointment_DateTime: `${mdy(parseDate(a.date)!)} ${ampm(a.time)}`,
+      Appointment_DateTime: `${mdyLoose(a.date)} ${ampm(a.time)}`,
       Resource_ID: a.resourceId,
       Appointment_Type_ID: a.typeId,
-      Status: a.status,
+      Status: a.status === 'O' ? 'S' : a.status,
+      Appt_Confirmation_Result_ID: a.confirmResultId,
       Duration: String(a.duration),
     };
   }
@@ -181,26 +222,44 @@ export class SimUnity {
     const all = [...this.appts.values()];
     switch (action) {
       case S.GET_SCHEDULE: {
-        const from = isoFromMdy(params.Parameter1);
-        const to = isoFromMdy(params.Parameter2 || params.Parameter1);
+        // Sandbox: a range is Parameter1 "a|b"; one date returns that day and the next; Parameter2 is not an end date.
+        const [p1, p2] = String(params.Parameter1 || '').split('|');
+        const from = isoFromMdy(p1);
+        const to = p2 ? isoFromMdy(p2) : from ? isoDate(addDays(parseDate(from)!, 1)) : '';
         return ok('getscheduleinfo', all.filter((a) => a.date >= from && a.date <= to).map((a) => this.rowForSchedule(a)));
       }
       case S.GET_APPOINTMENTS_BY_CHANGE: {
         const from = stampFromParam(params.Parameter1);
         const to = stampFromParam(params.Parameter2);
-        return ok('getappointmentsbychangedttminfo', all.filter((a) => a.changedAt >= from && a.changedAt <= to).map((a) => this.rowForSchedule(a)));
+        return ok('getappointmentsbychangedttminfo', all.filter((a) => a.changedAt >= from && a.changedAt <= to).map((a) => this.rowForChange(a)));
       }
       case S.GET_RECALLS: {
+        // Sandbox: Parameter1 + Parameter2 = due-date range; Parameter1 alone returns nothing. No status field.
+        if (!params.Parameter2) return ok('getrecallsinfo', []);
         const from = isoFromMdy(params.Parameter1);
         const to = isoFromMdy(params.Parameter2);
         return ok(
           'getrecallsinfo',
-          this.recalls.filter((r) => r.due >= from && r.due <= to).map((r) => ({ patientid: r.patientId, recalltype: r.type, duedate: mdy(parseDate(r.due)!), status: r.status }))
+          this.recalls
+            .filter((r) => r.status === 'Open' && r.due >= from && r.due <= to)
+            .map((r, i) => ({
+              Recall_ID: String(5000 + i),
+              Patient_ID: r.patientId,
+              Patient_First_Name: this.patients.get(r.patientId)?.first || '',
+              Recall_Date: `${mdyLoose(r.due)} 12:00:00 AM`,
+              Recall_Type_Desc: r.type,
+              Recall_Type_Abbr: r.type.toUpperCase().slice(0, 8),
+              Linked_Appointment_ID: String(600000 + i),
+            }))
         );
       }
       case UnityActions.Patient.GET_PATIENT: {
         const p = this.patients.get(patientId);
-        return ok('getpatientinfo', p ? [{ patientid: p.id, firstname: p.first, lastname: p.last, dateofbirth: p.dob, cellphone: p.phone }] : []);
+        const digits = p ? p.phone.replace(/\D/g, '') : '';
+        return ok(
+          'getpatientinfo',
+          p ? [{ Patient_ID: p.id, Patient_First_Name: p.first, Patient_Last_Name: p.last, Patient_DOB: p.dob, Patient_Cell_Phone: digits, Patient_Home_Phone: '', Patient_Work_Phone: '' }] : []
+        );
       }
       case S.GET_APPOINTMENTS:
         return ok('getschedulebypatientidinfo', all.filter((a) => a.patientId === patientId).map((a) => this.rowForPatientSchedule(a)));

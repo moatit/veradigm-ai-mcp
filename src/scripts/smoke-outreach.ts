@@ -276,12 +276,13 @@ async function main(): Promise<void> {
     if (a === 'GetAppointmentConfirmationResults')
       return { success: true, data: [{ getappointmentconfirmationresultsinfo: [{ Appt_Confirmation_Result_ID: '1', Short_Description: 'Answered - Yes' }, { Appt_Confirmation_Result_ID: '2', Short_Description: 'Left Message' }] }] };
     if (a === 'GetPatient') return getPatient(pid);
+    if (a === 'GetScheduleByPatientID') return { success: true, data: [{ getschedulebypatientidinfo: [] }] };
     throw new Error(`unexpected ${a}`);
   });
   const store1 = mem();
   calls.length = 0;
   const cr = await quiet(() => gen.buildConfirmList({ unity: confirmSvc, store: store1, settings: S, now: monday7, by: 'tester' }));
-  assert.deepStrictEqual(calls[0], { action: 'GetSchedule', params: { Parameter1: '10/13/2026', Parameter2: '10/15/2026' }, patientId: '' });
+  assert.deepStrictEqual(calls[0], { action: 'GetSchedule', params: { Parameter1: '10/13/2026|10/15/2026' }, patientId: '' }, 'range as "a|b" (sandbox)');
   assert.strictEqual(calls.filter((c) => c.action === 'GetAppointmentConfirmationResults').length, 1);
   assert.deepStrictEqual(cr.skipped, { 'Already confirmed': 2, 'No usable phone number on file': 1 });
   assert.strictEqual(cr.unusable, 1);
@@ -299,6 +300,89 @@ async function main(): Promise<void> {
   assert.strictEqual(again.proposed, 0);
   assert.strictEqual(again.duplicates, 3);
   ok('confirm list: 1–3 business days out, confirmed/cancelled skipped (status and confirmation result code), phones from GetPatient');
+
+  // Rows exactly as the Veradigm® PM sandbox returned them on Oct 24, 2026 (field names, formats, status words;
+  // values here are made up).
+  const sandboxSvc = svc((a, p, pid) => {
+    if (a === 'GetSchedule') {
+      assert.deepStrictEqual(p, { Parameter1: '10/13/2026|10/15/2026' });
+      const row = (id: string, pt: string, date: string, time: string, status: string) => ({
+        Provider: 'Calder, Iris', Practitioner_Name: 'Calder, Iris', ProviderID: '12', AppointmentID: id, ApptTime: time,
+        ApptTime2: `${date} ${time === '13:20' ? '01:20:00 PM' : '09:00:00 AM'}`, PatientFirstName: 'Sam', PatientLastName: 'Sample', patient: 'Sample, Sam',
+        Status: status, statuscolor: 'black', Duration: '20', appttype: 'FU', type: 'Follow Up', LocationName: 'Main', patientID: pt, Patient_Cell_Phone: '',
+      });
+      return { success: true, data: [{ getscheduleinfo: [
+        row('9001', '7001', '10/13/2026', '09:00', 'Scheduled'),
+        row('9002', '7002', '10/14/2026', '13:20', 'canceled'),
+        row('9003', '7003', '10/14/2026', '09:00', 'Confirmed'),
+        row('9004', '7004', '10/15/2026', '09:00', 'Acknowledge'),
+        row('9005', '7005', '10/15/2026', '09:00', 'Bumped'),
+        row('9006', '7006', '10/15/2026', '09:00', 'Scheduled'),
+        row('9007', '7007', '10/16/2026', '09:00', 'Scheduled'), // next day: returned by Veradigm, filtered out here
+      ] }] };
+    }
+    if (a === 'GetScheduleByPatientID')
+      return { success: true, data: [{ getschedulebypatientidinfo: [
+        { Appointment_ID: pid === '7006' ? '9006' : '1', Patient_ID: pid, Appointment_DateTime: '10/15/2026 9:00:00 AM', Status: 'S', Appt_Confirmation_Result_ID: pid === '7006' ? '22' : '' },
+      ] }] };
+    if (a === 'GetAppointmentConfirmationResults')
+      return { success: true, data: [{ getappointmentconfirmationresultsinfo: [{ Appt_Confirmation_Result_ID: '22', Short_Description: 'Text Confirmed', Long_Description: 'Text Confirmed' }] }] };
+    if (a === 'GetPatient') return { success: true, data: [{ getpatientinfo: [{ Patient_First_Name: 'Sam', Patient_Cell_Phone: '2085550170', Patient_Home_Phone: '2085550171', Patient_Work_Phone: '208-555-0172' }] }] };
+    throw new Error(`unexpected ${a}`);
+  });
+  const sb = await quiet(() => gen.buildConfirmList({ unity: sandboxSvc, store: mem(), settings: S, now: monday7, by: 'tester' }));
+  assert.deepStrictEqual(sb.jobs.map((j) => j.appointment!.id), ['9001'], `sandbox rows → ${JSON.stringify(sb.skipped)}`);
+  assert.deepStrictEqual(sb.skipped, { 'Already confirmed': 3 }, 'Confirmed, Acknowledge, and a Text Confirmed code on the patient schedule');
+  assert.deepStrictEqual(sb.jobs[0].appointment, { id: '9001', date: '10/13/2026', time: '09:00', provider: 'Calder, Iris' });
+  assert.strictEqual(sb.jobs[0].phone, '+12085550170');
+  assert.strictEqual(sb.jobs[0].patient_first_name, 'Sam');
+  const sbNs = await quiet(() =>
+    gen.buildNoShowList({
+      unity: svc((a) =>
+        a === 'GetAppointmentsByChangeDTTM'
+          ? { success: true, data: [{ getappointmentsbychangedttminfo: [
+              { Appointment_ID: '8001', Patient_ID: '7101', Patient_First_Name: 'Lee', Appointment_DateTime: '10/09/2026 9:00am', Status: 'N', AttendingLastName: 'Calder', AttendingFirstName: 'Iris', DateTime_NoShow: '' },
+              { Appointment_ID: '8002', Patient_ID: '7102', Appointment_DateTime: '10/12/2026 10:40am', Status: 'S', DateTime_NoShow: '10/12/2026 11:30:00 AM' },
+              { Appointment_ID: '8003', Patient_ID: '7103', Appointment_DateTime: '10/12/2026 1:00pm', Status: 'A', DateTime_NoShow: '' },
+            ] }] }
+          : { success: true, data: [{ getpatientinfo: [{ Patient_Cell_Phone: '2085550180' }] }] }
+      ),
+      store: mem(),
+      settings: S,
+      now: monday7,
+      by: 'tester',
+    })
+  );
+  assert.deepStrictEqual(sbNs.jobs.map((j) => j.appointment!.id), ['8001', '8002'], 'status N or DateTime_NoShow');
+  assert.deepStrictEqual(sbNs.jobs[0].appointment, { id: '8001', date: '10/09/2026', time: '9:00am', provider: 'Calder, Iris' });
+  assert.strictEqual(util.spokenTime('9:00am'), '9:00 AM');
+  const sbRc = await quiet(() =>
+    gen.buildRecallList({
+      unity: svc((a) =>
+        a === 'GetRecalls'
+          ? { success: true, data: [{ getrecallsinfo: [{ Recall_ID: '1', Patient_ID: '7201', Patient_First_Name: 'Kai', Recall_Date: '9/15/2026 12:00:00 AM', Recall_Type_Desc: '6 Month Follow Up', Recall_Type_Abbr: '6 MONTH', Linked_Appointment_ID: '55' }] }] }
+          : a === 'GetScheduleByPatientID'
+            ? { success: true, data: [{ getschedulebypatientidinfo: [{ Appointment_ID: '55', Appointment_DateTime: '9/1/2026 9:00:00 AM', Status: 'C' }] }] }
+            : { success: true, data: [{ getpatientinfo: [{ Patient_Home_Phone: '2085550190' }] }] }
+      ),
+      store: mem(),
+      settings: S,
+      now: monday7,
+      by: 'tester',
+    })
+  );
+  assert.deepStrictEqual(gen.phoneFromPatientRows([{ Patient_Cell_Phone: '+919876543210', Patient_Home_Phone: '2085550191' }]).phone, '+12085550191', 'non-US cell skipped');
+  assert.strictEqual(gen.phoneFromPatientRows([{ Patient_Cell_Phone: '+919876543210' }]).phone, '', 'only a non-US number → none usable');
+  assert.deepStrictEqual(sbRc.jobs[0].recall, { type: '6 Month Follow Up', due: '9/15/2026' });
+  assert.strictEqual(sbRc.jobs[0].phone, '+12085550190');
+  // The 26 confirmation results the sandbox lists: which count as "the patient confirmed".
+  const SANDBOX_RESULTS = ['Answered - Yes', 'Answered - No', 'Answered - Left Message', 'Out of Order', 'Answered - Hung Up', 'Answered - Entire Message', 'Answering Machine',
+    'Answering Machine - Message Not Played', 'Answered - Repeated Message', 'Called No TT Requested', 'Phone Too Busy', 'Answered - Rotary Message', 'Answered - Called Receptionist',
+    'Dial Tone Not Detected', 'Answered - Confirmed Yes ', 'Answered - Confirmed No ', 'Answered - Confirmed Left Message', 'Answered - Confirmed Rotary Message ', 'Answered - Confirmed Repeated ',
+    'Patient notified', 'Email Confirmed', 'Text Confirmed', 'Phone Call Sent,', 'Patient Confirmed - Clearwave Self-Scheduling', 'Patient Confirmed - Clearwave Staff Call Center', 'Patient Confirmed - Clearwave Voice AI'];
+  assert.deepStrictEqual(SANDBOX_RESULTS.filter(gen.isPositiveConfirmation), ['Answered - Yes', 'Answered - Confirmed Yes ', 'Email Confirmed', 'Text Confirmed',
+    'Patient Confirmed - Clearwave Self-Scheduling', 'Patient Confirmed - Clearwave Staff Call Center', 'Patient Confirmed - Clearwave Voice AI']);
+  ok('sandbox row shapes: GetSchedule (ApptTime2, status words, "a|b" range), patient-schedule confirmation codes, GetPatient Patient_*_Phone, ByChangeDTTM, GetRecalls');
 
   calls.length = 0;
   const nsSvc = svc((a, _p, pid) => {
