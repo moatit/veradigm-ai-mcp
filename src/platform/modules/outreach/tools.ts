@@ -1,7 +1,8 @@
 import { Tool } from '@modelcontextprotocol/sdk/types.js';
 import type { ToolContext } from '../../registry';
-import { outreachJobs } from './store';
-import { OUTREACH_OUTCOMES, OutreachJob, OutreachOutcome, RETRY_OUTCOMES } from './types';
+import { applyOutcome } from './dialer';
+import { JobStore, outreachJobs } from './store';
+import { LEGACY_OUTCOMES, OUTREACH_OUTCOMES, OutreachJob, OutreachOutcome } from './types';
 import { spokenDate, spokenTime } from './util';
 
 /**
@@ -10,15 +11,15 @@ import { spokenDate, spokenTime } from './util';
  * unity_* tools after the agent verifies identity (see retell-prompts/outbound-outreach-agent.md).
  */
 const PURPOSE: Record<OutreachJob['type'], string> = {
-  reminder: 'a reminder about an upcoming appointment',
+  confirm: 'a confirmation call for an upcoming appointment',
   no_show: 'a follow-up because the patient missed a recent appointment and may want to reschedule',
   recall: 'a reminder that the patient is due to schedule a follow-up visit',
 };
 
-function resolve(args: { jobId?: string }, ctx: ToolContext): { job?: OutreachJob; error?: string } {
-  const byId = args?.jobId ? outreachJobs.get(String(args.jobId)) : undefined;
+function resolve(store: JobStore, args: { jobId?: string }, ctx: ToolContext): { job?: OutreachJob; error?: string } {
+  const byId = args?.jobId ? store.get(String(args.jobId)) : undefined;
   if (args?.jobId && !byId) return { error: 'not_found' };
-  const job = byId || (ctx.callId ? outreachJobs.findByCallId(ctx.callId) : undefined);
+  const job = byId || (ctx.callId ? store.findByCallId(ctx.callId) : undefined);
   if (!job) return { error: 'not_found' };
   // A job placed as a call belongs to that call only.
   if (ctx.callId && job.retell_call_id && job.retell_call_id !== ctx.callId) return { error: 'other_call' };
@@ -32,8 +33,11 @@ const NOT_FOUND = {
 };
 
 export class OutreachTools {
+  /** The real job store, or an in-memory one for the simulator and test calls. */
+  constructor(private store: JobStore = outreachJobs, private clock: () => Date = () => new Date()) {}
+
   context(args: { jobId?: string; verifiedPatientId?: string }, ctx: ToolContext): any {
-    const { job } = resolve(args, ctx);
+    const { job } = resolve(this.store, args, ctx);
     if (!job) return NOT_FOUND;
     const name = job.patient_first_name || 'the patient';
 
@@ -85,37 +89,31 @@ export class OutreachTools {
   }
 
   result(args: { jobId?: string; outcome?: string; notes?: string }, ctx: ToolContext): any {
-    const outcome = String(args?.outcome || '') as OutreachOutcome;
+    const raw = String(args?.outcome || '');
+    const outcome = (LEGACY_OUTCOMES[raw] || raw) as OutreachOutcome;
     if (!OUTREACH_OUTCOMES.includes(outcome)) {
       return { success: false, message: `Outcome must be one of: ${OUTREACH_OUTCOMES.join(', ')}.` };
     }
-    const { job } = resolve(args, ctx);
+    const { job } = resolve(this.store, args, ctx);
     if (!job) return NOT_FOUND;
     const sameCall = !!ctx.callId && job.retell_call_id === ctx.callId;
     if (job.status !== 'calling' && !sameCall) {
       return { success: false, message: 'This outreach is not in progress, so nothing was recorded. Continue the conversation normally.' };
     }
+    if (job.status !== 'calling') {
+      return { success: true, message: 'Already recorded for this call. End the call politely.' };
+    }
     const notes = String(args?.notes || '').replace(/\s+/g, ' ').trim().slice(0, 500);
-    const retry = RETRY_OUTCOMES.includes(outcome);
-    outreachJobs.update(
-      job.id,
-      'agent',
-      'outcome',
-      (j) => {
-        j.outcome = outcome;
-        j.status = retry ? 'failed' : 'completed';
-        if (notes) j.notes = notes;
-      },
-      outcome
-    );
-    if (outcome === 'opted_out') outreachJobs.optOut(job.patient_ref.id);
+    applyOutcome(this.store, job, outcome, 'agent', this.clock(), notes);
     console.log(`[Outreach] job ${job.id} (${job.type}): outcome ${outcome}`);
     return {
       success: true,
       message:
         outcome === 'opted_out'
           ? 'Recorded. They will not get these calls again. Thank them and end the call politely.'
-          : 'Recorded. Ask if there is anything else, then end the call politely.',
+          : outcome === 'wrong_number'
+            ? 'Recorded. Staff will fix the number. Apologize for the call and end it politely.'
+            : 'Recorded. Ask if there is anything else, then end the call politely.',
     };
   }
 
@@ -143,7 +141,7 @@ export class OutreachTools {
           properties: {
             jobId: { type: 'string', description: 'Optional. Leave empty: the job is found from this call.' },
             outcome: { type: 'string', enum: OUTREACH_OUTCOMES },
-            notes: { type: 'string', description: 'One short sentence for staff, e.g. "Booked Oct 20 9 AM". No medical details.' },
+            notes: { type: 'string', description: 'One short sentence for staff, e.g. "Moved to Oct 20 9 AM". No medical details.' },
           },
           required: ['outcome'],
         },
