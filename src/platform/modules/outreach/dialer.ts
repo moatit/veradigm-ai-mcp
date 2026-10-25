@@ -214,9 +214,10 @@ export function applyOutcome(store: JobStore, job: OutreachJob, outcome: Outreac
         advance(j);
         return;
       }
+      // Not needed after this call (`after:`); `stop:` is kept for stop rules found before a call.
       for (const r of remaining(j)) {
         r.state = 'stopped';
-        r.result = `stop:${outcome}`;
+        r.result = `after:${outcome}`;
       }
       if (outcome === 'wrong_number') {
         j.status = 'stopped';

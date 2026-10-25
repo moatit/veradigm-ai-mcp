@@ -27,6 +27,7 @@
     "smoke:scheduling": "ts-node src/scripts/smoke-scheduling.ts",
     "smoke:appointment-writes": "ts-node src/scripts/smoke-appointment-writes.ts",
     "smoke:outreach": "ts-node src/scripts/smoke-outreach.ts",
+    "demo:outreach": "ts-node src/scripts/outreach-demo.ts",
     "smoke:huddle": "ts-node src/scripts/smoke-huddle.ts",
     "smoke:activity": "ts-node src/scripts/smoke-activity.ts",
     "smoke:call-records": "ts-node src/scripts/smoke-call-records.ts",

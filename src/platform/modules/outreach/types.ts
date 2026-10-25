@@ -97,7 +97,10 @@ export interface PlannedAttempt {
   /** The final attempt: the only one that may leave a voicemail. */
   last: boolean;
   state: AttemptState;
-  /** Outcome of a done attempt, `would_call` in dry run, `stop:<reason>` when a stop rule fired. */
+  /**
+   * Outcome of a done attempt; `would_call` in dry run; on a stopped attempt `stop:<reason>` (a stop rule found
+   * before a call) or `after:<outcome>` (not needed after an earlier call's outcome, or `after:staff`).
+   */
   result?: string;
   at?: string;
   /** PHI-free note ("moved a day: patient call limit", "list not approved"). */

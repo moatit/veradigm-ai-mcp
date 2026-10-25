@@ -211,7 +211,7 @@ function attemptChip(a: PlannedAttempt, job: OutreachJob): string {
     what = RESULT_LABEL[a.result || ''] || a.result || 'done';
     cls = ['confirmed', 'moved', 'booked', 'cancelled'].includes(a.result || '') ? 'ok' : a.result === 'wrong_number' || a.result === 'error' ? 'bad' : a.result === 'opted_out' ? 'warn' : '';
   } else if (a.state === 'stopped') {
-    what = a.result?.startsWith('stop:') ? `not needed: ${stopLabel(a.result.slice(5) as any).toLowerCase()}` : 'not needed';
+    what = a.result?.startsWith('stop:') ? `not needed: ${stopLabel(a.result.slice(5) as any).toLowerCase()}` : a.result === 'after:staff' ? 'stopped by staff' : 'not needed';
     cls = 'off';
   } else if (a.state === 'missed' || a.state === 'dropped') {
     what = a.note || a.state;
@@ -220,7 +220,7 @@ function attemptChip(a: PlannedAttempt, job: OutreachJob): string {
     what = a.state === 'approved' ? 'approved' : a.state === 'listed' ? 'on today’s list' : 'planned';
     cls = remaining(job)[0]?.n === a.n ? 'next' : '';
   }
-  return `<span class="cc-at ${cls}" title="${esc(a.note || '')}"><b>#${esc(a.n)}</b>${esc(label)}${a.last && a.state !== 'dropped' ? ' · voicemail ok' : ''} · ${esc(what)}</span>`;
+  return `<span class="cc-at ${cls}" title="${esc(a.note || '')}"><b>#${esc(a.n)}</b>${esc(label)}${a.last && a.state !== 'dropped' ? ' · final' : ''} · ${esc(what)}</span>`;
 }
 
 function what(j: OutreachJob): string {
@@ -245,7 +245,7 @@ function jobTable(jobs: OutreachJob[], empty: string, selectable = true): string
       (j) => `<tr>
 <td>${selectable && ['scheduled', 'approved'].includes(j.status) ? `<input type="checkbox" name="ids" value="${esc(j.id)}" style="width:auto" aria-label="Select">` : ''}</td>
 <td>${esc(TYPE_LABEL[j.type])}${j.plan_kind === 'short' ? '<div class="muted" style="font-size:12px">booked &lt;3 days out</div>' : ''}</td>
-<td>${esc(j.patient_first_name) || '<span class="muted">—</span>'}<br><span class="muted" style="font-size:12px">${esc(maskPhone(j.phone)) || 'no phone'}</span></td>
+<td>${esc(j.patient_first_name) || '<span class="muted">—</span>'}<br><span class="muted" style="font-size:12px;white-space:nowrap">${esc(maskPhone(j.phone)) || 'no phone'}</span></td>
 <td>${what(j)}</td><td>${statusPill(j)}${j.notes ? `<div class="muted" style="font-size:12px">${esc(displayText(j.notes))}</div>` : ''}</td>
 <td><div class="cc-tl">${j.plan.map((a) => attemptChip(a, j)).join('') || '<span class="muted">—</span>'}</div></td></tr>`
     )
@@ -402,9 +402,14 @@ export function outreachRouter(deps: PlatformDeps, clock: () => Date = () => new
     const all = outreachJobs.list();
     const show = req.query.show === 'all' ? 'all' : req.query.show === 'done' ? 'done' : 'open';
     const active = all.filter((j) => ['scheduled', 'approved', 'calling'].includes(j.status));
-    const finished = all.filter((j) => !['scheduled', 'approved', 'calling'].includes(j.status) && j.status !== 'unconfirmed');
+    // Unconfirmed = visits still ahead (today or later); once the day has passed they move to Finished.
+    const upcoming = (j: OutreachJob) => {
+      const d = j.appointment ? parseDate(j.appointment.date) : null;
+      return !d || isoDate(d) >= today.date;
+    };
+    const unconfirmed = all.filter((j) => j.status === 'unconfirmed' && upcoming(j));
+    const finished = all.filter((j) => !['scheduled', 'approved', 'calling'].includes(j.status) && !unconfirmed.includes(j));
     const shown = (show === 'all' ? all : show === 'done' ? finished : active).slice(0, 200);
-    const unconfirmed = all.filter((j) => j.status === 'unconfirmed');
     const flashHtml = f
       ? `<div class="card" style="border-color:var(--${f.kind === 'ok' ? 'ok' : f.kind})">${f.lines.map((l) => `<div>${esc(displayText(l))}</div>`).join('')}</div>`
       : '';
@@ -487,7 +492,7 @@ ${jobTable(shown, show === 'open' ? 'No active calls. Build today’s list to st
         outreachJobs.update(id, by, 'skipped', (x) => {
           for (const a of remaining(x)) {
             a.state = 'stopped';
-            a.result = 'stop:staff';
+            a.result = 'after:staff';
           }
           x.status = 'skipped';
           x.notes = x.notes || `Stopped by ${by}`;

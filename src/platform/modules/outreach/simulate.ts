@@ -8,7 +8,7 @@ import { buildConfirmList } from './generators';
 import { callingDayOnOrAfter, isCallingDay, shiftCallingDays } from './scheduler';
 import { CallConfirmSettings, defaultSettings, parseWindow } from './settings';
 import { SimUnity, rng, syntheticClinic, SIM_PROVIDERS } from './sim';
-import { createJobStore } from './store';
+import { createJobStore, JobStore } from './store';
 import { OutreachTools } from './tools';
 import { bucketOf, OUTREACH_TYPES, OutreachJob, OutreachOutcome, OutreachType, PlannedAttempt } from './types';
 import { addDays, CalDate, clinicDateTime, isoDate, mdy, parseDate, spokenDate, todayInClinic } from './util';
@@ -102,13 +102,27 @@ function writeOutcome(sim: SimUnity, job: OutreachJob, outcome: OutreachOutcome,
  * SimUnity, a staff member approves it, the dispatcher runs every window (simulated calls with realistic outcome
  * rates), and the day closes (some visits turn into no-shows, a few patients confirm by text or call in).
  */
-export async function simulateWeek(opts: { seed?: number; start?: CalDate; settings?: CallConfirmSettings; now?: Date } = {}): Promise<WeekSimResult> {
+export async function simulateWeek(
+  opts: {
+    seed?: number;
+    start?: CalDate;
+    settings?: CallConfirmSettings;
+    now?: Date;
+    /** Demo seeding only: run into this store / against this clinic, for `days` days, stopping at `stopAt`. */
+    store?: JobStore;
+    sim?: SimUnity;
+    days?: number;
+    stopAt?: Date;
+  } = {}
+): Promise<WeekSimResult> {
   const seed = opts.seed ?? 20261026;
   const settings = simSettings(opts.settings);
   const start = opts.start || shiftCallingDays(todayInClinic(opts.now || new Date()), 1, settings);
   const r = rng(seed + 1);
-  const sim = syntheticClinic({ seed, start, settings });
-  const store = createJobStore({ memory: true });
+  const sim = opts.sim || syntheticClinic({ seed, start, settings });
+  const store = opts.store || createJobStore({ memory: true });
+  const nDays = opts.days ?? 7;
+  const pastStop = () => !!opts.stopAt && now.getTime() >= opts.stopAt.getTime();
   const tools = new OutreachTools(store);
   let now = clinicDateTime(start, 7 * 60);
   const ctx = (): DispatchCtx => ({
@@ -131,7 +145,7 @@ export async function simulateWeek(opts: { seed?: number; start?: CalDate; setti
 
   const days: WeekSimResult['days'] = [];
   let projected: PlanSummary | null = null;
-  for (let i = 0; i < 7; i++) {
+  for (let i = 0; i < nDays && !pastStop(); i++) {
     const d = addDays(start, i);
     const iso = isoDate(d);
     now = clinicDateTime(d, 7 * 60);
@@ -147,12 +161,14 @@ export async function simulateWeek(opts: { seed?: number; start?: CalDate; setti
         // Calls spread across the window; each dispatcher run takes up to 25.
         for (let m = win.start; m < win.end; m += 5) {
           now = clinicDateTime(d, m);
+          if (pastStop()) break;
           sim.clock = `${iso} ${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
           const run = await runDue(ctx());
           if (!run.results.length && m > win.start + 30) break;
         }
       }
     }
+    if (pastStop()) break;
     // Close the day: today's visits happen (6% no-show); some future visits get confirmed by text or by a call-in.
     now = clinicDateTime(d, 17 * 60 + 30);
     sim.clock = `${iso} 17:30`;
@@ -185,7 +201,8 @@ export async function simulateWeek(opts: { seed?: number; start?: CalDate; setti
     outcomes[k] = (outcomes[k] || 0) + 1;
   }
   const stopped: Record<string, number> = {};
-  for (const j of jobs) if (j.stop) stopped[j.stop.reason] = (stopped[j.stop.reason] || 0) + 1;
+  // Stopped by the re-read before a call (a wrong number found on a call is counted under outcomes instead).
+  for (const j of jobs) if (j.stop && j.outcome !== 'wrong_number') stopped[j.stop.reason] = (stopped[j.stop.reason] || 0) + 1;
   const writes: Record<string, number> = {};
   for (const w of sim.writes) writes[w.action] = (writes[w.action] || 0) + 1;
 
@@ -409,7 +426,9 @@ export async function runTestCall(outcome: TestOutcome, opts: { now?: Date; sett
       (r) => `${r.total} match${r.total === 1 ? '' : 'es'}${r.total === 1 ? ': identity verified' : ''}`
     );
     const verifiedId = found?.patients?.[0]?.patientId || found?.patients?.[0]?.id;
-    const c1 = await tool('drawbridge_outreach_context', () => tools.context({ verifiedPatientId: verifiedId }, { callId }), (r) => r.message);
+    const c1 = await tool('drawbridge_outreach_context', () => tools.context({ verifiedPatientId: verifiedId }, { callId }), (r) =>
+      String(r.message).replace(/\s*Use patientId \S+ for any appointment tool\.?/, '')
+    );
     if (!c1.verified) return;
     const when = `${v.appointment_date} at ${v.appointment_time} with ${v.provider_name}`;
     say(`Thank you, ${name}. You have an appointment on ${when}. Will you be able to make it?`, true);

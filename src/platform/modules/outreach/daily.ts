@@ -276,7 +276,8 @@ export function planSummary(store: JobStore, settings: CallConfirmSettings, now:
     mode: dialMode(settings) === 'live' ? 'live' : 'dry_run',
     days: all,
     totals,
-    unconfirmed: jobs.filter((j) => j.status === 'unconfirmed').length,
+    // Upcoming visits only (a visit that has passed is no longer something to confirm).
+    unconfirmed: jobs.filter((j) => j.status === 'unconfirmed' && (!j.appointment || (parseDate(j.appointment.date) && isoDate(parseDate(j.appointment.date)!) >= isoDate(today)))).length,
     opted_out: store.optedOutCount(),
     bad_number_tasks: jobs.filter((j) => j.staff_task).length,
   };
