@@ -1,6 +1,6 @@
 /**
  * Offline smoke test for the huddle module (no network, no credentials, fake Veradigm data only).
- * Checks: schedule parsing and flags, failed enrichment → "couldn't check" (never "none"),
+ * Checks: schedule parsing and flags, sandbox-shaped GetSchedule rows from two dates, failed enrichment → "couldn't check" (never "none"),
  * GetSchedule failure → error, concurrency limit, time budget, cache, pre-visit checklist,
  * staff screen escaping, module registration.
  *
@@ -21,7 +21,7 @@ const T0 = Date.parse('2026-10-08T15:00:00Z');
 const failure = (code: string) => ({ success: false, error_code: code, retryable: true, tool: 'x', message: 'fake failure' });
 
 async function main(): Promise<void> {
-  const { HuddleService, agentBrief, COULDNT_CHECK } = await import('../platform/modules/huddle/brief');
+  const { HuddleService, agentBrief, COULDNT_CHECK, parseSchedule } = await import('../platform/modules/huddle/brief');
   const { previsitCheck, DEFAULT_ARRIVE } = await import('../platform/modules/huddle/previsit');
   const { renderHuddle, huddlePage } = await import('../platform/modules/huddle/screen');
   const { huddleModule, initHuddle } = await import('../platform/modules/huddle');
@@ -112,9 +112,9 @@ async function main(): Promise<void> {
   const brief = await service.getBrief(DATE);
   assert.strictEqual(unityCalls.length, 1);
   assert.strictEqual(unityCalls[0].action, 'GetSchedule');
-  assert.strictEqual(unityCalls[0].params.Parameter1, '10/08/2026');
+  assert.strictEqual(unityCalls[0].params.Parameter1, '10/08/2026|10/08/2026');
   assert.strictEqual(unityCalls[0].target, 'PM');
-  ok('GetSchedule called on Veradigm PM with Parameter1 = 10/08/2026');
+  ok('GetSchedule called on Veradigm PM with Parameter1 = 10/08/2026|10/08/2026 (one-day range)');
 
   const s = brief.summary;
   assert.deepStrictEqual(
@@ -138,6 +138,52 @@ async function main(): Promise<void> {
   assert.ok(visit('1001').flags.find((f) => f.key === 'balance_due')!.label.includes('$40.00'));
   assert.deepStrictEqual(keys('1002'), []);
   ok('flags: new patient, balance due $40.00, no insurance, allergies on file');
+
+  // ---- 1b. Sandbox-shaped rows from two dates ------------------------------------------------
+  // Sandbox (Oct 24): one date also returns the next day's visits; the date is only in ApptTime2
+  // (ApptTime is "08:00"); statuses are words. Synthetic names and IDs.
+  const sbRow = (id: string, pid: string, date: string, time: string, ampm: string, status: string) => ({
+    appointmentid: id,
+    patientid: pid,
+    patientfirstname: `Test${pid}`,
+    patientlastname: 'Sandbox',
+    appttime: time,
+    appttime2: `${date} ${ampm}`,
+    provider: 'Lee, Dana',
+    status,
+  });
+  const sandboxRows = [
+    sbRow('S1', '2001', '10/08/2026', '08:00', '08:00:00 AM', 'Scheduled'),
+    sbRow('S2', '2002', '10/08/2026', '14:30', '02:30:00 PM', 'Confirmed'),
+    sbRow('S3', '2003', '10/08/2026', '09:15', '09:15:00 AM', 'Acknowledge'),
+    sbRow('S4', '2004', '10/08/2026', '10:00', '10:00:00 AM', 'canceled'),
+    sbRow('S5', '2005', '10/08/2026', '11:00', '11:00:00 AM', 'Bumped'),
+    sbRow('S6', '2006', '10/09/2026', '08:00', '08:00:00 AM', 'Scheduled'),
+    sbRow('S7', '2007', '10/09/2026', '09:00', '09:00:00 AM', 'Confirmed'),
+    sbRow('S8', '2001', '10/09/2026', '10:00', '10:00:00 AM', 'Acknowledge'),
+  ];
+  const sbVisits = parseSchedule([{ getscheduleinfo: sandboxRows }], DATE);
+  assert.deepStrictEqual(sbVisits.map((v) => v.appointmentId), ['S1', 'S2', 'S3']);
+  assert.deepStrictEqual(sbVisits.map((v) => v.time), ['8:00 AM', '2:30 PM', '9:15 AM']);
+  assert.deepStrictEqual(sbVisits.map((v) => v.status), ['Scheduled', 'Confirmed', 'Acknowledge']);
+  assert.strictEqual(sbVisits[0].patientName, 'Test2001 Sandbox');
+  assert.strictEqual(sbVisits[0].provider, 'Lee, Dana');
+  assert.deepStrictEqual(parseSchedule([{ getscheduleinfo: sandboxRows }], '2026-10-09').map((v) => v.appointmentId), ['S6', 'S7', 'S8']);
+  // Time falls back to ApptTime2 when ApptTime is missing.
+  assert.strictEqual(parseSchedule([{ getscheduleinfo: [{ ...sandboxRows[1], appttime: '' }] }], DATE)[0].time, '2:30 PM');
+  ok('sandbox rows: next-day rows dropped by the ApptTime2 date, "canceled" and "Bumped" dropped, "Acknowledge" kept');
+
+  const sbUnity: any = { executeAction: async () => ({ success: true, data: [{ getscheduleinfo: sandboxRows }] }) };
+  const sbTool = async (name: string) => {
+    if (name === 'unity_get_account_balance') return { success: true, balance: 0, message: 'x' };
+    if (name === 'unity_get_insurance_policy') return { success: true, policies: [{ carrier: 'Aetna' }], message: 'x' };
+    if (name === 'unity_get_patient_allergies') return { success: true, allergies: [], message: 'x' };
+    return { success: true, problems: [], message: 'x' };
+  };
+  const sbBrief = await new HuddleService({ unity: sbUnity, runTool: sbTool } as any, { now }).getBrief(DATE);
+  assert.deepStrictEqual([sbBrief.summary.visits, sbBrief.summary.patients, sbBrief.summary.providers], [3, 3, 1]);
+  assert.deepStrictEqual(sbBrief.providers[0].visits.map((v) => v.appointmentId), ['S1', 'S3', 'S2']);
+  ok('sandbox rows: brief for 10/08 shows only that day (3 visits, sorted by time)');
 
   // ---- 2. Failed enrichment is "couldn't check", never "none" -------------------------------
   const p3 = visit('1003');
