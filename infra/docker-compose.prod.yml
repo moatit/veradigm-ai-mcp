@@ -48,8 +48,10 @@ services:
       - MCP_SERVER_HOST=0.0.0.0
       - ADMIN_PORTAL_URL=http://admin-portal:5001
       - MCP_CHANNEL=${MCP_CHANNEL:-API}
+      - CALL_RECORDS_DIR=/app/data
     volumes:
       - fhir-logs:/app/logs
+      - call-records:/app/data
     restart: unless-stopped
     networks:
       - mcp-network

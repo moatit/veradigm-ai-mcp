@@ -155,6 +155,9 @@ services:
       - MCP_SERVER_HOST=0.0.0.0
       - ADMIN_PORTAL_URL=http://admin-portal:5001
       - MCP_CHANNEL=API
+      - CALL_RECORDS_DIR=/app/data
+    volumes:
+      - call-records:/app/data
     restart: unless-stopped
     networks:
       - mcp-network
@@ -178,6 +181,9 @@ services:
       - UNITY_MCP_SERVER_HOST=0.0.0.0
       - ADMIN_PORTAL_URL=http://admin-portal:5001
       - MCP_CHANNEL=API
+      - CALL_RECORDS_DIR=/app/data
+    volumes:
+      - call-records:/app/data
     restart: unless-stopped
     networks:
       - mcp-network
@@ -260,6 +266,7 @@ services:
 
 volumes:
   pgdata:
+  call-records:
   fhir-logs:
   unity-logs:
   certbot-webroot:
