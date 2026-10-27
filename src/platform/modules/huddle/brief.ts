@@ -85,6 +85,7 @@ export interface HuddleOptions {
 }
 
 export const UNASSIGNED_PROVIDER = 'Provider not listed';
+// Sandbox statuses (Oct 24): "Scheduled", "Confirmed", "canceled", "Acknowledge", "Bumped"; "canceled" and "Bumped" are dropped.
 const CANCELLED = /cancel|no[\s-]?show|deleted|bumped|rescheduled/i;
 
 const yesNo = (v: string): boolean | null => (/^(y|yes|true|1)$/i.test(v) ? true : /^(n|no|false|0)$/i.test(v) ? false : null);
@@ -92,8 +93,9 @@ const yesNo = (v: string): boolean | null => (/^(y|yes|true|1)$/i.test(v) ? true
 /**
  * GetSchedule rows → visits for one date. Field names vary by product/version, so each value is
  * read from several candidates (case-insensitive). Rows without a patient (blocks, lunch, holds)
- * and cancelled visits are dropped. When a row carries a date that isn't `dateKey` it's dropped too
- * (guards against GetSchedule returning a wider range than asked).
+ * and cancelled visits are dropped. When a row carries a date that isn't `dateKey` it's dropped too:
+ * in the sandbox a single date also returns the next day's visits, and the date is only in ApptTime2
+ * ("10/26/2026 08:00:00 AM"; ApptTime is "08:00").
  */
 export function parseSchedule(data: any, dateKey: string): ScheduledVisit[] {
   const out: ScheduledVisit[] = [];
@@ -103,7 +105,7 @@ export function parseSchedule(data: any, dateKey: string): ScheduledVisit[] {
     const status = pick(row, 'Status', 'AppointmentStatus', 'ApptStatus', 'StatusDescription');
     if (status && CANCELLED.test(status)) continue;
 
-    const dateField = pick(row, 'AppointmentDate', 'ApptDate', 'Date', 'StartDate', 'ApptDateTime', 'StartDateTime', 'AppointmentDateTime');
+    const dateField = pick(row, 'AppointmentDate', 'ApptDate', 'Date', 'StartDate', 'ApptDateTime', 'StartDateTime', 'AppointmentDateTime', 'ApptTime2');
     const rowDate = parseDateKey(dateField);
     if (rowDate && rowDate !== dateKey) continue;
 
@@ -282,12 +284,12 @@ export class HuddleService {
   async fetchSchedule(key: string): Promise<ScheduledVisit[]> {
     const action = UnityActions.Scheduling.GET_SCHEDULE;
     try {
-      // ASSUMPTION (unverified against the sandbox): GetSchedule follows the Unity convention
-      // Parameter1 = date as MM/DD/YYYY (a "start|end" range may also be accepted),
-      // Parameter2 = changed-since (blank), Parameter3 = include pictures (blank), Parameter4 =
-      // resource/provider filter (blank = everything the service user can see). Called against
-      // Veradigm® PM. If the sandbox wants another layout, change it here only.
-      const res = await this.deps.unity.executeAction<any>(action, { Parameter1: toUnityDate(key) }, '', 'PM');
+      // VERIFIED (sandbox, Oct 24): Parameter1 = "MM/DD/YYYY|MM/DD/YYYY" is an inclusive range (Parameter2 as an
+      // end date returns no rows; one date alone also returns the next day's visits), so the day is sent as a
+      // one-day range and parseSchedule still re-filters rows by their ApptTime2 date. Other parameters blank
+      // (blank resource filter = everything the service user can see). Called against Veradigm® PM.
+      const day = toUnityDate(key);
+      const res = await this.deps.unity.executeAction<any>(action, { Parameter1: `${day}|${day}` }, '', 'PM');
       if (!res || !res.success) {
         throw UnityErrorHandler.createAPIError(res?.error || 'GetSchedule failed', action);
       }
