@@ -55,6 +55,15 @@ The voice prompt tells the agent to verify the caller first, but the server no l
 
 The agent hears `TOOL_ERROR (NOT_VERIFIED, retryable=no) ... Verify the caller first ...` (or the matching text for the other codes), never "I'm having trouble". Residual reliance on the prompt: see section 12.
 
+### 1.2b Phone agent on our own SIP extension (voice harness, `src/platform/modules/voice`, `deploy/voice-gw`)
+
+Details: `docs/drawbridge/VOICE_HARNESS.md` section 6.
+- **Gateway link:** HMAC-authenticated WebSocket (`VOICE_GW_SECRET`, 30 s window, single-use nonce) on an internal Docker network; no host port; not proxied. Failures: `voice_gw_rejected`.
+- **Call ID:** minted by the harness (`voice_<uuid>`); model-supplied call IDs are stripped. Tools run through `executeAgentTool` (the same call binding, minimum necessary and audit as `/api/retell`, channel `voice`). Tools not enabled on the agent: `TOOL_NOT_ENABLED`.
+- **Transport:** SIP over TLS 1.2+ with a verified certificate (one allowed name). SRTP required by default (`srtp_refused`); plain RTP only with the explicit synthetic-only settings.
+- **Targets:** handoff and dial targets are allow-listed per agent and checked again in the gateway: internal extensions, `**ext` voicemail, `*3`/`*4` park only. No external numbers, no other star codes.
+- **Transcripts:** PHI in `<CALL_RECORDS_DIR>/voice/calls` (0600, `CALL_RECORDS_RETENTION_DAYS`); admin-only screen with the view audit; never in server logs.
+
 ### 1.3 CORS
 
 `DRAWBRIDGE_CORS_ORIGINS` is an exact-match allow-list of browser origins. When it is unset (the default), no CORS headers are sent, so browsers allow same-origin calls only. Wildcard `*` is not accepted. Retell calls server to server and is not affected.

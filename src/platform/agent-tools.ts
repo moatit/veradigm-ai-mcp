@@ -138,9 +138,11 @@ export interface ToolDef {
  * compact descriptions above. Throws if a listed tool or parameter does not exist in the code, so the
  * agent can never be registered with a parameter the server does not take.
  */
-export function compactAgentTools(defs: { unity: ToolDef[]; fhir: ToolDef[] }) {
+export function compactAgentTools(defs: { unity: ToolDef[]; fhir: ToolDef[] }, opts: { servers?: Array<'unity' | 'fhir'> } = {}) {
   const out: Array<{ name: string; server: 'unity' | 'fhir'; description: string; parameters: any; filler: string | null }> = [];
   for (const [name, spec] of Object.entries(AGENT_TOOLS)) {
+    // The voice harness runs in the Unity process: it offers the Unity tools only (opts.servers = ['unity']).
+    if (opts.servers && !opts.servers.includes(spec.server)) continue;
     const def = defs[spec.server].find((t) => t.name === name);
     if (!def) throw new Error(`agent tool ${name} is not defined on the ${spec.server} server`);
     const props = def.inputSchema?.properties || {};

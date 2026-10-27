@@ -71,6 +71,45 @@ function writeCallsIndex(rows: CallIndexEntry[]): void {
   fs.renameSync(tmp, file);
 }
 
+/**
+ * Add or update one calls-index row from another channel (the Drawbridge voice harness). Same rules as the Retell
+ * events: IDs, times and last 4 digits only; retention and the row cap applied. Never throws.
+ */
+export function upsertCallIndex(patch: Partial<CallIndexEntry> & { call_id: string }, now: Date = new Date()): void {
+  try {
+    const callId = safeId(patch.call_id);
+    if (!callId) return;
+    const rows = readCallsIndex();
+    const i = rows.findIndex((r) => r.call_id === callId);
+    const prev: CallIndexEntry = i >= 0 ? rows[i] : {
+      call_id: callId, start: '', end: '', direction: '', from_last4: '', to_last4: '',
+      agent_id: '', disconnection_reason: '', summary_present: false, updated_at: '',
+    };
+    const next: CallIndexEntry = {
+      ...prev,
+      start: patch.start || prev.start,
+      end: patch.end || prev.end,
+      direction: token(patch.direction, 16) || prev.direction,
+      from_last4: last4(patch.from_last4) || prev.from_last4,
+      to_last4: last4(patch.to_last4) || prev.to_last4,
+      agent_id: token(patch.agent_id) || prev.agent_id,
+      disconnection_reason: token(patch.disconnection_reason) || prev.disconnection_reason,
+      updated_at: now.toISOString(),
+    };
+    if (i >= 0) rows[i] = next;
+    else rows.push(next);
+    const cutoff = new Date(now.getTime() - retentionDays() * 86_400_000).toISOString();
+    writeCallsIndex(
+      rows
+        .filter((r) => (r.start || r.updated_at) >= cutoff)
+        .sort((a, b) => (b.start || b.updated_at).localeCompare(a.start || a.updated_at))
+        .slice(0, INDEX_MAX)
+    );
+  } catch (e: any) {
+    console.error(`[Drawbridge] calls index update failed: ${e?.code || 'error'}`);
+  }
+}
+
 /** Calls newest first. */
 export function recentCalls(limit = 200): CallIndexEntry[] {
   return readCallsIndex()
