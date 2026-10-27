@@ -1,0 +1,49 @@
+{
+  "info": {
+    "name": "Drawbridge · 06 Staff task",
+    "description": "Creates a staff task in Veradigm EHR (the phone agent's only EHR write). Never changes the chart.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "SaveTask - staff task (WRITE)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "const body = pm.response.text();",
+              "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+              "pm.test('No Unity error', () => pm.expect(body).to.not.match(/Magic Error|\"Error\"\\s*:|not valid for this license|Access is denied/i));"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Accept",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"Action\": \"SaveTask\",\n  \"Appname\": \"{{app_name}}\",\n  \"AppUserID\": \"{{ehr_username}}\",\n  \"PatientID\": \"{{ehr_patient_id}}\",\n  \"Token\": \"{{ehr_token}}\",\n  \"Parameter1\": \"Call Patient\",\n  \"Parameter2\": \"{{task_target}}\",\n  \"Parameter3\": \"\",\n  \"Parameter4\": \"Drawbridge sandbox test task, please ignore\",\n  \"Parameter5\": \"Drawbridge test\",\n  \"Parameter6\": \"\",\n  \"Data\": \"\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": "{{unity_endpoint}}/json/MagicJson",
+        "description": "P1 task type, P2 user or team that gets the task, P3 work object ID (blank), P4 comments, P5 subject.\n\nTarget: Veradigm EHR. Run the **01 Auth** collection first (token for EHR)."
+      }
+    }
+  ]
+}

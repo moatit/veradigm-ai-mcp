@@ -222,7 +222,6 @@ export const RULES: Record<string, Rule> = {
   unity_get_patient_problems: CHART,
   unity_get_patient_medications: CHART,
   unity_get_patient_allergies: CHART,
-  unity_get_patient_diagnosis: CHART,
   unity_get_recent_results: CHART,
   unity_create_staff_task: CHART,
   // Drawbridge records

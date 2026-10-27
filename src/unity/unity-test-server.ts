@@ -241,8 +241,6 @@ async function runTool(name: string, args: any): Promise<any> {
     return await clinicalTools.getPatientMedications(args);
   } else if (name === "unity_get_patient_allergies") {
     return await clinicalTools.getPatientAllergies(args);
-  } else if (name === "unity_get_patient_diagnosis") {
-    return await clinicalTools.getPatientDiagnosis(args);
   } else if (name === "unity_get_recent_results") {
     return await clinicalTools.getRecentResults(args);
   }
@@ -532,7 +530,6 @@ const httpServer = app.listen(PORT, () => {
   console.log("     • unity_get_patient_problems - Get conditions/problems");
   console.log("     • unity_get_patient_medications - Get medications");
   console.log("     • unity_get_patient_allergies - Get allergies");
-  console.log("     • unity_get_patient_diagnosis - Get diagnoses");
   console.log("   Added for the Oct 9 demo:");
   console.log("     • unity_get_cancellation_reasons, unity_get_appointment_types,");
   console.log("       unity_get_appointment_details, unity_confirm_appointment,");

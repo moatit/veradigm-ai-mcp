@@ -91,6 +91,8 @@ export const UnityActions = {
   Patient: {
     GET_PATIENT: action('GET_PATIENT', 'GetPatient'),
     GET_PATIENT_BY_MRN: action('GET_PATIENT_BY_MRN', 'GetPatientByMRN'),
+    // PM: the verified PM patient's MRN, which GetPatientByMRN (EHR) maps to the chart (Veradigm QA review, Oct 21).
+    GET_PATIENT_DEMOGRAPHICS: action('GET_PATIENT_DEMOGRAPHICS', 'GetPatientDemographics'),
     SEARCH_PATIENTS: action('SEARCH_PATIENTS', 'SearchPatients')
     // SavePatient is not used in this release (sandbox: "AccountID must be an integer"; no certified
     // workflow needs it). It is not in CERTIFIED_ACTIONS, so it is refused with ACTION_NOT_ALLOWED.
@@ -139,7 +141,8 @@ export const UnityActions = {
     // Sandbox Oct 9: GetClinicalSummary with a section name (Parameter1) returns the chart summary rows for
     // medications / allergies / problems. GetProblems returns the full history (250 rows), GetAllergies 0 rows.
     GET_PATIENT_PROBLEMS: action('GET_PATIENT_PROBLEMS', 'GetClinicalSummary'),
-    GET_PATIENT_DIAGNOSIS: action('GET_PATIENT_DIAGNOSIS', 'GetPatientDiagnosis'),
+    // GetPatientDiagnosis is not used: it opens an encounter that must be released with CloseEncounter, a chart
+    // write Drawbridge does not make (Veradigm QA, Oct 22, 2026).
     GET_PATIENT_MEDICATIONS: action('GET_PATIENT_MEDICATIONS', 'GetClinicalSummary'), // sandbox Oct 8: GetPatientMedications = not valid for license
     GET_PATIENT_ALLERGIES: action('GET_PATIENT_ALLERGIES', 'GetClinicalSummary') // sandbox Oct 8: GetPatientAllergies = not valid for license
   },
@@ -183,13 +186,13 @@ export const UnityActions = {
  */
 export const CERTIFIED_ACTIONS: ReadonlySet<string> = new Set([
   'GetUserAuthentication', 'GetServerInfo', 'LastLogs',
-  'SearchPatients', 'GetPatient', 'GetPatientByMRN',
+  'SearchPatients', 'GetPatient', 'GetPatientByMRN', 'GetPatientDemographics',
   'GetSchedule', 'GetScheduleByPatientID', 'GetAppointmentById', 'GetAvailableSchedule', 'GetResources',
   'GetAppointmentTypes', 'GetAppointmentCancellationReasons', 'GetAppointmentConfirmationResults',
   'GetSchedulingLocations', 'GetSchedulingDepartments', 'SaveAppointment', 'SetAppointmentStatus',
   'GetAppointmentsByChangeDTTM', 'GetRecalls',
   'GetPatientAccountBalance', 'GetPatientPolicy',
-  'GetClinicalSummary', 'GetPatientDiagnosis', 'GetLocation', 'GetProviders',
+  'GetClinicalSummary', 'GetLocation', 'GetProviders',
   'GetDocumentType', 'GetDocuments', 'GetDocumentsByDocumentType', 'GetDocumentImage', 'SaveScanDocument', 'SaveTask',
 ]);
 

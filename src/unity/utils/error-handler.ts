@@ -10,6 +10,7 @@ export type UnityErrorCode =
   | 'SERVER_ERROR'
   | 'NETWORK_ERROR'
   | 'TIMEOUT_ERROR'
+  | 'UNITY_ERROR'
   | 'APPOINTMENT_TYPE_NOT_ALLOWED'
   | 'UNKNOWN_ERROR';
 
@@ -86,7 +87,7 @@ export class UnityErrorHandler {
     if (error?.name === 'UnityAPIError' && typeof error.code === 'string') {
       const known: UnityErrorCode[] = [
         'VALIDATION_ERROR', 'AUTH_ERROR', 'API_ERROR', 'NOT_FOUND', 'FORBIDDEN',
-        'SERVER_ERROR', 'NETWORK_ERROR', 'TIMEOUT_ERROR', 'UNKNOWN_ERROR',
+        'SERVER_ERROR', 'NETWORK_ERROR', 'TIMEOUT_ERROR', 'UNITY_ERROR', 'UNKNOWN_ERROR',
       ];
       const code = known.includes(error.code) ? (error.code as UnityErrorCode) : 'API_ERROR';
       return new UnityMCPError(error.message, code, error.details, action);

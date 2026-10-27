@@ -355,6 +355,10 @@ export class UnityService {
       // Sign-in stopped (auth latch): refused locally, nothing was sent.
       return new UnityAPIError(msg, 'AUTH_ERROR');
     }
+    if (error?.code === 'UNITY_ERROR') {
+      // Veradigm fault at sign-in (a GetToken reply that is not a token, a GUID called malformed): retryable.
+      return new UnityAPIError(msg, 'UNITY_ERROR');
+    }
     if (/ECONNREFUSED|ENOTFOUND|EAI_AGAIN|ECONNRESET|socket hang up/i.test(msg)) {
       return new UnityAPIError(`Unity unreachable during ${action}`, 'NETWORK_ERROR');
     }

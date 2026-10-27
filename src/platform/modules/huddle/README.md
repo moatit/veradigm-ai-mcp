@@ -36,8 +36,9 @@ The pre-visit checklist covers: date/time/provider of the next visit, insurance 
 
 ## To verify against the sandbox
 
-- `GetSchedule` parameters: we send `Parameter1 = MM/DD/YYYY`, everything else blank, against Veradigm® PM (`brief.ts` → `fetchSchedule`). Confirm the layout, and whether the service user sees every provider's schedule or only its own.
-- `GetSchedule` field names: parsed from several candidates (`PatientID`, `PatientName` / first+last, `ApptTime`/`StartTime`, `ResourceName`/`ProviderName`, `ApptType`, `Status`, `NewPatient`). Adjust `parseSchedule` once a real row is seen.
+- `GetSchedule` parameters (checked read-only in the sandbox, Oct 24): we send `Parameter1 = "MM/DD/YYYY|MM/DD/YYYY"` (the day as a one-day range), everything else blank, against Veradigm® PM (`brief.ts` → `fetchSchedule`). A single date also returns the next day's visits and Parameter2 as an end date returns no rows. Still to confirm: whether the service user sees every provider's schedule or only its own.
+- `GetSchedule` rows carry the visit date only in `ApptTime2` (`10/26/2026 08:00:00 AM`; `ApptTime` is `08:00`). `parseSchedule` reads the date from it and drops rows of any other date. Statuses are words (`Scheduled`, `Confirmed`, `canceled`, `Acknowledge`, `Bumped`); `canceled` and `Bumped` are dropped.
+- `GetSchedule` field names: parsed from several candidates (`PatientID`, `PatientName` / first+last, `ApptTime`/`StartTime`, `ResourceName`/`ProviderName`/`Provider`, `ApptType`, `Status`, `NewPatient`).
 - "New patient" comes from a schedule flag field or a visit type containing "new"; it is not derived from visit history.
 - The PM patient ID from the schedule is passed to the Veradigm® EHR allergy/problem tools. Confirm the IDs match across PM and EHR for this client.
 - The pre-visit check calls `unity_get_patient_appointments` without a date range and filters to upcoming, non-cancelled visits itself.

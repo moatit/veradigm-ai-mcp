@@ -155,6 +155,9 @@ services:
       - MCP_SERVER_HOST=0.0.0.0
       - ADMIN_PORTAL_URL=http://admin-portal:5001
       - MCP_CHANNEL=API
+      - CALL_RECORDS_DIR=/app/data
+    volumes:
+      - call-records:/app/data
     restart: unless-stopped
     networks:
       - mcp-network
@@ -178,6 +181,9 @@ services:
       - UNITY_MCP_SERVER_HOST=0.0.0.0
       - ADMIN_PORTAL_URL=http://admin-portal:5001
       - MCP_CHANNEL=API
+      - CALL_RECORDS_DIR=/app/data
+    volumes:
+      - call-records:/app/data
     restart: unless-stopped
     networks:
       - mcp-network
@@ -260,6 +266,7 @@ services:
 
 volumes:
   pgdata:
+  call-records:
   fhir-logs:
   unity-logs:
   certbot-webroot:
@@ -313,6 +320,29 @@ fetch "unity/ubiquity-id-pm"     "UNITY_UBIQUITY_ID_PM"
 fetch "unity/ubiquity-id-ehr"    "UNITY_UBIQUITY_ID_EHR"
 fetch "unity/token-cache-ttl"    "UNITY_TOKEN_CACHE_TTL"
 fetch "unity/token-refresh-buffer" "UNITY_TOKEN_REFRESH_BUFFER"
+fetch "unity/task-type"          "UNITY_TASK_TYPE"
+fetch "unity/task-target"        "UNITY_TASK_TARGET"
+fetch "unity/pm-share-ehr-login" "UNITY_PM_SHARE_EHR_LOGIN"
+fetch "unity/pm-username"        "UNITY_PM_USERNAME"
+fetch "unity/pm-password"        "UNITY_PM_PASSWORD"
+fetch "drawbridge/tool-key"      "DRAWBRIDGE_TOOL_KEY"
+fetch "drawbridge/agent-key"     "DRAWBRIDGE_AGENT_KEY"
+fetch "drawbridge/session-secret" "DRAWBRIDGE_SESSION_SECRET"
+fetch "drawbridge/users-file"    "DRAWBRIDGE_USERS_FILE"
+fetch "drawbridge/trust-proxy"   "DRAWBRIDGE_TRUST_PROXY"
+fetch "drawbridge/fhir-rest-routes" "DRAWBRIDGE_FHIR_REST_ROUTES"
+fetch "drawbridge/public-url"    "DRAWBRIDGE_PUBLIC_URL"
+fetch "retell/webhook-api-key"   "RETELL_WEBHOOK_API_KEY"
+fetch "clinic/timezone"          "CLINIC_TIMEZONE"
+fetch "intake/filing"            "INTAKE_FILING"
+fetch "intake/save-document-format-confirmed" "INTAKE_SAVE_DOCUMENT_FORMAT_CONFIRMED"
+fetch "intake/match-rule"        "INTAKE_MATCH_RULE"
+fetch "intake/review-user"       "INTAKE_REVIEW_USER"
+fetch "oncall/username"          "ONCALL_USERNAME"
+fetch "oncall/password"          "ONCALL_PASSWORD"
+fetch "oncall/session-secret"    "ONCALL_SESSION_SECRET"
+fetch "oncall/clinic-hours"      "CLINIC_HOURS"
+fetch "oncall/alert-to"          "ONCALL_ALERT_TO"
 fetch "admin/db-password"        "DB_PASSWORD"
 fetch "admin/nextauth-url"       "NEXTAUTH_URL"
 fetch "admin/nextauth-secret"    "NEXTAUTH_SECRET"

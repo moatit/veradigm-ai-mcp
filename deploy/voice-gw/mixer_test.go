@@ -108,12 +108,12 @@ func TestEchoGate(t *testing.T) {
 
 func TestDialAllowList(t *testing.T) {
 	realm := "mit.voip.moatit.net"
-	for _, ok := range []string{"sip:4500@mit.voip.moatit.net", "sip:600@mit.voip.moatit.net", "sip:2085550100@mit.voip.moatit.net", "sip:12085550100@mit.voip.moatit.net", "sip:8005551234@mit.voip.moatit.net"} {
+	for _, ok := range []string{"sip:4500@mit.voip.moatit.net", "sip:600@mit.voip.moatit.net", "sip:2025550123@mit.voip.moatit.net", "sip:12025550123@mit.voip.moatit.net", "sip:8005551234@mit.voip.moatit.net"} {
 		if _, err := ValidateDialTarget(ok, realm); err != nil {
 			t.Fatalf("%s refused: %v", ok, err)
 		}
 	}
-	if got, _ := ValidateDialTarget("sip:12085550100@mit.voip.moatit.net", realm); got != "sip:2085550100@mit.voip.moatit.net" {
+	if got, _ := ValidateDialTarget("sip:12025550123@mit.voip.moatit.net", realm); got != "sip:2025550123@mit.voip.moatit.net" {
 		t.Fatalf("1+10 digits not normalised: %s", got)
 	}
 	for _, bad := range []string{"sip:**4500@mit.voip.moatit.net", "sip:*3@mit.voip.moatit.net", "sip:*0101@mit.voip.moatit.net",
@@ -125,7 +125,7 @@ func TestDialAllowList(t *testing.T) {
 		}
 	}
 	// REFER: also voicemail and park codes, never other star codes or emergency numbers.
-	for _, ok := range []string{"sip:**4500@mit.voip.moatit.net", "sip:*3@mit.voip.moatit.net", "sip:*4@mit.voip.moatit.net", "sip:2085550100@mit.voip.moatit.net"} {
+	for _, ok := range []string{"sip:**4500@mit.voip.moatit.net", "sip:*3@mit.voip.moatit.net", "sip:*4@mit.voip.moatit.net", "sip:2025550123@mit.voip.moatit.net"} {
 		if _, err := ValidateReferTarget(ok, realm); err != nil {
 			t.Fatalf("REFER %s refused: %v", ok, err)
 		}

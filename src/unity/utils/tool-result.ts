@@ -19,7 +19,8 @@ export interface ToolFailure {
 }
 
 // AUTH_ERROR is not retryable: it is usually expired credentials, which a retry won't fix.
-const RETRYABLE = new Set(['NETWORK_ERROR', 'TIMEOUT_ERROR', 'SERVER_ERROR']);
+// UNITY_ERROR is a Veradigm fault at sign-in (e.g. a GetToken reply that is not a token): retryable.
+const RETRYABLE = new Set(['NETWORK_ERROR', 'TIMEOUT_ERROR', 'SERVER_ERROR', 'UNITY_ERROR']);
 
 export function toToolFailure(error: unknown, tool: string): ToolFailure {
   const e: UnityMCPError =

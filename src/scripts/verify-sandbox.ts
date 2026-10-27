@@ -200,6 +200,7 @@ async function unityChecks(A: typeof UnityActionsT): Promise<void> {
   });
 
   // ---- Veradigm PM reads the app makes ----
+  await unityCheck('PM reads', `${A.Patient.GET_PATIENT_DEMOGRAPHICS} ${U_PID}`, A.Patient.GET_PATIENT_DEMOGRAPHICS, {}, U_PID, 'PM', 'P0');
   await unityCheck('PM reads', `${A.Scheduling.GET_APPOINTMENTS} ${U_PID}`, A.Scheduling.GET_APPOINTMENTS, {}, U_PID, 'PM', 'P0');
   await unityCheck('PM reads', A.Scheduling.GET_RESOURCES, A.Scheduling.GET_RESOURCES, {}, '', 'PM', 'P0');
   await unityCheck('PM reads', A.Scheduling.GET_CANCELLATION_REASONS, A.Scheduling.GET_CANCELLATION_REASONS, {}, '', 'PM', 'P0');
@@ -222,7 +223,6 @@ async function unityChecks(A: typeof UnityActionsT): Promise<void> {
   for (const section of ['problems', 'medications', 'allergies', 'results']) {
     await unityCheck('EHR reads', `${A.Clinical.GET_CLINICAL_SUMMARY} ${section} ${U_PID}`, A.Clinical.GET_CLINICAL_SUMMARY, { Parameter1: section }, U_PID, 'EHR', 'P1');
   }
-  await unityCheck('EHR reads', `${A.Clinical.GET_PATIENT_DIAGNOSIS} ${U_PID}`, A.Clinical.GET_PATIENT_DIAGNOSIS, {}, U_PID, 'EHR', 'P2');
   await unityCheck('EHR reads', A.Practice.GET_LOCATION, A.Practice.GET_LOCATION, {}, '', 'EHR', 'P2');
   await unityCheck('EHR reads', A.Provider.GET_PROVIDERS, A.Provider.GET_PROVIDERS, {}, '', 'EHR', 'P2');
   await unityCheck('EHR reads', A.Document.GET_DOCUMENT_TYPES, A.Document.GET_DOCUMENT_TYPES, {}, '', 'EHR', 'P2');

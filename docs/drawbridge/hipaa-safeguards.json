@@ -267,8 +267,8 @@
       "plain": "On every phone call, Drawbridge itself checks identity before any record is opened: a patient’s record can be used only after the caller gave that patient’s exact full name and date of birth and exactly one patient matched, on that same call (a near spelling is read back and searched again before anything is shared). At most two people can be verified per call (for example a parent calling for a child), and repeated lookups on one call are stopped and reported as a security alert. Staff screens are not affected.",
       "technical": "Per-call verification binding keyed by the Retell call ID (call-binding.ts, both agent endpoints): unity_search_patients / verify_patient_identity with first + last name + DOB and one match whose names and DOB equal what was given binds that patient’s IDs to the call (variants are read back, never bound; same name + DOB patients never merged) (memory only, DRAWBRIDGE_CALL_BINDING_TTL_MIN 120); every patient-scoped tool and appointment ID needs a bound patient, else NOT_VERIFIED; no call ID = CALL_ID_MISSING; DRAWBRIDGE_CALL_MAX_VERIFIED_PATIENTS 2, DRAWBRIDGE_CALL_MAX_SEARCHES 5; refusals are security events.",
       "evidence": [
-        "src/platform/call-binding.ts:330",
-        "src/platform/call-binding.ts:493"
+        "src/platform/call-binding.ts:329",
+        "src/platform/call-binding.ts:492"
       ],
       "status": "FIXED",
       "status_label": "In place",
