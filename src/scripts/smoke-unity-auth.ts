@@ -9,7 +9,8 @@
  * change or a retry), security events, the declared-action allow-list, scrubbed refusal text and the
  * "Retry sign-in" route (administrators only, same origin, audited); a plain 401 retried once with a fresh
  * token, the hard deadline on auth requests, the fail-closed latch file (bad content only; I/O errors keep the
- * last known latches), per-key action overrides.
+ * last known latches), per-key action overrides; Veradigm faults at sign-in (a GetToken reply that is not a
+ * GUID, "Invalid Token. Not 36 characters" for a fresh token) never latch and never log the reply (Oct 20, 2026).
  *
  *   npm run smoke:unity-auth
  */
@@ -51,6 +52,7 @@ interface Call {
   target: string;
   timeout: number | undefined;
   signal: boolean;
+  token: string;
 }
 
 async function main(): Promise<void> {
@@ -83,17 +85,19 @@ async function main(): Promise<void> {
   // ---- fake Unity ----
   const calls: Call[] = [];
   let tokenN = 0;
+  // Unity tokens are 36-character GUIDs (sendGetToken accepts nothing else).
+  const guid = (n: number) => `0000a11e-0000-4000-8000-${String(n).padStart(12, '0')}`;
   let script: Record<string, Array<(cfg?: any) => any>> = {};
   const next = (action: string) => script[action]?.shift();
   const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
   (axios as any).post = async (url: string, body: any, cfg: any) => {
     const action = url.endsWith('/GetToken') ? 'GetToken' : url.endsWith('/RetireToken') ? 'RetireToken' : String(body?.Action);
     const target = url.endsWith('/GetToken') ? (String(body?.Username).startsWith('VHCP') ? 'PM' : 'EHR') : '';
-    calls.push({ url, action, target, timeout: cfg?.timeout, signal: cfg?.signal instanceof AbortSignal });
+    calls.push({ url, action, target, timeout: cfg?.timeout, signal: cfg?.signal instanceof AbortSignal, token: String(body?.Token ?? '') });
     await delay(5);
     const step = next(action);
     if (step) return { data: await step(cfg) };
-    if (action === 'GetToken') return { data: `tok-${++tokenN}` };
+    if (action === 'GetToken') return { data: guid(++tokenN) };
     if (action === 'RetireToken') return { data: 'ok' };
     if (action === 'GetUserAuthentication') return { data: [{ getuserauthenticationinfo: [{ ValidUser: 'YES', UserID: '1' }] }] };
     return { data: [{ getscheduleinfo: [{ ok: 'yes' }] }] };
@@ -777,6 +781,116 @@ async function main(): Promise<void> {
   assert.ok(!shadowAlertsLatch({ stage: 'GetToken' }, 'file'), 'refused by another process: that one alerts');
   assert.ok(shadowAlertsLatch({ stage: 'unknown' }, 'file'), 'fail-closed latch found in the file: alert');
   ok('latch file I/O errors (stat EBUSY, read EIO / EMFILE / EISDIR) keep the last known latches and retry at the next check (logged, nothing moved aside); only bad content fails closed; the shadow server alerts for a fail-closed latch found in the file');
+
+  // 21. Veradigm faults at sign-in never latch (Oct 20, 2026: an EHR circuit break returned HTTP 200 with a
+  //     GetToken reply that was not a token; GetUserAuthentication then said "Not 36 characters" twice and the
+  //     old code latched EHR for ~7 hours).
+  const { toToolFailure } = await import('../unity/utils/tool-result');
+  const { tokenFromReply, describeReply, isMalformedTokenReply } = await import('../unity/services/unity-auth.service');
+  const SENTINEL = 'Sentinel-Reply-Body-7f3a';
+  assert.strictEqual(tokenFromReply(guid(7)), guid(7));
+  assert.strictEqual(tokenFromReply(` "${guid(7)}" `), guid(7), 'surrounding quotes and spaces removed');
+  assert.strictEqual(tokenFromReply(guid(7).toUpperCase()), guid(7).toUpperCase());
+  for (const bad of ['', 'tok-1', `${guid(7)}x`, `{${guid(7)}}`, guid(7).replace(/-/g, ''), 'x'.repeat(36), `Magic Error ${SENTINEL}`, { token: guid(7) }, null, undefined]) {
+    assert.strictEqual(tokenFromReply(bad), '', `not a token: ${JSON.stringify(bad)}`);
+  }
+  assert.strictEqual(describeReply(`Circuit breaker open: critical: unexpected error ${SENTINEL}`), '73 characters, error text');
+  assert.strictEqual(describeReply(`<html><body>${SENTINEL}</body></html>`), '50 characters, HTML/XML');
+  assert.strictEqual(describeReply({ Error: SENTINEL }), '36 characters, JSON');
+  assert.strictEqual(describeReply(''), '0 characters, empty');
+  assert.ok(isMalformedTokenReply('Invalid Token. Not 36 characters : critical: unexpected error'));
+  assert.ok(!isMalformedTokenReply('Magic Error - Security token is invalid or expired'));
+  assert.strictEqual(scrubAuthText(`Invalid Token ${guid(9)}. Not 36 characters`), 'Invalid Token [token]. Not 36 characters', 'an echoed token is masked');
+
+  // 21a. GetToken HTTP 200 with a reply that is not a GUID: retryable UNITY_ERROR, never latched, reply never logged
+  for (const [label, body] of [
+    ['error text', `Circuit breaker open: critical: unexpected error ${SENTINEL}`],
+    ['HTML page', `<html><body>Service Unavailable ${SENTINEL}</body></html>`],
+    ['JSON', { Error: `critical: unexpected error ${SENTINEL}` }],
+    ['empty', ''],
+    ['36 characters, not a GUID', `${SENTINEL}-${'x'.repeat(36 - SENTINEL.length - 1)}`],
+  ] as const) {
+    reset();
+    alerts.length = 0;
+    logged.length = 0;
+    L = mkLatched();
+    script.GetToken = [() => body];
+    const err: any = await L.u.executeAction('GetSchedule', {}, '', 'EHR').then(() => null, (e) => e);
+    assert.ok(err && err.code === 'UNITY_ERROR', `${label}: UNITY_ERROR, not AUTH_ERROR (${err?.code})`);
+    const failure = toToolFailure(err, 'get_schedule');
+    assert.deepStrictEqual([failure.error_code, failure.retryable], ['UNITY_ERROR', true], `${label}: the agent gets a retryable failure`);
+    assert.strictEqual(L.a.latched('EHR'), undefined, `${label}: not latched`);
+    assert.deepStrictEqual([count('GetToken'), count('GetUserAuthentication')], [1, 0], `${label}: the reply is never used as a token`);
+    assert.ok(!L.a.isTokenCached('EHR'), `${label}: nothing cached`);
+    assert.ok(!logged.join('\n').includes(SENTINEL) && !String(err.message).includes(SENTINEL), `${label}: reply body never logged or thrown`);
+    assert.ok(logged.some((l) => /GetToken for EHR returned a reply that is not a token \(\d+ characters, /.test(l)), `${label}: length and kind logged`);
+    const r = await L.u.executeAction('GetSchedule', {}, '', 'EHR');
+    assert.ok(r.success && count('GetToken') === 2, `${label}: the next call signs in again`);
+    await L.st.flush();
+    assert.strictEqual(alerts.length, 0, `${label}: no sign-in-stopped alert`);
+  }
+  // Keep-warm and the health probe: same Veradigm fault, never a latch, never AUTH_ERROR
+  reset();
+  L = mkLatched();
+  script.GetToken = [() => `critical: unexpected error ${SENTINEL}`];
+  await assert.rejects(L.a.refreshSession('EHR'), (e: any) => e.code === 'UNITY_ERROR');
+  assert.strictEqual(L.a.latched('EHR'), undefined, 'keep-warm: not latched');
+  script.GetToken = [() => `critical: unexpected error ${SENTINEL}`];
+  const probe21 = await new health.UnityHealthChecker({ auth: L.a, unity: L.u, status: L.st, targets: () => ['EHR'], log: () => undefined }).probe('EHR');
+  assert.deepStrictEqual([probe21.ok, probe21.error_class], [false, 'UNITY_ERROR'], `probe: ${probe21.error_class}`);
+  assert.ok(!probe21.detail.includes(SENTINEL));
+  assert.strictEqual(L.a.latched('EHR'), undefined, 'probe: not latched');
+  // A quoted GUID is accepted and sent without the quotes
+  reset();
+  script.GetToken = [() => `"${guid(42)}"`];
+  const q = new UnityService(new UnityAuthService({ latchDir: '' }));
+  assert.ok((await q.executeAction('GetSchedule', {}, '', 'EHR')).success);
+  assert.deepStrictEqual(calls.filter((c) => c.action !== 'GetToken').map((c) => c.token), [guid(42), guid(42)], 'GetUserAuthentication and the action use the unquoted GUID');
+  ok('GetToken reply that is not a 36-character GUID (error text, HTML, JSON, empty, 36 other characters): retryable UNITY_ERROR, never latched, never used, body never logged (length and kind only); tools, keep-warm and probe; a quoted GUID is accepted');
+
+  // 21b. GetUserAuthentication "Invalid Token. Not 36 characters" for the fresh token too: Veradigm fault, not latched
+  const notGuid = () => [{ Error: 'Invalid Token. Not 36 characters : critical: unexpected error' }];
+  reset();
+  alerts.length = 0;
+  L = mkLatched();
+  script.GetUserAuthentication = [notGuid, notGuid];
+  const err21b: any = await L.u.executeAction('GetSchedule', {}, '', 'EHR').then(() => null, (e) => e);
+  assert.ok(err21b && err21b.code === 'UNITY_ERROR', `tool call: UNITY_ERROR (${err21b?.code})`);
+  assert.strictEqual(toToolFailure(err21b, 'get_schedule').retryable, true);
+  assert.deepStrictEqual([count('GetToken'), count('GetUserAuthentication')], [2, 2], 'one fresh-token retry, no third login');
+  assert.strictEqual(L.a.latched('EHR'), undefined, 'tool call: not latched');
+  assert.ok((await L.u.executeAction('GetSchedule', {}, '', 'EHR')).success, 'the next call signs in again');
+  script.GetUserAuthentication = [notGuid, notGuid];
+  L.a.invalidate('EHR');
+  await assert.rejects(L.a.getAuthenticatedSession('EHR'), (e: any) => e.code === 'UNITY_ERROR');
+  script.GetUserAuthentication = [notGuid, notGuid];
+  await assert.rejects(L.a.refreshSession('EHR'), (e: any) => e.code === 'UNITY_ERROR');
+  assert.strictEqual(L.a.latched('EHR'), undefined, 'getAuthenticatedSession and keep-warm: not latched');
+  // As an HTTP fault (500 or 403) with the same text: still a Veradigm fault
+  await latchCase('"Not 36 characters" on HTTP 500 twice', { GetUserAuthentication: [httpErr(500, { Error: 'Invalid Token. Not 36 characters' }), httpErr(500, { Error: 'Invalid Token. Not 36 characters' })] }, false);
+  await latchCase('"Not 36 characters" on HTTP 403 twice', { GetUserAuthentication: [httpErr(403, { Error: 'Invalid Token. Not 36 characters' }), httpErr(403, { Error: 'Invalid Token. Not 36 characters' })] }, false);
+  await latchCase('"Not 36 characters" once, then the fresh token works', { GetUserAuthentication: [notGuid] }, false);
+  assert.deepStrictEqual([count('GetToken'), count('GetUserAuthentication'), count('GetSchedule')], [2, 2, 1]);
+  await L.st.flush();
+  assert.strictEqual(alerts.length, 0, 'no sign-in-stopped alert');
+  ok('GetUserAuthentication "Invalid Token. Not 36 characters" for a fresh token too (reply or HTTP 500/403): retryable UNITY_ERROR, not latched (tools, getAuthenticatedSession, keep-warm); one fresh-token retry, the next call signs in');
+
+  // 21c. Real credential refusals still latch, on every path
+  await latchCase('ValidUser NO', { GetUserAuthentication: [() => [{ getuserauthenticationinfo: [{ ValidUser: 'NO', ErrorMessage: 'Invalid password' }] }]] }, true);
+  assert.strictEqual(count('GetUserAuthentication'), 1, 'ValidUser NO: no retry');
+  await latchCase('ValidUser NO, password expired', { GetUserAuthentication: [() => [{ getuserauthenticationinfo: [{ ValidUser: 'NO', ErrorMessage: 'User password expired' }] }]] }, true);
+  await latchCase('GetUserAuthentication HTTP 403', { GetUserAuthentication: [httpErr(403, { Error: 'Forbidden' })] }, true);
+  await latchCase('GetUserAuthentication access denied', { GetUserAuthentication: [() => [{ Error: 'Magic Error - Access is denied for user ehruser' }]] }, true);
+  await latchCase('GetToken HTTP 401', { GetToken: [httpErr(401)] }, true);
+  await latchCase('the fresh token refused as well (not a malformed-token reply)', { GetUserAuthentication: [tokenBad, tokenBad] }, true);
+  reset();
+  const a21 = new UnityAuthService({ latchDir: '' });
+  script.GetUserAuthentication = [() => [{ getuserauthenticationinfo: [{ ValidUser: 'NO', ErrorMessage: 'Invalid password' }] }]];
+  await assert.rejects(a21.refreshSession('PM'));
+  assert.strictEqual(a21.latched('PM')?.stage, 'GetUserAuthentication', 'keep-warm: ValidUser NO latches');
+  await assert.rejects(new UnityService(a21).executeAction('GetSchedule', {}, '', 'PM'), (e: any) => e.code === 'AUTH_ERROR');
+  assert.strictEqual(count('GetUserAuthentication'), 1, 'nothing more sent');
+  ok('real credential refusals still latch: ValidUser != YES (tools and keep-warm), 401/403, access denied, a fresh token refused for another reason');
 
   console.error = origError;
   console.warn = origWarn;

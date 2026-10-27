@@ -8,10 +8,16 @@ These refusals latch:
 
 - `GetUserAuthentication` answers ValidUser other than YES (wrong or expired EHR/PM password, locked account).
 - `GetUserAuthentication` returns HTTP 401/403 or an error that says access is denied, and it is not a token problem.
-- The fresh token is refused again after the one fresh-token retry.
+- The fresh token is refused again after the one fresh-token retry (unless the refusal says the token is malformed; see below).
 - `GetToken` returns HTTP 401/403, or a JSON or WCF fault that says access is denied or the credentials are invalid (bad Unity service credentials).
 
-These never latch: network errors, timeouts, HTTP 408/429, HTML error pages and 5xx replies without such a fault.
+These never latch:
+
+- Network errors, timeouts, HTTP 408/429, HTML error pages and 5xx replies without such a fault.
+- A `GetToken` reply on HTTP 200 that is not a 36-character GUID (an error text, an HTML page, JSON, empty). Surrounding quotes are removed first. It is never used as a token; the call fails with the retryable `UNITY_ERROR` and the next call signs in again. The log shows only the reply's length and kind, never its text.
+- `GetUserAuthentication` saying the token is malformed ("Invalid Token. Not 36 characters"), even for the fresh token after the one retry. Drawbridge only sends 36-character GUIDs, so this is a Veradigm-side fault. It fails with the retryable `UNITY_ERROR`.
+
+Both Veradigm-fault cases come from the Oct 20, 2026 outage: a Veradigm® EHR circuit break returned HTTP 200 with a non-token reply from `GetToken`. `GetUserAuthentication` then answered "Not 36 characters" twice. The old code latched Veradigm® EHR as if the credentials were refused, and it stayed down for about 7 hours until an operator retried sign-in.
 
 ## What happens while it is latched
 

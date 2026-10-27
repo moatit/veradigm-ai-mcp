@@ -95,16 +95,66 @@ const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 /**
  * Veradigm refusal text made safe for logs, thrown errors and the agent: the configured service, EHR and PM
- * account names and any "prefix^n^user" account become [account]; e-mail addresses, dates and long numbers
- * are masked (scrubLogText).
+ * account names and any "prefix^n^user" account become [account]; a GUID (a token Veradigm echoes back)
+ * becomes [token]; e-mail addresses, dates and long numbers are masked (scrubLogText).
  */
 export function scrubAuthText(text: unknown, max = 160): string {
-  let s = String(text ?? '').replace(/[A-Za-z0-9]+\^\d+\^[^\s,;()]+/g, '[account]');
+  let s = String(text ?? '')
+    .replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi, '[token]')
+    .replace(/[A-Za-z0-9]+\^\d+\^[^\s,;()]+/g, '[account]');
   for (const name of [unityConfig.svcUsername, unityConfig.ehrUsername, unityConfig.pmUsername]) {
     const n = String(name || '').trim();
     if (n.length >= 3) s = s.replace(new RegExp(`(?<![A-Za-z0-9])${escapeRe(n)}(?![A-Za-z0-9])`, 'gi'), '[account]');
   }
   return scrubLogText(s, max);
+}
+
+const GUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** The GetToken reply as a token: a 36-character GUID (surrounding quotes and spaces removed), else ''. */
+export function tokenFromReply(data: unknown): string {
+  if (typeof data !== 'string') return '';
+  const t = data.trim().replace(/^"([\s\S]*)"$/, '$1').trim();
+  return GUID_RE.test(t) ? t : '';
+}
+
+/**
+ * What a GetToken reply that is not a token looked like, for logs: its length and kind only. Never the
+ * reply itself (it could be a token, or Veradigm text with an account name).
+ */
+export function describeReply(data: unknown): string {
+  let s = '';
+  if (typeof data === 'string') s = data.trim();
+  else if (data !== undefined && data !== null) {
+    try {
+      s = JSON.stringify(data) || '';
+    } catch {
+      s = '';
+    }
+  }
+  const kind = !s
+    ? 'empty'
+    : typeof data === 'object' || /^[{["]/.test(s)
+      ? 'JSON'
+      : /^</.test(s)
+        ? 'HTML/XML'
+        : /error|exception|fault|invalid|denied|unexpected|critical|circuit|unavailable/i.test(s)
+          ? 'error text'
+          : 'other text';
+  return `${s.length} characters, ${kind}`;
+}
+
+/**
+ * GetUserAuthentication says the token is malformed ("Invalid Token. Not 36 characters"). Drawbridge only
+ * sends a 36-character GUID, so this is a Veradigm-side fault (seen Oct 20, 2026), never a refusal.
+ */
+export function isMalformedTokenReply(message: unknown): boolean {
+  return /not 36 char/i.test(String(message || ''));
+}
+
+/** A transient Veradigm fault: UNITY_ERROR (retryable, never AUTH_ERROR); never latches. */
+function veradigmFault(message: string): Error {
+  return Object.assign(new Error(message), { code: 'UNITY_ERROR' });
 }
 
 /** Text that says the credentials were refused (not a token problem, not an outage). */
@@ -171,7 +221,9 @@ export function isCredentialRejection(error: unknown): boolean {
  * unity-auth-latch.ts), so a restart or a crash loop does not try again; it no longer applies once the
  * credentials change, and an operator clears it with retrySignIn ("Veradigm connection" screen). Engaging
  * it is a security event (unity_signin_latched) and calls the onLatch hook once (server: help-desk alert);
- * a retry is a security event too (unity_signin_retry). Network errors, timeouts and 5xx never latch.
+ * a retry is a security event too (unity_signin_retry). Network errors, timeouts and 5xx never latch, nor
+ * do Veradigm faults: a GetToken reply that is not a GUID, or a fresh GUID called malformed ("Not 36
+ * characters") by GetUserAuthentication. Those throw a retryable UNITY_ERROR.
  * Runbook: docs/drawbridge/VERADIGM_SIGNIN_LATCH.md.
  */
 export class UnityAuthService {
@@ -337,6 +389,7 @@ export class UnityAuthService {
 
   private async sendGetToken(target: UnityTargetSystem): Promise<string> {
     this.assertNotLatched(target);
+    let reply: unknown;
     try {
       const ubiquityId = getUbiquityId(target);
 
@@ -363,15 +416,7 @@ export class UnityAuthService {
         }
       );
 
-      // Response is the token string (UUID format)
-      const token = response.data;
-
-      if (!token || typeof token !== 'string') {
-        throw new Error('Invalid token response from Unity');
-      }
-
-      console.error(`[Unity Auth] Successfully obtained token for ${target}`);
-      return token;
+      reply = response.data;
     } catch (error) {
       // Status, code and message only: the axios error holds the request body with the service password.
       console.error(`[Unity Auth] Token request failed for ${target}: ${authErrorSummary(error)}`);
@@ -389,6 +434,17 @@ export class UnityAuthService {
 
       throw new Error(`Unity authentication failed: ${scrubAuthText(error instanceof Error ? error.message : String(error))}`);
     }
+
+    // The token is a 36-character GUID. Anything else on HTTP 200 (an error text, an HTML page, JSON) is a
+    // Veradigm-side fault (Oct 20, 2026: a circuit break): retryable, never latched, never used as a token.
+    const token = tokenFromReply(reply);
+    if (!token) {
+      const shape = describeReply(reply);
+      console.error(`[Unity Auth] GetToken for ${target} returned a reply that is not a token (${shape}); treated as a transient Veradigm fault, not latched`);
+      throw veradigmFault(`Veradigm GetToken reply was not a token (${shape}); transient Veradigm fault`);
+    }
+    console.error(`[Unity Auth] Successfully obtained token for ${target}`);
+    return token;
   }
 
   /**
@@ -615,8 +671,12 @@ export class UnityAuthService {
         this.invalidate(target, token);
         continue;
       }
-      // A brand-new token refused as well: not a stale token, so stop like any other refusal.
-      if (attempt > 0 && tokenRefused) this.latch(target, 'GetUserAuthentication', userAuth.error);
+      // A brand-new token refused as well: not a stale token, so stop like any other refusal. Unless Veradigm
+      // calls the GUID it was sent malformed: that is a Veradigm fault (Oct 20, 2026), never latched.
+      if (attempt > 0 && tokenRefused) {
+        if (isMalformedTokenReply(userAuth.error)) throw this.malformedTokenFault(target, userAuth.error);
+        this.latch(target, 'GetUserAuthentication', userAuth.error);
+      }
       throw new Error(`User authentication failed: ${userAuth.error}`);
     }
   }
@@ -638,10 +698,20 @@ export class UnityAuthService {
         // Same rule as getAuthenticatedSession: one more fresh token, then a refused token is a refusal.
         const tokenRefused = auth.tokenRefused || isTokenRejection(auth.error);
         if (attempt === 0 && tokenRefused) continue;
-        if (tokenRefused) this.latch(target, 'GetUserAuthentication', auth.error);
+        if (tokenRefused) {
+          if (isMalformedTokenReply(auth.error)) throw this.malformedTokenFault(target, auth.error);
+          this.latch(target, 'GetUserAuthentication', auth.error);
+        }
         throw new Error(`User authentication failed: ${auth.error}`);
       }
     });
+  }
+
+  /** GetUserAuthentication called a fresh GUID token malformed twice: a transient Veradigm fault, not a refusal. */
+  private malformedTokenFault(target: UnityTargetSystem, said: unknown): Error {
+    const clean = scrubAuthText(said, 100);
+    console.error(`[Unity Auth] ${target} GetUserAuthentication said the token is malformed (${clean}) for a fresh token too; treated as a transient Veradigm fault, not latched`);
+    return veradigmFault(`Veradigm GetUserAuthentication reported a malformed token (${clean}); transient Veradigm fault`);
   }
 
   /** Seconds until the cached token for a target is replaced (undefined when none is cached). */
