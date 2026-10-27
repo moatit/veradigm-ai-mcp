@@ -1,4 +1,5 @@
 import { APP_BASE, esc, fmtTime, page } from '../../shell';
+import { displayCode } from '../../display';
 import { COULDNT_CHECK, Check, HuddleBrief, HuddleService, HuddleVisit } from './brief';
 import { dateLabel, money } from './dates';
 
@@ -9,8 +10,8 @@ import { dateLabel, money } from './dates';
 const STYLE = `<style>
 .hd-tools{display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap}.hd-tools label{display:flex;flex-direction:column;font-size:13px;color:var(--muted)}
 .hd-tools input{width:auto}.hd-tiles{grid-template-columns:repeat(auto-fit,minmax(150px,1fr))}.hd-tiles .card{margin:0}
-.hd-tiles .lbl{font-size:13px;color:var(--muted)}.pill.info{background:var(--line);color:var(--ink)}
-.pill.unknown{background:transparent;color:var(--muted);border:1px dashed var(--muted)}
+.hd-tiles .lbl{font-size:13px;color:var(--muted)}.pill.info{border-left-color:var(--navy);color:var(--ink)}
+.pill.unknown{background:transparent;color:var(--muted);border:1px dashed var(--field);border-left:3px solid var(--field)}
 .hd-cant{color:var(--muted);font-style:italic}.hd-flags .pill{display:inline-block;margin:0 4px 4px 0}
 .banner{border-left:4px solid var(--urgent);background:var(--urgent-bg)}.banner.warn{border-left-color:var(--warn);background:var(--warn-bg)}
 .hd-prov h3{margin-top:0}.hd-time{white-space:nowrap;font-weight:600}
@@ -24,7 +25,7 @@ const STYLE = `<style>
 </style>`;
 
 const cell = (c: Check<any>, ok: (v: any) => string): string =>
-  c.ok ? ok(c.value) : `<span class="hd-cant" title="${esc(c.code)}">${esc(COULDNT_CHECK)}</span>`;
+  c.ok ? ok(c.value) : `<span class="hd-cant" title="${esc(displayCode(c.code))}">${esc(COULDNT_CHECK)}</span>`;
 
 function visitRow(v: HuddleVisit): string {
   const flags = v.flags.length
@@ -48,8 +49,9 @@ function tiles(b: HuddleBrief): string {
   return `<div class="grid hd-tiles">
 ${tile(s.visits, 'Visits')}${tile(s.providers, 'Providers')}
 ${tile(s.balancesDue, 'Balances due', s.balancesDue ? 'warn' : '')}
-${tile(s.missingInsurance, 'Missing insurance', s.missingInsurance ? 'urgent' : '')}
+${tile(s.missingInsurance, 'Missing insurance', s.missingInsurance ? 'warn' : '')}
 ${tile(s.failedChecks, "Checks that couldn't run", s.failedChecks ? 'urgent' : '')}
+${s.unconfirmed ? tile(s.unconfirmed, 'Unconfirmed (Call & Confirm)', 'warn') : ''}
 ${s.newPatients ? tile(s.newPatients, 'New patients') : ''}</div>`;
 }
 
@@ -74,7 +76,7 @@ export function renderHuddle(view: HuddleView): string {
     body += `<div class="card banner" role="alert"><strong>Couldn't reach Veradigm® PM.</strong>
 The schedule for ${esc(dateLabel(dateKey))} couldn't be loaded, so no brief is shown. This does not mean the day is empty.
 ${error.retryable ? 'Try again in a few minutes.' : 'If this keeps happening, contact MOATiT support.'}
-<div class="muted" style="font-size:12px;margin-top:4px">Error: ${esc(error.code)}</div></div>`;
+<div class="muted" style="font-size:12px;margin-top:4px">Error: ${esc(displayCode(error.code))}</div></div>`;
     return page('Huddle brief · Drawbridge', body, { user: view.user, active: '/huddle' });
   }
   if (!brief) return page('Huddle brief · Drawbridge', body, { user: view.user, active: '/huddle' });

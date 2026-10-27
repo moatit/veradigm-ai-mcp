@@ -21,8 +21,17 @@ async function main(): Promise<void> {
   const { toVoiceSummary } = await import('../utils/response-formatter');
   const { createSchedulingModule } = await import('../platform/modules/scheduling');
   const { parseOpeningsQuestion, groupOpenings } = await import('../platform/modules/scheduling/openings');
-  const { day, timeToMinutes } = await import('../platform/modules/scheduling/dates');
+  const { addDays, clinicToday, timeToMinutes, toMdy } = await import('../platform/modules/scheduling/dates');
   const { openingsPage, dayPage } = await import('../platform/modules/scheduling/screens');
+
+  // Dates are relative to T, the first Thursday after the clinic's today, so the fake open slots are always in the
+  // future (the open-slot lookup drops slots earlier than the clinic's current time). D(n) = T + n days as MM/DD/YYYY:
+  // D(0) Thursday, D(1) Friday, D(4) next Monday, D(5) next Tuesday, D(6) next Wednesday, D(7) next Thursday.
+  const T = addDays(clinicToday(), ((4 - clinicToday().getUTCDay() + 7) % 7) || 7);
+  const D = (n: number): string => toMdy(addDays(T, n));
+  const MD = (n: number): string => D(n).slice(0, 5);
+  const ISO = (n: number): string => addDays(T, n).toISOString().slice(0, 10);
+  const JAN5 = toMdy(new Date(Date.UTC(T.getUTCFullYear() + 1, 0, 5))); // "1/5" without a year: the next January 5
 
   let passed = 0;
   const ok = (label: string) => {
@@ -67,8 +76,8 @@ async function main(): Promise<void> {
   // GetAvailableSchedule: one row per day; Blocked_Slots1+2 = bookable template, Booked_Slots1+2 = booked,
   // 288 five-minute cells from midnight. Each opening below is one 15-minute window.
   const OPENINGS: Record<string, Array<[string, string]>> = {
-    LEE: [['10/13/2026', '09:00'], ['10/13/2026', '13:30'], ['10/13/2026', '15:45'], ['10/15/2026', '10:00']],
-    PATEL: [['10/13/2026', '13:00'], ['10/13/2026', '17:15'], ['10/14/2026', '14:00']],
+    LEE: [[D(5), '09:00'], [D(5), '13:30'], [D(5), '15:45'], [D(7), '10:00']],
+    PATEL: [[D(5), '13:00'], [D(5), '17:15'], [D(6), '14:00']],
     LEEWON: [],
   };
   const dayRows = (abbr: string) => {
@@ -92,22 +101,22 @@ async function main(): Promise<void> {
   };
   const failing: Fake = () => ({ success: false, error: 'Magic Error: service unavailable' });
 
-  // ── 1. Question parser (today = Thursday 10/08/2026) ───────────────────────
-  const today = day(2026, 10, 8);
+  // ── 1. Question parser (today = Thursday T) ───────────────────────────────
+  const today = T;
   const cases: Array<[string, Partial<{ startDate: string; endDate: string; partOfDay: string; providerTerms: string[]; dates: string[] }>]> = [
-    ['Who has an opening Tuesday afternoon?', { startDate: '10/13/2026', endDate: '10/13/2026', partOfDay: 'afternoon', providerTerms: [] }],
-    ['any openings for Dr. Lee next week morning', { startDate: '10/12/2026', endDate: '10/16/2026', partOfDay: 'morning', providerTerms: ['lee'] }],
-    ['Anything open today?', { startDate: '10/08/2026', endDate: '10/08/2026', partOfDay: 'any' }],
-    ['openings tomorrow a.m.', { startDate: '10/09/2026', endDate: '10/09/2026', partOfDay: 'morning' }],
-    ['Does Dr Patel have anything next Wednesday p.m.?', { startDate: '10/14/2026', endDate: '10/14/2026', partOfDay: 'afternoon', providerTerms: ['patel'] }],
-    ["Who's free this week?", { startDate: '10/08/2026', endDate: '10/09/2026', partOfDay: 'any', providerTerms: [] }],
-    ['open slots on 10/20', { startDate: '10/20/2026', endDate: '10/20/2026' }],
-    ['Monday or Wednesday morning', { startDate: '10/12/2026', endDate: '10/14/2026', partOfDay: 'morning', dates: ['10/12/2026', '10/14/2026'] }],
-    ['who has openings', { startDate: '10/08/2026', endDate: '10/14/2026', partOfDay: 'any', providerTerms: [] }],
-    ['Friday after lunch for a follow up visit', { startDate: '10/09/2026', endDate: '10/09/2026', partOfDay: 'afternoon', providerTerms: [] }],
-    ['Thursday', { startDate: '10/08/2026', endDate: '10/08/2026' }],
-    ['Tuesday next week before noon', { startDate: '10/13/2026', endDate: '10/13/2026', partOfDay: 'morning' }],
-    ['open slots 1/5', { startDate: '01/05/2027', endDate: '01/05/2027' }],
+    ['Who has an opening Tuesday afternoon?', { startDate: D(5), endDate: D(5), partOfDay: 'afternoon', providerTerms: [] }],
+    ['any openings for Dr. Lee next week morning', { startDate: D(4), endDate: D(8), partOfDay: 'morning', providerTerms: ['lee'] }],
+    ['Anything open today?', { startDate: D(0), endDate: D(0), partOfDay: 'any' }],
+    ['openings tomorrow a.m.', { startDate: D(1), endDate: D(1), partOfDay: 'morning' }],
+    ['Does Dr Patel have anything next Wednesday p.m.?', { startDate: D(6), endDate: D(6), partOfDay: 'afternoon', providerTerms: ['patel'] }],
+    ["Who's free this week?", { startDate: D(0), endDate: D(1), partOfDay: 'any', providerTerms: [] }],
+    [`open slots on ${MD(12)}`, { startDate: D(12), endDate: D(12) }],
+    ['Monday or Wednesday morning', { startDate: D(4), endDate: D(6), partOfDay: 'morning', dates: [D(4), D(6)] }],
+    ['who has openings', { startDate: D(0), endDate: D(6), partOfDay: 'any', providerTerms: [] }],
+    ['Friday after lunch for a follow up visit', { startDate: D(1), endDate: D(1), partOfDay: 'afternoon', providerTerms: [] }],
+    ['Thursday', { startDate: D(0), endDate: D(0) }],
+    ['Tuesday next week before noon', { startDate: D(5), endDate: D(5), partOfDay: 'morning' }],
+    ['open slots 1/5', { startDate: JAN5, endDate: JAN5 }],
   ];
   for (const [question, want] of cases) {
     const got = parseOpeningsQuestion(question, today) as any;
@@ -126,13 +135,13 @@ async function main(): Promise<void> {
   {
     const { run } = platform(failing);
     for (const [name, args] of [
-      ['unity_get_day_schedule', { date: '10/13/2026' }],
+      ['unity_get_day_schedule', { date: D(5) }],
       ['unity_get_providers', {}],
       ['unity_get_location_hours', {}],
-      ['unity_get_changed_appointments', { since: '10/01/2026' }],
+      ['unity_get_changed_appointments', { since: D(-7) }],
       ['unity_get_patient_recalls', { patientId: '56500' }],
-      ['drawbridge_find_openings', { question: 'Who has an opening Tuesday afternoon?', today: '10/08/2026' }],
-      ['drawbridge_find_openings', { startDate: '10/13/2026', partOfDay: 'afternoon' }],
+      ['drawbridge_find_openings', { question: 'Who has an opening Tuesday afternoon?', today: D(0) }],
+      ['drawbridge_find_openings', { startDate: D(5), partOfDay: 'afternoon' }],
     ] as Array<[string, any]>) {
       const r = await run(name, args);
       assert.strictEqual(r.success, false, `${name} should fail`);
@@ -147,11 +156,11 @@ async function main(): Promise<void> {
   // Providers fine, open-slot lookup fails → failure (not "no openings")
   {
     const { run } = platform((a, p, pid, t) => (a === UnityActions.Scheduling.GET_OPEN_SLOTS ? failing(a, p, pid, t) : healthy(a, p, pid, t)));
-    const r = await run('drawbridge_find_openings', { question: 'Who has an opening Tuesday afternoon?', today: '10/08/2026' });
+    const r = await run('drawbridge_find_openings', { question: 'Who has an opening Tuesday afternoon?', today: D(0) });
     assert.strictEqual(r.success, false);
     assert.strictEqual(r.error_code, 'API_ERROR');
     assert.ok(!/no openings/i.test(toVoiceSummary('drawbridge_find_openings', r)));
-    const html = openingsPage({ q: 'x', start: '', end: '', part: 'any', provider: '', providers: null, result: r, today: '10/08/2026' });
+    const html = openingsPage({ q: 'x', start: '', end: '', part: 'any', provider: '', providers: null, result: r, today: D(0) });
     assert.match(html, /Couldn't reach Veradigm® PM/);
     assert.ok(!/No openings/i.test(html), 'failure page must not say "No openings"');
     ok('open-slot failure → TOOL_ERROR and "Couldn\'t reach Veradigm® PM" banner, never "no openings"');
@@ -160,10 +169,10 @@ async function main(): Promise<void> {
   // Provider list fails and the question names "Dr. Lee" → failure (can't answer for everyone instead)
   {
     const { run } = platform((a, p, pid, t) => (a === 'GetResources' ? failing(a, p, pid, t) : healthy(a, p, pid, t)));
-    const r = await run('drawbridge_find_openings', { question: 'any openings for Dr. Lee next week', today: '10/08/2026' });
+    const r = await run('drawbridge_find_openings', { question: 'any openings for Dr. Lee next week', today: D(0) });
     assert.strictEqual(r.success, false);
     assert.ok(r.error_code);
-    const r2 = await run('drawbridge_find_openings', { question: 'Who has an opening Tuesday afternoon?', today: '10/08/2026' });
+    const r2 = await run('drawbridge_find_openings', { question: 'Who has an opening Tuesday afternoon?', today: D(0) });
     assert.strictEqual(r2.success, false);
     assert.ok(r2.error_code);
     assert.ok(!/no openings/i.test(toVoiceSummary('drawbridge_find_openings', r2)));
@@ -173,7 +182,7 @@ async function main(): Promise<void> {
   // ── 3. Grouping by provider ────────────────────────────────────────────────
   {
     const { run } = platform(healthy);
-    const r = await run('drawbridge_find_openings', { question: 'Who has an opening Tuesday afternoon?', today: '10/08/2026' });
+    const r = await run('drawbridge_find_openings', { question: 'Who has an opening Tuesday afternoon?', today: D(0) });
     assert.strictEqual(r.success, true, JSON.stringify(r));
     assert.strictEqual(r.total, 3, JSON.stringify(r.openings));
     assert.deepStrictEqual(
@@ -184,43 +193,43 @@ async function main(): Promise<void> {
       ]
     );
     const voice = toVoiceSummary('drawbridge_find_openings', r);
-    assert.strictEqual(voice, '3 openings Tuesday 10/13 afternoon: Dr. Priya Patel has one at 1:00 PM; Lee, Andrew MD has 2, first at 1:30 PM.');
+    assert.strictEqual(voice, `3 openings Tuesday ${MD(5)} afternoon: Dr. Priya Patel has one at 1:00 PM; Lee, Andrew MD has 2, first at 1:30 PM.`);
     ok(`grouped by provider, morning/5:15 PM/other days excluded → "${voice}"`);
 
     const g = groupOpenings(
       [
-        { date: '', time: '10/13/2026 9:00 AM', providerId: '1' },
-        { date: '10/13/2026', time: '', providerId: '1' },
+        { date: '', time: `${D(5)} 9:00 AM`, providerId: '1' },
+        { date: D(5), time: '', providerId: '1' },
       ],
       { partOfDay: 'morning' }
     );
-    assert.strictEqual(g.groups[0].slots[0].date, '10/13/2026');
+    assert.strictEqual(g.groups[0].slots[0].date, D(5));
     assert.strictEqual(g.skippedNoTime, 1);
     ok('date taken from datetime field; slot without a time is counted, not silently dropped');
 
-    const lee = await run('drawbridge_find_openings', { question: 'any openings for Dr. Lee next week morning', today: '10/08/2026' });
+    const lee = await run('drawbridge_find_openings', { question: 'any openings for Dr. Lee next week morning', today: D(0) });
     assert.strictEqual(lee.success, true);
     assert.deepStrictEqual(lee.query.providerIds, ['101', '103']); // "Lee" and "Lee-Wong"
     assert.ok(lee.openings.every((x: any) => ['101', '103'].includes(x.providerId)));
-    assert.deepStrictEqual(lee.openings.map((x: any) => x.slots.map((s: any) => s.date + ' ' + s.time)), [['10/13/2026 9:00 AM', '10/15/2026 10:00 AM']]);
+    assert.deepStrictEqual(lee.openings.map((x: any) => x.slots.map((s: any) => s.date + ' ' + s.time)), [[`${D(5)} 9:00 AM`, `${D(7)} 10:00 AM`]]);
     ok(`provider match "Dr. Lee" → ${lee.message}`);
 
-    const patel = await run('drawbridge_find_openings', { question: 'does dr patel have anything Wednesday', today: '10/08/2026' });
+    const patel = await run('drawbridge_find_openings', { question: 'does dr patel have anything Wednesday', today: D(0) });
     const slotCall = calls.filter((c) => c.action === UnityActions.Scheduling.GET_OPEN_SLOTS).pop()!;
     assert.strictEqual(slotCall.params.Parameter1, 'PATEL', 'single provider passed to the slot lookup by abbreviation');
-    assert.strictEqual(slotCall.params.Parameter3, '10/15/2026', 'end date + 1 (Veradigm end date is exclusive)');
+    assert.strictEqual(slotCall.params.Parameter3, D(7), 'end date + 1 (Veradigm end date is exclusive)');
     assert.strictEqual(patel.total, 1);
     ok('single matched provider is passed to the open-slot lookup');
 
-    const nobody = await run('drawbridge_find_openings', { question: 'openings for Dr. Nobody Tuesday', today: '10/08/2026' });
+    const nobody = await run('drawbridge_find_openings', { question: 'openings for Dr. Nobody Tuesday', today: D(0) });
     assert.strictEqual(nobody.success, false);
     assert.ok(!nobody.error_code, 'provider not found is not a Veradigm failure');
     assert.match(toVoiceSummary('drawbridge_find_openings', nobody), /couldn't find a provider named nobody/);
     ok('unknown provider → clarifying message (not an error, not "no openings")');
 
-    const structured = await run('drawbridge_find_openings', { startDate: '10/13/2026', endDate: '10/15/2026', partOfDay: 'morning', providerId: '101' });
+    const structured = await run('drawbridge_find_openings', { startDate: D(5), endDate: D(7), partOfDay: 'morning', providerId: '101' });
     assert.strictEqual(structured.total, 2);
-    assert.match(structured.message, /^2 openings 10\/13\/2026 to 10\/15\/2026 morning: Lee, Andrew MD has 2, first at Tuesday 10\/13 9:00 AM\.$/);
+    assert.strictEqual(structured.message, `2 openings ${D(5)} to ${D(7)} morning: Lee, Andrew MD has 2, first at Tuesday ${MD(5)} 9:00 AM.`);
     ok(`structured search → "${structured.message}"`);
 
     const bad = await run('drawbridge_find_openings', { startDate: '2026-10-13' });
@@ -230,14 +239,14 @@ async function main(): Promise<void> {
     const none = platform((a) =>
       a === UnityActions.Scheduling.GET_OPEN_SLOTS ? { success: true, data: [{ getavailablescheduleinfo: [] }] } : healthy(a, {}, '', 'PM')
     );
-    const empty = await none.run('drawbridge_find_openings', { question: 'tomorrow morning', today: '10/08/2026' });
+    const empty = await none.run('drawbridge_find_openings', { question: 'tomorrow morning', today: D(0) });
     assert.strictEqual(empty.success, true);
     assert.strictEqual(toVoiceSummary('drawbridge_find_openings', empty), 'No openings tomorrow morning.');
     ok('successful empty lookup → "No openings tomorrow morning."');
 
     const page = openingsPage({
       q: 'Who has an opening Tuesday afternoon?', start: '', end: '', part: 'any', provider: '',
-      providers: [{ id: '9', name: '<script>alert(1)</script>', type: '' }], result: r, today: '10/08/2026',
+      providers: [{ id: '9', name: '<script>alert(1)</script>', type: '' }], result: r, today: D(0),
     });
     assert.ok(!page.includes('<script>alert(1)'), 'provider names escaped');
     assert.match(page, /Lee, Andrew MD/);
@@ -256,17 +265,17 @@ async function main(): Promise<void> {
           ] }] }
         : { success: false, error: 'x' }
     );
-    const s = await run('unity_get_day_schedule', { date: '10/13/2026' });
+    const s = await run('unity_get_day_schedule', { date: D(5) });
     assert.deepStrictEqual(s.schedule.map((x: any) => x.appointmentId), ['2', '3', '1']);
     assert.strictEqual(s.schedule[2].patientName, 'Test, Alpha');
     const voice = toVoiceSummary('unity_get_day_schedule', s);
-    assert.strictEqual(voice, 'There are 3 appointments on 10/13/2026: Dr. Lee 2, Dr. Patel 1.');
+    assert.strictEqual(voice, `There are 3 appointments on ${D(5)}: Dr. Lee 2, Dr. Patel 1.`);
     assert.ok(!/Alpha|Beta|Gamma/.test(voice), 'no patient names in speech');
-    assert.strictEqual(calls[0].params.Parameter1, '10/13/2026');
-    const html = dayPage({ date: '10/13/2026', provider: '', providers: null, result: s });
+    assert.strictEqual(calls[0].params.Parameter1, D(5));
+    const html = dayPage({ date: D(5), provider: '', providers: null, result: s });
     assert.match(html, /Test, Beta/);
     assert.match(html, /8:30 AM/);
-    const failedHtml = dayPage({ date: '10/13/2026', provider: '', providers: null, result: toToolFailure(new Error('x'), 'unity_get_day_schedule') });
+    const failedHtml = dayPage({ date: D(5), provider: '', providers: null, result: toToolFailure(new Error('x'), 'unity_get_day_schedule') });
     assert.match(failedHtml, /Couldn't reach Veradigm® PM/);
     assert.ok(!/No appointments/.test(failedHtml));
     const bad = await run('unity_get_day_schedule', { date: 'Tuesday' });
@@ -293,25 +302,25 @@ async function main(): Promise<void> {
 
   {
     const { run } = platform(() => ({ success: true, data: [{ getappointmentsbychangedttminfo: [
-      { apptid: '1', apptdate: '10/07/2026', status: 'No Show', changedttm: '10/07/2026 5:00 PM' },
-      { apptid: '2', apptdate: '10/07/2026', status: 'No Show' },
-      { apptid: '3', apptdate: '10/08/2026', status: 'Cancelled' },
+      { apptid: '1', apptdate: D(-1), status: 'No Show', changedttm: `${D(-1)} 5:00 PM` },
+      { apptid: '2', apptdate: D(-1), status: 'No Show' },
+      { apptid: '3', apptdate: D(0), status: 'Cancelled' },
     ] }] }));
-    const r = await run('unity_get_changed_appointments', { since: '10/07/2026' });
-    assert.strictEqual(r.message, '3 appointments changed since 10/07/2026: 2 no show, 1 cancelled.');
-    assert.strictEqual(calls[0].params.Parameter1, '10/07/2026');
+    const r = await run('unity_get_changed_appointments', { since: D(-1) });
+    assert.strictEqual(r.message, `3 appointments changed since ${D(-1)}: 2 no show, 1 cancelled.`);
+    assert.strictEqual(calls[0].params.Parameter1, D(-1));
     ok(`changed appointments → "${r.message}"`);
   }
 
   {
     const { run } = platform((_a, _p, pid) => ({ success: true, data: [{ getrecallsinfo: [
-      { recallid: '7', patientid: pid, recalltype: 'Annual labs', duedate: '2026-11-01T00:00:00' },
-      { recallid: '8', patientid: '99999', recalltype: 'Someone else', duedate: '11/02/2026' },
+      { recallid: '7', patientid: pid, recalltype: 'Annual labs', duedate: `${ISO(24)}T00:00:00` },
+      { recallid: '8', patientid: '99999', recalltype: 'Someone else', duedate: D(25) },
     ] }] }));
     const r = await run('unity_get_patient_recalls', { patientId: '56500' });
     assert.strictEqual(r.total, 1);
-    assert.strictEqual(r.recalls[0].dueDate, '11/01/2026');
-    assert.match(toVoiceSummary('unity_get_patient_recalls', r), /^1 recall on file: Annual labs due 11\/01\/2026\./);
+    assert.strictEqual(r.recalls[0].dueDate, D(24));
+    assert.ok(toVoiceSummary('unity_get_patient_recalls', r).startsWith(`1 recall on file: Annual labs due ${D(24)}.`));
     ok("recalls: other patients' rows dropped, due date normalized");
   }
 

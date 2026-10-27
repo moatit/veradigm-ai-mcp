@@ -1,5 +1,6 @@
 import express, { Request, Response, Router } from 'express';
 import { APP_BASE, esc, fmtTime } from '../../shell';
+import { displayCode, displayTokens } from '../../display';
 import type { DocTypeSource } from './doctypes';
 import { normDob, toCandidates } from './match';
 import { loadRoster, normKey, rosterPath, RosterError, rosterDob, type RosterPatient } from './roster';
@@ -115,8 +116,8 @@ function observedText(o?: StaffObservation): string {
     return `Filed by staff to ${patientText(o.patient)}${o.category ? ` under <strong>${esc(o.category)}</strong>` : ''} · document ${esc(o.document_id)} ${pill(o.confidence === 'high' ? 'ok' : 'warn', `${o.confidence} confidence`)}${used}${o.signals?.length ? `<div class="muted" style="font-size:13px">${esc(o.signals.join(' · '))}</div>` : ''}${when}`;
   }
   if (o.status === 'ambiguous') return `Two documents in different charts fit equally well: confirm by hand.${when}`;
-  if (o.status === 'not_observed') return `Not found in the charts looked at${o.error_code ? ` (${esc(o.error_code)})` : ''}: confirm by hand.${when}`;
-  if (o.status === 'error') return `The check failed (${esc(o.error_code || 'error')}); it will be tried again.${when}`;
+  if (o.status === 'not_observed') return `Not found in the charts looked at${o.error_code ? ` (${esc(displayCode(o.error_code))})` : ''}: confirm by hand.${when}`;
+  if (o.status === 'error') return `The check failed (${esc(displayCode(o.error_code || 'error'))}); it will be tried again.${when}`;
   return `Not found yet; Drawbridge will look again.${when}`;
 }
 
@@ -145,8 +146,8 @@ export function shadowPanel(i: IntakeItem, ctx: ShadowPanelContext): string {
   const predicted = i.match?.patient;
   let would = '<span class="muted">Not decided yet (still being read, or failed).</span>';
   if (d?.would === 'auto_file') would = `${pill('ok', 'Auto-file')} to ${patientText(predicted)}${d.category ? ` under <strong>${esc(d.category)}</strong>` : ''}`;
-  else if (d?.would === 'split') would = `${pill('ok', 'Split')} ${esc(d.reason)}`;
-  else if (d) would = `${pill('', 'Send to staff')} ${esc(REASON_LABEL[d.code] || d.code)}: ${esc(d.reason)}${predicted ? `<div class="muted" style="font-size:13px">Candidate shown to staff: ${patientText(predicted)}</div>` : ''}${d.category ? `<div class="muted" style="font-size:13px">Suggested category: ${esc(d.category)}</div>` : ''}`;
+  else if (d?.would === 'split') would = `${pill('ok', 'Split')} ${esc(displayTokens(d.reason))}`;
+  else if (d) would = `${pill('', 'Send to staff')} ${esc(REASON_LABEL[d.code] || displayCode(d.code))}: ${esc(displayTokens(d.reason))}${predicted ? `<div class="muted" style="font-size:13px">Candidate shown to staff: ${patientText(predicted)}</div>` : ''}${d.category ? `<div class="muted" style="font-size:13px">Suggested category: ${esc(d.category)}</div>` : ''}`;
   const t = i.truth;
   const derived = !t ? unitTruth(i, ctx.byId) : null;
   const fromParent = derived?.source === 'parent';
@@ -175,7 +176,7 @@ export function shadowPanel(i: IntakeItem, ctx: ShadowPanelContext): string {
   const s = ctx.search;
   const results = s
     ? s.error
-      ? `<p style="color:var(--urgent)">${esc(s.error)}</p>`
+      ? `<p style="color:var(--urgent)">${esc(displayTokens(s.error))}</p>`
       : s.results.length
         ? `<form method="post" action="${action}/confirm"><input type="hidden" name="action" value="patient"><input type="hidden" name="q" value="${esc(s.q)}"><div class="scroll"><table><thead><tr><th></th><th>Patient</th><th>DOB</th><th>MRN</th><th>Chart</th></tr></thead><tbody>${s.results
             .map(

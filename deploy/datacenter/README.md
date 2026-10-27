@@ -2,6 +2,8 @@
 
 Measure Drawbridge's fax and lab intake on **real** Idaho Kidney Institute documents, inside MOATiT's data center, before anything is ever filed. The intake runs on the dedicated fax server MOATiT deploys for IKI, next to MOATiT Fax: it takes MOATiT Fax's `fax.received` webhook, the Express Lab folder and the archive of old faxes (both read-only), reads and matches every document, and records what it **would** have done. Staff keep working in Veradigm® EHR as today; Drawbridge reads back where they filed each fax and compares.
 
+**Or read the Veradigm® EHR queue instead (nothing changes for the clinic):** with `INTAKE_QUEUE_SOURCE=on`, Drawbridge takes the documents straight from the "(ready for indexing)" queue, read-only, and follows each DocumentID to where staff index it. Then leave `INTAKE_WATCH_DIRS` and `MOATIT_FAX_WEBHOOK_SECRET` empty in `.env` (one source per document; the server refuses the queue source otherwise). See `docs/drawbridge/CLINIC_ONBOARDING.md` §3a.
+
 **Nothing is filed.** `INTAKE_MODE=shadow` makes filing impossible whatever `INTAKE_FILING` says, and the server only ever calls Veradigm® read actions (`SearchPatients`, `GetDocumentType`, `GetDocuments`, `GetDocumentsByDocumentType`, `GetDocumentImage`); any other action is refused before it leaves the process. No data leaves the data center: the only outbound connection is TLS to the Veradigm® Unity host, and only when live search is turned on.
 
 ## Checklist before the first real document
@@ -221,6 +223,8 @@ Also: remove the MOATiT Fax webhook and its API key, take the service off `drawb
 | `INTAKE_ROSTER_CSV` | unset | Local patient list instead of the live search |
 | `INTAKE_CATEGORIES_CSV` | unset | Category list when `GetDocumentType` isn't available |
 | `INTAKE_WATCH_DIRS` / `INTAKE_WATCH_SINCE` / `INTAKE_WATCH_MAX` | `/mnt/express-lab` / none / 200 | Folders read in place; files older than the day ignored; files per scan |
+| `INTAKE_QUEUE_SOURCE` | `off` | `on`: take documents straight from the "(ready for indexing)" queue (read-only; shadow mode only, ignored in live mode). Each DocumentID becomes one item, scored exactly against where staff index it. Refused while `INTAKE_WATCH_DIRS` or `MOATIT_FAX_WEBHOOK_SECRET` is set (one source per document). Copies are deleted by `INTAKE_SHADOW_RETENTION_DAYS` (30) or `npm run intake:purge-shadow` |
+| `INTAKE_QUEUE_EVERY_MIN` / `_WINDOW_DAYS` / `_PER_RUN` | 10 / 3 / 25 | Queue source: run interval (never below 2 minutes); listing window (the first run backfills it); documents fetched per run |
 | `INTAKE_OBSERVE` | `on` (off without Veradigm) | Staff filing observer |
 | `INTAKE_OBSERVE_QUEUE_TYPE` | `-1000999` | "(ready for indexing)" type ID or name |
 | `INTAKE_OBSERVE_EVERY_MIN` / `_WINDOW_DAYS` / `_LINK_HOURS` / `_DELAY_HOURS` / `_MAX_DAYS` | 30 / 14 / 36 / 24 / 7 | Run interval; listing window; max time between queue and receipt; chart search after; give up after |

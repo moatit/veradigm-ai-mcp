@@ -4,6 +4,7 @@ import { auditPatient } from '../../app';
 import { PlatformModule } from '../../registry';
 import { recordExport, securityEvent, clientIp } from '../../security-events';
 import { APP_BASE, esc, fmtTime, page } from '../../shell';
+import { displayCode, displayTokens } from '../../display';
 import { CsvDocTypes, DocTypeCache, FallbackDocTypes, type DocType, type DocTypeSource } from './doctypes';
 import type { Confidence, DocumentKind, Extracted } from './extract';
 import { fileToChart, filingStatus, IntakeFilingError, sendToIndexing, setFilingDeps, type FilingResult } from './file';
@@ -11,6 +12,8 @@ import { startFolderWatcher, startWatchFolders } from './folder';
 import { MoatitFaxClient, setFaxRecordedHandler } from './moatit-fax';
 import { ALWAYS_PERSON_LABEL, alwaysPersonType, RECIPIENT_SOURCE_LABEL } from './rules';
 import { observeEnabled, StaffFilingObserver } from './observe';
+import { QueueSource, queueSourceState } from './queue-source';
+import { startAliveMarker } from './server-lock';
 import { OcrClient } from './ocr';
 import { IntakePipeline } from './pipeline';
 import { rosterPath } from './roster';
@@ -87,9 +90,9 @@ export const KIND_LABEL: Record<DocumentKind, string> = {
   referral: 'Referral',
   other: 'Other',
 };
-const SOURCE_LABEL = { moatit_fax: 'MOATiT Fax', folder: 'Drop folder', upload: 'Staff upload' } as const;
+const SOURCE_LABEL = { moatit_fax: 'MOATiT Fax', folder: 'Drop folder', upload: 'Staff upload', veradigm_queue: 'Veradigm® EHR indexing queue' } as const;
 const DECISION_LABEL = { auto: 'Two identifiers match', review: 'Check the patient', none: 'No match', ambiguous: 'More than one patient', error: 'Search failed' } as const;
-const DECISION_PILL = { auto: 'ok', review: 'warn', none: 'warn', ambiguous: 'urgent', error: 'urgent' } as const;
+const DECISION_PILL = { auto: 'ok', review: 'warn', none: 'warn', ambiguous: 'warn', error: 'urgent' } as const;
 const ID_LABEL: Record<string, string> = { mrn: 'MRN', phone: 'Phone', ssn4: 'SSN last 4', address: 'Address' };
 const TASK_ERROR_LABEL: Record<string, string> = {
   NO_RECIPIENT: 'no one is set up to receive it',
@@ -244,7 +247,7 @@ export function itemPage(
   const flash = message ? `<div class="card" style="border-color:var(--accent)">${esc(MESSAGES[message] || '')}</div>` : '';
 
   const doc = `<div class="card"><dl>
-<dt>Status</dt><dd>${pill(STATUS_PILL[i.status], STATUS_LABEL[i.status])}${i.error_code ? ` <span class="muted" style="font-size:12px">${esc(i.error_code)}</span>` : ''}</dd>
+<dt>Status</dt><dd>${pill(STATUS_PILL[i.status], STATUS_LABEL[i.status])}${i.error_code ? ` <span class="muted" style="font-size:12px">${esc(displayCode(i.error_code))}</span>` : ''}</dd>
 <dt>Received</dt><dd>${esc(fmtTime(i.received_at))} · ${esc(SOURCE_LABEL[i.source])}${i.sender_fax ? ` · from fax ${esc(i.sender_fax)}` : ''}</dd>
 <dt>File</dt><dd>${i.file ? `<a href="${APP_BASE}/intake/item/${encodeURIComponent(i.id)}/original" target="_blank" rel="noopener">${esc(i.file.name)}</a> <span class="muted" style="font-size:12px">${esc(kb(i.file.size))}</span>` : '<span class="muted">not downloaded yet</span>'}</dd>
 ${i.ocr ? `<dt>Text</dt><dd>${i.ocr.used_text_layer ? 'From the PDF text layer' : `Read by Drawbridge OCR · ${esc(i.ocr.pages)} page(s) · confidence ${esc(Math.round(i.ocr.mean_confidence))}`}</dd>` : ''}
@@ -277,7 +280,7 @@ ${alwaysPersonType(x) ? `<dt>Always to staff</dt><dd>${pill('warn', ALWAYS_PERSO
 
   const match = m
     ? `<div class="card"><dl>
-<dt>Result</dt><dd>${pill(DECISION_PILL[m.decision], DECISION_LABEL[m.decision])} ${esc(m.reason)}</dd>
+<dt>Result</dt><dd>${pill(DECISION_PILL[m.decision], DECISION_LABEL[m.decision])} ${esc(displayTokens(m.reason))}</dd>
 ${m.patient ? `<dt>Patient</dt><dd>${esc(m.patient.name)} · DOB ${esc(m.patient.dateOfBirth)}${m.patient.mrn ? ` · MRN ${esc(m.patient.mrn)}` : ''}</dd>
 <dt>Veradigm® EHR chart</dt><dd>${m.patient.chartPatientId ? esc(m.patient.chartPatientId) : '<span class="muted">none</span>'}</dd>` : ''}
 ${m.second_identifier ? `<dt>Second identifier</dt><dd>${esc(ID_LABEL[m.second_identifier] || m.second_identifier)}</dd>` : ''}
@@ -311,7 +314,7 @@ ${criticalUntold(i) ? actionButton(i.id, 'notified', 'Provider was told', true, 
 
   const history = `<div class="card scroll"><table><thead><tr><th>When</th><th>What</th><th>Who</th></tr></thead><tbody>${[...i.history]
     .reverse()
-    .map((h) => `<tr><td>${esc(fmtTime(h.ts))}</td><td>${esc(h.action)}</td><td>${esc(h.by)}</td></tr>`)
+    .map((h) => `<tr><td>${esc(fmtTime(h.ts))}</td><td>${esc(displayTokens(h.action))}</td><td>${esc(h.by)}</td></tr>`)
     .join('')}</tbody></table></div>`;
 
   return `<p><a href="${APP_BASE}/intake">← Document intake</a></p>${flash}
@@ -338,7 +341,7 @@ function notifyCard(i: IntakeItem): string {
       : n?.skipped === 'same_day_appointment'
         ? `Not sent: ${esc(n.same_day?.note || 'same-day appointment')}`
         : n?.task_error
-          ? `${pill(n.critical ? 'urgent' : 'warn', 'not sent')} ${esc(TASK_ERROR_LABEL[n.task_error] || n.task_error)}${to ? ` (to ${to})` : ''}`
+          ? `${pill(n.critical ? 'urgent' : 'warn', 'not sent')} ${esc(TASK_ERROR_LABEL[n.task_error] || displayCode(n.task_error))}${to ? ` (to ${to})` : ''}`
           : i.filed.task_id
             ? `Task ${esc(i.filed.task_id)}`
             : '<span class="muted">none</span>';
@@ -356,6 +359,8 @@ function notifyCard(i: IntakeItem): string {
 let stopWatcher: (() => void) | null = null;
 let stopWatchDirs: (() => void) | null = null;
 let stopObserver: (() => void) | null = null;
+let stopQueueSource: (() => void) | null = null;
+let stopAlive: (() => void) | null = null;
 let docTypeCache: DocTypeSource | null = null;
 /** Shadow mode: the read-only patient search for the Confirm panel. */
 let shadowRunTool: ((name: string, args: any) => Promise<any>) | null = null;
@@ -575,6 +580,9 @@ export const intakeModule: PlatformModule = {
   },
 
   start(deps) {
+    // Tells offline tools (intake:purge-shadow) that this server holds the store in memory.
+    stopAlive?.();
+    stopAlive = startAliveMarker(intakeStore().dir);
     if (shadowMode()) {
       // Read-only Veradigm: the patient search and GetDocumentType only (INTAKE_CATEGORIES_CSV as the
       // fallback, INTAKE_ROSTER_CSV instead of the search when set). No filing deps: nothing can be filed.
@@ -586,8 +594,20 @@ export const intakeModule: PlatformModule = {
       // Ground truth from staff's own filing in Veradigm EHR, read back later (observe.ts).
       stopObserver?.();
       stopObserver = observeEnabled() ? new StaffFilingObserver({ store: intakeStore, unity: deps.unity, runTool: deps.runTool, ocr: () => OcrClient.fromEnv() }).start() : null;
-      console.log(`[Intake] shadow mode: nothing is filed; patients from ${rosterPath() ? 'the local patient list' : 'the Veradigm search (read-only)'}; staff filing observer ${stopObserver ? 'on' : 'off'}`);
+      // Documents straight from the clinic's Veradigm EHR indexing queue (read-only; nothing changes for the clinic).
+      stopQueueSource?.();
+      stopQueueSource = queueSourceState() === 'on' && deps.unity ? new QueueSource({ store: intakeStore, unity: deps.unity, onAdded: (id) => intakePipeline.enqueue(id) }).start() : null;
+      if (queueSourceState() === 'refused_mixed') {
+        console.error('[Intake] INTAKE_QUEUE_SOURCE refused: another source of the same documents is configured (INTAKE_WATCH_DIRS or the MOATiT Fax webhook). Use one source for the shadow week.');
+      }
+      console.log(
+        `[Intake] shadow mode: nothing is filed; patients from ${rosterPath() ? 'the local patient list' : 'the Veradigm search (read-only)'}; staff filing observer ${stopObserver ? 'on' : 'off'}; indexing queue as a source ${stopQueueSource ? 'on' : 'off'}`
+      );
     } else {
+      stopQueueSource?.();
+      stopQueueSource = null;
+      // Live mode never reads the queue as a source: filing a copy would leave the original there as a duplicate.
+      if (queueSourceState() === 'refused_live') console.warn('[Intake] INTAKE_QUEUE_SOURCE is ignored outside shadow mode (documents must reach Drawbridge before the indexing queue)');
       docTypeCache = new DocTypeCache(deps.unity);
       intakePipeline.setDeps(deps, docTypeCache);
       setFilingDeps({ unity: deps.unity, store: intakeStore });
@@ -603,5 +623,7 @@ export const intakeModule: PlatformModule = {
     startDailyRetention('intake originals', () => intakeStore().pruneFiled(retentionDaysFrom('INTAKE_RETENTION_DAYS')));
     // Patient details on the records of filed documents (INTAKE_RECORD_RETENTION_DAYS, default 90).
     startDailyRetention('intake records', () => intakeStore().purgeRecords(retentionDaysFrom('INTAKE_RECORD_RETENTION_DAYS', 90)));
+    // Shadow-week copies that were never filed (shadow decisions, documents read from the indexing queue): 30 days.
+    startDailyRetention('intake shadow copies', () => intakeStore().purgeShadow(retentionDaysFrom('INTAKE_SHADOW_RETENTION_DAYS', 30)));
   },
 };

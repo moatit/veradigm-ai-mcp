@@ -59,11 +59,16 @@ export type SecurityEvent =
   | 'sip_registration_lost'
   | 'sip_tls_failure'
   | 'srtp_refused'
-  | 'voice_dial_limit';
+  | 'voice_dial_limit'
+  | 'staff_invited'
+  | 'staff_invite_failed'
+  | 'staff_invite_accepted'
+  | 'staff_login_removed';
 
 /** Events that are failures or alerts (success=false in the audit line, console.warn in the log). */
 const ALERTS = new Set<SecurityEvent>([
   'login_failed',
+  'staff_invite_failed',
   'login_locked',
   'login_ip_locked',
   'login_password_expired',

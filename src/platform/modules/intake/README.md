@@ -108,6 +108,7 @@ The exact `GetDocumentsByDocumentType` and `GetDocumentImage` parameters and fie
 | `INTAKE_ROSTER_CSV` | unset | Local patient list instead of `unity_search_patients` (columns: `deploy/datacenter/README.md`) |
 | `INTAKE_CATEGORIES_CSV` | unset | Category names, one per line, when `GetDocumentType` isn't available |
 | `INTAKE_WATCH_DIRS` | unset | Folders read in place (never changed), subfolders too; `INTAKE_WATCH_SINCE`, `INTAKE_WATCH_MAX` |
+| `INTAKE_QUEUE_SOURCE` (`_EVERY_MIN`, `_WINDOW_DAYS`, `_PER_RUN`) | off | Shadow week: documents read straight from the "(ready for indexing)" queue, read-only; shadow mode only; never filed (`queue-source.ts` header) |
 | `INTAKE_OBSERVE*` | on in shadow mode | Staff filing observer (`observe.ts` header) |
 | `DRAWBRIDGE_USERS_FILE` | unset | Named staff logins (scrypt lines, `npm run staff:user`); replaces the shared login |
 

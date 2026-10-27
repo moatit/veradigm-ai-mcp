@@ -2,11 +2,14 @@ import express, { Express, Request, Response, Router } from 'express';
 import { auditPatient } from '../../app';
 import { PlatformModule } from '../../registry';
 import { APP_BASE, esc, fmtTime, page, requireAdmin } from '../../shell';
+import { displayChannel, displayCode, displayTokens } from '../../display';
 import { AuditEntry, auditDays, dayKey, isDayKey, pruneAudit, readAuditDay, readAuditRange, retentionDays, safeId, safeUser, toolMetrics } from '../../audit';
 import { clientIp, recordExport, throttledSecurityEvent } from '../../security-events';
 import { callRecords } from '../../../unity/oncall/call-records';
 import { handleRetellEvent, recentCalls, verifyWebhook } from './retell-events';
 import { startDailyRetention } from '../../retention';
+import { forwardCallEvent, startForwarder } from './call-forwarder';
+import { pruneCallerHistory } from './call-analytics';
 
 /**
  * Drawbridge module: activity.
@@ -15,11 +18,13 @@ import { startDailyRetention } from '../../retention';
  *    user for a date range, HTML or CSV; supports the accounting of disclosures, HIPAA 164.528, and breach scoping)
  *  - POST /webhooks/retell (Retell call events; verified, see README) via mountRetellWebhook(app)
  *  - POST /api/activity/retell-events (same events, behind the Drawbridge tool key, for relays/tests)
+ *  - call_ended / call_analyzed also queue one minimum-necessary call analytics record (PHI under the BAA) for the admin app when
+ *    CALL_ANALYTICS_FORWARD is on (call-analytics.ts, call-forwarder.ts; docs/drawbridge/CALL_ANALYTICS.md)
  */
 const LIST_MAX = 500;
 
 /** Client-facing names: tool IDs without the internal prefix; systems by product name. */
-export const toolLabel = (t: string): string => t.replace(/^(unity|drawbridge)_/, '').replace(/_/g, ' ');
+export const toolLabel = (t: string): string => t.replace(/^(unity|fhir|drawbridge)_/, '').replace(/_/g, ' ');
 export function systemLabel(e: Pick<AuditEntry, 'server' | 'tool'>): string {
   if (e.tool.startsWith('drawbridge_')) return 'Drawbridge';
   return e.server === 'fhir' ? 'Veradigm® EHR' : 'Veradigm® PM/EHR';
@@ -82,9 +87,9 @@ async function activityPage(req: Request): Promise<string> {
         .slice(0, LIST_MAX)
         .map(
           (e) => `<tr><td>${esc(fmtTime(e.ts, 'time'))}</td><td>${esc(toolLabel(e.tool))}<div class="muted" style="font-size:12px">${esc(systemLabel(e))}</div></td>
-<td>${e.success ? '<span class="pill ok">ok</span>' : `<span class="pill urgent">failed</span> <span class="muted" style="font-size:12px">${esc(e.error_code)}</span>`}</td>
+<td>${e.success ? '<span class="pill ok">ok</span>' : `<span class="pill urgent">failed</span> <span class="muted" style="font-size:12px">${esc(displayCode(e.error_code))}</span>`}</td>
 <td>${esc(ms(e.latency_ms))}</td><td>${e.call_id ? `<a href="${APP_BASE}/activity?${qs({ date: day, call: e.call_id })}" style="font-size:12px">${esc(e.call_id)}</a>` : '<span class="muted">—</span>'}</td>
-<td>${esc(e.patient_id) || '<span class="muted">—</span>'}</td><td>${esc(e.channel) || '—'}</td></tr>`
+<td>${esc(e.patient_id) || '<span class="muted">—</span>'}</td><td>${esc(displayChannel(e.channel)) || '—'}</td></tr>`
         )
         .join('')}</tbody></table>${rows.length > LIST_MAX ? `<p class="muted" style="font-size:13px">Showing the latest ${LIST_MAX} of ${esc(rows.length)}. Narrow the filters to see more.</p>` : ''}</div>`
     : '<div class="card empty muted">No tool calls match these filters.</div>';
@@ -96,8 +101,8 @@ async function activityPage(req: Request): Promise<string> {
         .reverse()
         .slice(0, 200)
         .map(
-          (e) => `<tr><td>${esc(fmtTime(e.ts, 'time'))}</td><td>${e.success ? esc(e.tool.replace(/_/g, ' ')) : `<span class="pill urgent">${esc(e.tool.replace(/_/g, ' '))}</span>`}</td>
-<td>${esc(e.user || '') || '<span class="muted">—</span>'}</td><td>${esc(e.ip || '') || '—'}</td><td class="muted" style="font-size:12px">${esc([e.error_code, e.object].filter(Boolean).join(' · '))}</td></tr>`
+          (e) => `<tr><td>${esc(fmtTime(e.ts, 'time'))}</td><td>${e.success ? esc(displayTokens(e.tool).replace(/_/g, ' ')) : `<span class="pill urgent">${esc(displayTokens(e.tool).replace(/_/g, ' '))}</span>`}</td>
+<td>${esc(e.user || '') || '<span class="muted">—</span>'}</td><td>${esc(e.ip || '') || '—'}</td><td class="muted" style="font-size:12px">${esc([displayCode(e.error_code), displayTokens(e.object)].filter(Boolean).join(' · '))}</td></tr>`
         )
         .join('')}</tbody></table></div>`
     : '<div class="card empty muted">No security events for this day.</div>';
@@ -162,8 +167,8 @@ function reportTable(rows: AuditEntry[]): string {
     .reverse()
     .slice(0, 2000)
     .map(
-      (e) => `<tr><td>${esc(fmtTime(e.ts))}</td><td>${esc(KIND_LABEL[e.kind || 'tool'] || e.kind)}</td><td>${esc(e.user || e.channel || '')}</td><td>${esc(!e.kind || e.kind === 'tool' ? toolLabel(e.tool) : e.tool.replace(/_/g, ' '))}</td>
-<td class="muted" style="font-size:12px">${esc(e.object || '')}</td><td>${e.success ? '<span class="pill ok">ok</span>' : `<span class="pill urgent">failed</span> <span class="muted" style="font-size:12px">${esc(e.error_code)}</span>`}</td><td style="font-size:12px">${esc(e.call_id) || '—'}</td><td>${esc(e.patient_id) || '—'}</td></tr>`
+      (e) => `<tr><td>${esc(fmtTime(e.ts))}</td><td>${esc(KIND_LABEL[e.kind || 'tool'] || e.kind)}</td><td>${esc(e.user || displayChannel(e.channel || ''))}</td><td>${esc(!e.kind || e.kind === 'tool' ? toolLabel(e.tool) : displayTokens(e.tool).replace(/_/g, ' '))}</td>
+<td class="muted" style="font-size:12px">${esc(displayTokens(e.object || ''))}</td><td>${e.success ? '<span class="pill ok">ok</span>' : `<span class="pill urgent">failed</span> <span class="muted" style="font-size:12px">${esc(displayCode(e.error_code))}</span>`}</td><td style="font-size:12px">${esc(e.call_id) || '—'}</td><td>${esc(e.patient_id) || '—'}</td></tr>`
     )
     .join('')}</tbody></table>${rows.length > 2000 ? `<p class="muted" style="font-size:13px">Showing the latest 2000 of ${esc(rows.length)}. Download the CSV for all of them.</p>` : ''}</div>`;
 }
@@ -199,6 +204,10 @@ function eventResponse(res: Response, body: unknown): void {
     console.log(`[Drawbridge] call event ${out.event} ${out.call_id}${out.record_updated ? ' (call record updated)' : ''}`);
   }
   res.status(out.status).end();
+  if (out.status === 204 && out.call_id) {
+    const b = body as any;
+    void forwardCallEvent(out.event, b?.call || b?.data);
+  }
 }
 
 /**
@@ -307,5 +316,7 @@ export const activityModule: PlatformModule = {
   start() {
     // Also pruned at the first write of each day (audit.ts); this covers days without traffic.
     startDailyRetention('audit day files', () => pruneAudit());
+    startDailyRetention('caller history', () => pruneCallerHistory());
+    startForwarder();
   },
 };

@@ -25,17 +25,28 @@ export function maskPhone(phone: string): string {
 }
 
 /** Parts of a Date in the clinic timezone. */
+// One formatter per time zone: building an Intl.DateTimeFormat is slow, and the scheduler asks the clock often.
+const formatters = new Map<string, Intl.DateTimeFormat>();
+function formatterFor(tz: string): Intl.DateTimeFormat {
+  let f = formatters.get(tz);
+  if (!f) {
+    f = new Intl.DateTimeFormat('en-US', {
+      timeZone: tz,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      hourCycle: 'h23',
+      weekday: 'short',
+    });
+    formatters.set(tz, f);
+  }
+  return f;
+}
+
 export function clinicParts(d: Date): { y: number; m: number; d: number; hour: number; minute: number; weekday: number } {
-  const parts = new Intl.DateTimeFormat('en-US', {
-    timeZone: clinicTz(),
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    hourCycle: 'h23',
-    weekday: 'short',
-  }).formatToParts(d);
+  const parts = formatterFor(clinicTz()).formatToParts(d);
   const get = (t: string) => parts.find((p) => p.type === t)?.value || '';
   const wd = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].indexOf(get('weekday'));
   return { y: +get('year'), m: +get('month'), d: +get('day'), hour: +get('hour') % 24, minute: +get('minute'), weekday: wd };
@@ -51,6 +62,19 @@ export interface CalDate {
 export function todayInClinic(now: Date = new Date()): CalDate {
   const p = clinicParts(now);
   return { y: p.y, m: p.m, d: p.d };
+}
+
+/** The instant a clinic-local date and time (minutes from midnight) happens. */
+export function clinicDateTime(c: CalDate, minutes: number): Date {
+  const want = Date.UTC(c.y, c.m - 1, c.d, Math.floor(minutes / 60), minutes % 60);
+  let t = want;
+  for (let i = 0; i < 3; i++) {
+    const p = clinicParts(new Date(t));
+    const got = Date.UTC(p.y, p.m - 1, p.d, p.hour, p.minute);
+    if (got === want) break;
+    t += want - got;
+  }
+  return new Date(t);
 }
 
 export function addDays(c: CalDate, n: number): CalDate {

@@ -10,6 +10,10 @@ Status (Oct 11, 2026): **working end to end on the Veradigm sandbox** with synth
 - `GetDocumentType` (verified Oct 9) lists the 128 sandbox document types (Labs/Procedures, Consultant Letter, Colonoscopy Report, …), including **"(ready for indexing)"**, the queue staff work today.
 - MOATiT Fax (repo `moatit/MOATiTFaxService`, `D:\MOATiTFax`) already receives faxes (FreeSWITCH/T.38), stores them encrypted, OCRs them and exposes an enterprise API and signed webhooks.
 
+## Shadow week: documents straight from the Veradigm® EHR queue (Oct 18, 2026)
+
+For the shadow week the clinic changes nothing: Drawbridge reads the documents waiting in the "(ready for indexing)" queue itself (`INTAKE_QUEUE_SOURCE=on`, `queue-source.ts`), read-only, with the two read actions already used by the staff filing observer (`GetDocumentsByDocumentType`, `GetDocumentImage`). Each DocumentID becomes one intake item; the observer then sees staff index that same DocumentID, so the comparison is exact (high confidence). This source runs only in shadow mode, and a document read from the queue can never be filed (chart or indexing): it is already in Veradigm® EHR, and a saved copy would leave the original waiting in the queue. At go-live, documents reach Drawbridge before the queue (the sources below). Rollout and go-live checklist: [CLINIC_ONBOARDING.md §3a](CLINIC_ONBOARDING.md#3a-rollout-shadow-week-go-live-or-switch-off-ali-oct-18-2026).
+
 ## Where the files live (hosting)
 
 Patient documents are PHI: they stay in MOATiT's own infrastructure, encrypted at rest, with access logged. **No Google Drive, Dropbox or personal folders.**

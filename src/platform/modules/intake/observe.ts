@@ -8,7 +8,7 @@ import { normalizeDate } from './extract';
 import { toCandidates } from './match';
 import type { OcrClient } from './ocr';
 import { readOnlyRunTool, readOnlyUnity, type StaffObservation, type TruthPatient } from './shadow';
-import type { IntakeItem, IntakeStore } from './store';
+import { queueDocumentId, type IntakeItem, type IntakeStore } from './store';
 
 /**
  * Staff filing observer (shadow mode, live Veradigm® only): ground truth from what the clinic's staff
@@ -35,6 +35,8 @@ import type { IntakeItem, IntakeStore } from './store';
  * 4. Faxes that never pass through the queue: after INTAKE_OBSERVE_DELAY_HOURS, the candidates'
  *    charts are searched for a document added around the receipt date with the same page count and
  *    clinical date (at most medium confidence: there is no DocumentID trail).
+ * Documents read from the queue itself (INTAKE_QUEUE_SOURCE, queue-source.ts) skip step 2: the item IS the queue
+ * document, linked by its DocumentID, so where staff index it is high-confidence ground truth.
  * Unlinked or unindexed after INTAKE_OBSERVE_MAX_DAYS: not_observed. Never counted as correct; the
  * Confirm panel is the fallback. A file Drawbridge split by patient is observed but its parts are
  * not given that truth (staff index a batch fax as one document).
@@ -93,6 +95,22 @@ export function observeEveryMinutes(): number {
 export const queueType = () => String(process.env.INTAKE_OBSERVE_QUEUE_TYPE || '').trim() || READY_FOR_INDEXING_CODE;
 const DAY = 86_400_000;
 const HOUR = 3_600_000;
+
+/**
+ * One listing of the "(ready for indexing)" queue, shared by the staff filing observer and the queue source
+ * (queue-source.ts) for each Veradigm® connection: within Veradigm's 2-minute polling floor the last listing is
+ * reused, so the two never list the queue back to back. The window covers both (the wider of
+ * INTAKE_OBSERVE_WINDOW_DAYS and INTAKE_QUEUE_WINDOW_DAYS); each caller narrows it for itself.
+ */
+const queueListings = new WeakMap<object, { at: number; rows: DocRow[] }>();
+export const queueListingDays = (): number => Math.max(env('INTAKE_OBSERVE_WINDOW_DAYS', 14), env('INTAKE_QUEUE_WINDOW_DAYS', 3));
+export async function listQueueShared(connection: object, list: (from: number, to: number) => Promise<DocRow[]>, now: number): Promise<DocRow[]> {
+  const last = queueListings.get(connection);
+  if (last && now >= last.at && now - last.at < MIN_POLL_MINUTES * 60_000) return last.rows;
+  const rows = await list(now - queueListingDays() * DAY, now); // a failure throws: never "the queue is empty"
+  queueListings.set(connection, { at: now, rows });
+  return rows;
+}
 
 /** Veradigm® EHR shows times in the clinic's zone (INTAKE_EHR_TIMEZONE, else CLINIC_TIMEZONE, else America/Boise). */
 const ehrZone = () => process.env.INTAKE_EHR_TIMEZONE || process.env.CLINIC_TIMEZONE || 'America/Boise';
@@ -155,6 +173,11 @@ export function parseDocRows(data: unknown, patientKey = ''): DocRow[] {
 /** Still waiting for staff: no patient yet, or still typed "(ready for indexing)". */
 export const inQueue = (d: Pick<DocRow, 'patientKey' | 'type' | 'subtype'>, code = queueType()) =>
   !d.patientKey || d.subtype === code || /ready for indexing/i.test(d.type) || d.type === code;
+
+/** Link score of a document read from the queue itself: the same DocumentID, so the observation is high confidence. */
+export const EXACT_LINK_SCORE = 10;
+/** Observation note on a copy of a document that was also read from the queue (that queue item carries the truth). */
+export const SAME_AS_QUEUE = 'same document also read from the indexing queue';
 
 const words = (s: string) => new Set(String(s || '').toLowerCase().split(/[^a-z0-9]+/).filter((w) => w.length >= 4));
 const itemPages = (i: IntakeItem) => i.part?.pages.length || i.page_count || i.ocr?.pages || 0;
@@ -385,7 +408,7 @@ export class StaffFilingObserver {
       // 1. The queue.
       let queueOk = true;
       try {
-        const rows = (await this.listByType(queueType(), from, now.getTime())).filter((d) => inQueue(d));
+        const rows = (await listQueueShared(this.opts.unity, (f, t) => this.listByType(queueType(), f, t), now.getTime())).filter((d) => inQueue(d));
         out.queue = rows.length;
         for (const d of rows) {
           const t = ledger.docs[d.id];
@@ -404,9 +427,35 @@ export class StaffFilingObserver {
       // Best pairs first; a pair that ties with another free pair on the same item or document (or
       // is weak) is decided by comparing the documents themselves, or not linked at all.
       const linkedItems = new Set(Object.values(ledger.docs).map((d) => d.item).filter(Boolean) as string[]);
+      // Documents read from the queue itself (queue-source.ts) ARE the queue document: linked by DocumentID only,
+      // never by guesswork. If another source brought a copy of the same document and it was linked first, the
+      // queue item takes the link and the copy is set aside (ambiguous): neither is paired by time and pages.
+      for (const item of items) {
+        if (item.source !== 'veradigm_queue') continue;
+        const docId = queueDocumentId(item.source_ref);
+        if (!docId) continue;
+        const received = Date.parse(item.queue_at || item.received_at);
+        const d = (ledger.docs[docId] ||= { id: docId, first_seen: item.received_at, last_seen: item.received_at, when: received, timed: true, pages: itemPages(item), display: '', author: '' });
+        if (d.item === item.id) continue;
+        if (d.item) {
+          const copy = store.get(d.item);
+          linkedItems.delete(d.item);
+          if (copy && copy.observed?.status !== 'found') {
+            const obs: StaffObservation = { at, attempts: (copy.observed?.attempts || 0) + 1, status: 'ambiguous', looked_in: 0, signals: [SAME_AS_QUEUE] };
+            store.update(copy.id, { observed: obs }, SAME_AS_QUEUE);
+          }
+        }
+        d.item = item.id;
+        d.link_score = EXACT_LINK_SCORE;
+        d.link_signals = ['same document, read from the indexing queue'];
+        delete d.indexed; // re-checked for this item below
+        linkedItems.add(item.id);
+        out.linked++;
+      }
       type Pair = { item: IntakeItem; d: TrackedDoc; s: { score: number; signals: string[] } };
       const pairs: Pair[] = [];
-      for (const item of items.filter((i) => !linkedItems.has(i.id))) {
+      // Never guessed: queue items (linked by DocumentID above) and items already set aside as ambiguous.
+      for (const item of items.filter((i) => !linkedItems.has(i.id) && i.source !== 'veradigm_queue' && i.observed?.status !== 'ambiguous')) {
         for (const d of Object.values(ledger.docs).filter((x) => !x.item)) {
           const s = linkScore(item, { id: d.id, patientKey: '', status: '', when: d.when, timed: d.timed, day: '', displayName: d.display, type: '', subtype: '', pages: d.pages, author: d.author });
           if (s && s.score >= 2) pairs.push({ item, d, s });

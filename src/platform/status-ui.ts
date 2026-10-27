@@ -1,4 +1,5 @@
 import { APP_BASE, esc, fmtTime } from './shell';
+import { displayCode, displayText } from './display';
 import { helpdeskSummary } from './helpdesk';
 import type { SystemStatus, StatusSnapshot } from './system-status';
 
@@ -21,7 +22,7 @@ function downLine(s: StatusSnapshot): string {
     .map(
       (c) =>
         `${esc(LABEL[c.target] || c.target)}: DOWN since ${esc(fmtTime(c.since, 'time'))}` +
-        (c.last_error_class ? ` — ${esc(c.last_error_detail || c.last_error_class)}${c.last_error_detail ? ` (${esc(c.last_error_class)})` : ''}` : '')
+        (c.last_error_class ? ` — ${esc(c.last_error_detail ? displayText(c.last_error_detail) : displayCode(c.last_error_class))}${c.last_error_detail ? ` (${esc(displayCode(c.last_error_class))})` : ''}` : '')
     )
     .join(' · ');
 }
@@ -32,7 +33,7 @@ export function statusBanner(status: SystemStatus): string {
   const o = s.outage;
   const alert = o?.down_alerted ? `Help desk notified ${esc(fmtTime(o.last_alert_at, 'time'))}.` : s.helpdesk_configured ? 'Notifying the help desk…' : 'Help-desk alerts are not configured: call MOATiT support.';
   const agent = s.overall === 'down' ? 'The phone agent is telling callers it cannot reach their records and is taking messages.' : 'Some phone-agent requests may fail.';
-  return `<div role="alert" style="background:var(--urgent-bg);color:var(--urgent);padding:9px 16px;font-weight:600;border-bottom:1px solid var(--line)">
+  return `<div role="alert" class="notice urgent">
 SYSTEM STATUS: ${s.overall === 'down' ? 'Veradigm® connection DOWN' : 'Veradigm® connection DEGRADED'} — ${downLine(s)}.
 <span style="font-weight:400">${agent}${o ? ` Messages taken: ${esc(o.messages_taken)}.` : ''} ${alert}</span> <a href="${APP_BASE}/veradigm" style="color:inherit">Details</a></div>`;
 }
@@ -46,7 +47,7 @@ export function statusCard(status: SystemStatus | null, full = false): string {
     .map(
       (c) => `<tr><td>${esc(LABEL[c.target] || c.target)}</td><td>${STATE_PILL[c.state] || esc(c.state)}${c.since ? ` <span class="muted" style="font-size:12px">since ${esc(fmtTime(c.since))}</span>` : ''}</td>
 <td>${c.last_ok_at ? esc(fmtTime(c.last_ok_at)) : '—'}</td><td>${c.last_probe_at ? esc(fmtTime(c.last_probe_at, 'time')) : '—'}</td>
-<td class="muted" style="font-size:12px">${c.last_error_class ? `${esc(c.last_error_class)}${c.last_error_detail ? ` · ${esc(c.last_error_detail)}` : ''}${c.last_error_at ? ` · ${esc(fmtTime(c.last_error_at))}` : ''}` : '—'}</td></tr>`
+<td class="muted" style="font-size:12px">${c.last_error_class ? `${esc(displayCode(c.last_error_class))}${c.last_error_detail ? ` · ${esc(displayText(c.last_error_detail))}` : ''}${c.last_error_at ? ` · ${esc(fmtTime(c.last_error_at))}` : ''}` : '—'}</td></tr>`
     )
     .join('');
   const outage = s.outage
@@ -56,7 +57,7 @@ export function statusCard(status: SystemStatus | null, full = false): string {
     full && s.history.length
       ? `<h3>Status history</h3><table><thead><tr><th>When</th><th>Event</th><th>Detail</th></tr></thead><tbody>${s.history
           .slice(0, 30)
-          .map((h) => `<tr><td>${esc(fmtTime(h.at))}</td><td>${esc(h.event)}</td><td class="muted" style="font-size:12px">${esc(h.detail)}</td></tr>`)
+          .map((h) => `<tr><td>${esc(fmtTime(h.at))}</td><td>${esc(displayText(h.event))}</td><td class="muted" style="font-size:12px">${esc(displayText(h.detail))}</td></tr>`)
           .join('')}</tbody></table>`
       : '';
   return `<div class="card"><div class="row"><strong>System status</strong>${STATE_PILL[s.overall] || ''}<span class="muted" style="font-size:13px">Veradigm® connection, checked every few minutes</span></div>

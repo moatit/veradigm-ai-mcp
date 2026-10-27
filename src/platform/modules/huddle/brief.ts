@@ -4,6 +4,7 @@ import { isToolFailure, toToolFailure } from '../../../unity/utils/tool-result';
 import { pick, unityRows } from '../../../unity/utils/unity-rows';
 import type { PlatformDeps } from '../../registry';
 import { clockLabel, dateLabel, money, normalizeDate, parseClock, parseDateKey, toUnityDate } from './dates';
+import { outreachJobs } from '../outreach/store';
 
 /**
  * Morning huddle brief (deck slide 9).
@@ -61,6 +62,8 @@ export interface HuddleSummary {
   /** Individual checks (balance/insurance/allergies/problems per patient) that couldn't be completed. */
   failedChecks: number;
   patientsWithFailedChecks: number;
+  /** Visits on Call & Confirm's Unconfirmed list (every confirmation attempt went unanswered). */
+  unconfirmed: number;
 }
 
 export interface HuddleBrief {
@@ -82,7 +85,11 @@ export interface HuddleOptions {
   cacheMs?: number;
   /** Cache lifetime for a brief that has failed checks (so a retry soon after picks up a recovered Veradigm). */
   cacheFailedMs?: number;
+  /** Appointment IDs on Call & Confirm's Unconfirmed list (default: the outreach store). */
+  unconfirmed?: () => Set<string>;
 }
+
+export const UNCONFIRMED_FLAG: HuddleFlag = { key: 'unconfirmed', label: 'Unconfirmed: confirmation calls not answered', tone: 'warn' };
 
 export const UNASSIGNED_PROVIDER = 'Provider not listed';
 // Sandbox statuses (Oct 24): "Scheduled", "Confirmed", "canceled", "Acknowledge", "Bumped"; "canceled" and "Bumped" are dropped.
@@ -215,7 +222,7 @@ export function flagsFor(v: Omit<HuddleVisit, 'flags'>): HuddleFlag[] {
   if (!v.balance.ok) f.push({ key: 'balance_failed', label: `Balance: ${COULDNT_CHECK}`, tone: 'unknown' });
   else if (v.balance.value > 0) f.push({ key: 'balance_due', label: `Balance due ${money(v.balance.value)}`, tone: 'warn' });
   if (!v.insurance.ok) f.push({ key: 'insurance_failed', label: `Insurance: ${COULDNT_CHECK}`, tone: 'unknown' });
-  else if (v.insurance.value.policies === 0) f.push({ key: 'no_insurance', label: 'No insurance on file', tone: 'urgent' });
+  else if (v.insurance.value.policies === 0) f.push({ key: 'no_insurance', label: 'No insurance on file', tone: 'warn' });
   if (!v.allergies.ok) f.push({ key: 'allergies_failed', label: `Allergies: ${COULDNT_CHECK}`, tone: 'unknown' });
   else if (v.allergies.value > 0) f.push({ key: 'allergies', label: `Allergies on file (${v.allergies.value})`, tone: 'warn' });
   if (!v.problems.ok) f.push({ key: 'problems_failed', label: `Problems: ${COULDNT_CHECK}`, tone: 'unknown' });
@@ -332,6 +339,12 @@ export class HuddleService {
     });
 
     const missing: Check<any> = { ok: false, code: 'NOT_RUN' };
+    let unconfirmed = new Set<string>();
+    try {
+      unconfirmed = (this.opts.unconfirmed || (() => outreachJobs.unconfirmedAppointmentIds()))();
+    } catch {
+      // the brief never fails because of the call list
+    }
     const enriched: HuddleVisit[] = visits.map((v) => {
       const r = results.get(v.patientId) || {};
       const base = {
@@ -341,7 +354,9 @@ export class HuddleService {
         allergies: r.allergies || missing,
         problems: r.problems || missing,
       };
-      return { ...base, flags: flagsFor(base) };
+      const flags = flagsFor(base);
+      if (v.appointmentId && unconfirmed.has(v.appointmentId)) flags.unshift(UNCONFIRMED_FLAG);
+      return { ...base, flags };
     });
 
     // Group by provider, then time (unknown times last).
@@ -374,6 +389,7 @@ export class HuddleService {
       newPatients: pts.filter((v) => v.newPatient === true).length,
       failedChecks: pts.reduce((n, v) => n + failedOf(v), 0),
       patientsWithFailedChecks: pts.filter((v) => failedOf(v) > 0).length,
+      unconfirmed: enriched.filter((v) => v.flags.some((f) => f.key === 'unconfirmed')).length,
     };
 
     console.error(

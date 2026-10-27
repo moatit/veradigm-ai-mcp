@@ -1,8 +1,14 @@
 import { createHmac, randomBytes, scryptSync, timingSafeEqual } from 'crypto';
 import * as fs from 'fs';
 import express, { NextFunction, Request, Response, Router } from 'express';
+import { FAVICON_SVG, LOCKUP_SVG } from './brand/marks';
+import { brandFont } from './brand/fonts';
+import { FONT_LICENSES } from './brand/licenses';
+import { shellCss } from './brand/styles';
 import { clinicLabel } from './clinic';
 import { clientIp, securityEvent, throttledSecurityEvent } from './security-events';
+import { StaffAccounts } from './staff-accounts';
+import QRCode from 'qrcode';
 import {
   formatStaffLine,
   LoginThrottle,
@@ -61,7 +67,7 @@ export function scryptEntry(password: string, salt: Buffer = randomBytes(16)): s
  * Add ":totp=<secret>" (mandatory to sign in) with npm run staff:user -- <name> --totp.
  */
 export function hashStaffPassword(username: string, password: string, salt: Buffer = randomBytes(16)): string {
-  if (!USERNAME_RE.test(username)) throw new Error('username: 2-64 letters, digits, . _ @ -');
+  if (!USERNAME_RE.test(username)) throw new Error('username: 2-128 letters, digits, . _ @ + -');
   const problem = passwordProblem(username, password);
   if (problem) throw new Error(`password: ${problem}`);
   return formatStaffLine(username, { hash: scryptEntry(password, salt), pwset: utcDay(), hist: [], role: 'staff' });
@@ -69,40 +75,83 @@ export function hashStaffPassword(username: string, password: string, salt: Buff
 
 const revocations = new SessionRevocations();
 const throttle = new LoginThrottle();
+/** Wrong or expired invitation links and codes, per client IP (same limits as sign-in). */
+const inviteThrottle = new LoginThrottle();
 /** Last TOTP step accepted per user: a code works once. */
 const usedTotpStep = new Map<string, number>();
 /** Absolute session limit of the sealed emergency (break-glass) login. */
 const EMERGENCY_HOURS = 4;
 
-let usersCache: { file: string; stamp: string; users: Map<string, StaffEntry> } | null = null;
-/** Named staff from DRAWBRIDGE_USERS_FILE; null when unset. An unreadable file means nobody can sign in. */
+let usersCache: { key: string; users: Map<string, StaffEntry> } | null = null;
+/**
+ * Named staff: the users file (DRAWBRIDGE_USERS_FILE, server-managed) plus the logins managed on the Staff logins
+ * screen (staff-accounts.ts); a name in the users file wins. Null when neither exists. An unreadable users file means
+ * nobody can sign in; an unreadable managed store means only its logins can't (both fail closed).
+ */
 function staffUsers(): Map<string, StaffEntry> | null {
   const file = USERS_FILE();
-  if (!file) return null;
+  const managed = staffAccounts.stamp();
+  if (!file && managed === 'none') return null;
+  let key = `${file}|${managed}`;
+  if (file) {
+    try {
+      const st = fs.statSync(file);
+      key += `|${st.size}:${st.mtimeMs}`;
+    } catch {
+      usersCache = null;
+      return new Map();
+    }
+  }
+  if (usersCache && usersCache.key === key) return usersCache.users;
+  const users = new Map<string, StaffEntry>();
+  if (file) {
+    try {
+      // A later line for the same name replaces an earlier one (a re-issued login appended to the file).
+      for (const line of fs.readFileSync(file, 'utf8').split(/\r?\n/)) {
+        const parsed = parseStaffLine(line);
+        if (parsed) users.set(parsed.user, parsed.entry);
+      }
+    } catch {
+      usersCache = null;
+      return new Map();
+    }
+  }
   try {
-    const st = fs.statSync(file);
-    const stamp = `${st.size}:${st.mtimeMs}`;
-    if (usersCache && usersCache.file === file && usersCache.stamp === stamp) return usersCache.users;
-    const users = new Map<string, StaffEntry>();
-    // A later line for the same name replaces an earlier one (a re-issued login appended to the file).
+    for (const [u, e] of staffAccounts.activeEntries()) if (!users.has(u)) users.set(u, e);
+  } catch (e: any) {
+    console.error(`[Drawbridge] staff logins store unreadable (${e?.code || e?.name || 'error'}): its logins can't sign in`);
+  }
+  // Someone removed, or with a new password: their existing sessions end now, and stay ended if the name comes back.
+  if (usersCache) {
+    for (const [u, old] of usersCache.users) {
+      const now = users.get(u);
+      if (!now || now.hash !== old.hash) revocations.revoke(u);
+    }
+  }
+  usersCache = { key, users };
+  return users;
+}
+
+/** Names in the server users file (the Staff logins screen can't invite or change these). */
+export function serverStaffNames(): Set<string> {
+  const file = USERS_FILE();
+  const out = new Set<string>();
+  if (!file) return out;
+  try {
     for (const line of fs.readFileSync(file, 'utf8').split(/\r?\n/)) {
       const parsed = parseStaffLine(line);
-      if (parsed) users.set(parsed.user, parsed.entry);
+      if (parsed) out.add(parsed.user);
     }
-    // Someone removed from the file, or with a new password: their existing sessions end now,
-    // and stay ended if the same name is added back later.
-    if (usersCache && usersCache.file === file) {
-      for (const [u, old] of usersCache.users) {
-        const now = users.get(u);
-        if (!now || now.hash !== old.hash) revocations.revoke(u);
-      }
-    }
-    usersCache = { file, stamp, users };
-    return users;
   } catch {
-    usersCache = null;
-    return new Map();
+    // unreadable: nothing to list
   }
+  return out;
+}
+
+/** End every session of one staff login now (re-invited or removed on the Staff logins screen). */
+export function revokeStaffSessions(user: string): void {
+  revocations.revoke(user);
+  usersCache = null;
 }
 
 /** Constant-time check of a password against one "scrypt$..." entry (current or a history entry). */
@@ -118,8 +167,12 @@ export function verifyStaffPassword(entry: string, password: string): boolean {
 }
 
 /** The single shared login: development only (no users file, TOTP explicitly off, not production). */
-const sharedLoginAllowed = (): boolean => !USERS_FILE() && !!USERNAME() && !!PASSWORD() && !requireTotp() && !isProduction();
-const loginConfigured = (): boolean => (USERS_FILE() ? true : sharedLoginAllowed());
+const sharedLoginAllowed = (): boolean =>
+  !USERS_FILE() && staffAccounts.stamp() === 'none' && !!USERNAME() && !!PASSWORD() && !requireTotp() && !isProduction();
+const loginConfigured = (): boolean => (USERS_FILE() || staffAccounts.stamp() !== 'none' ? true : sharedLoginAllowed());
+
+/** Staff logins managed in the app (Staff logins screen; staff-accounts.ts). */
+export const staffAccounts = new StaffAccounts({ hashPassword: (pw) => scryptEntry(pw), verifyPassword: verifyStaffPassword });
 const SECRET =
   process.env.DRAWBRIDGE_SESSION_SECRET || process.env.ONCALL_SESSION_SECRET || randomBytes(32).toString('hex');
 /** __Host- prefix: browsers only accept it Secure, for this exact host and Path=/ (no subdomain can set or overwrite it). */
@@ -301,32 +354,7 @@ export function requireLogin(req: Request, res: Response, next: NextFunction): v
   res.redirect(`${APP_BASE}/login?next=${encodeURIComponent(req.originalUrl)}`);
 }
 
-const MARK = `<svg viewBox="0 0 256 256" width="28" height="28" aria-hidden="true"><path fill="currentColor" fill-rule="evenodd" d="M52 172V64h20V48h20v16h16V48h40v16h16V48h20v16h20v108ZM104 172v-48a24 24 0 0 1 48 0v48Z"/><path d="M100 118 82 200M156 118l18 82" stroke="#3FB4E8" stroke-width="5" stroke-linecap="round"/><path d="M104 172h48l26 34H78Z" fill="#2F6DB0"/><path d="M20 222c24-12 40-12 64 0s40 12 64 0 40-12 64 0" stroke="#E8A13A" stroke-width="9" stroke-linecap="round" fill="none"/></svg>`;
-
-const CSS = `
-:root{--bg:#f6f7fb;--card:#fff;--ink:#1d2140;--muted:#5d6380;--line:#e3e6ef;--brand:#2B2F7A;--accent:#2F6DB0;--urgent:#c0392b;--urgent-bg:#fdecea;--ok:#1e7a46;--ok-bg:#e7f6ee;--warn:#9a6200;--warn-bg:#fdf3e1}
-@media (prefers-color-scheme:dark){:root{--bg:#12142a;--card:#1b1e3a;--ink:#eceefa;--muted:#a3a8c7;--line:#2c3058;--brand:#9aa2ff;--accent:#6fa8ff;--urgent:#ff7b6b;--urgent-bg:#3a1d22;--ok:#5fd396;--ok-bg:#16352a;--warn:#ffc266;--warn-bg:#3a2e14}}
-*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
-header{display:flex;align-items:center;gap:10px;padding:12px 16px;border-bottom:1px solid var(--line);background:var(--card);color:var(--brand);flex-wrap:wrap}
-header h1{font-size:17px;margin:0;color:var(--ink)}header .sp{flex:1}
-nav.tabs{display:flex;gap:4px;flex-wrap:wrap;padding:0 16px;background:var(--card);border-bottom:1px solid var(--line)}
-nav.tabs a{padding:9px 12px;color:var(--muted);text-decoration:none;border-bottom:2px solid transparent;font-size:14px}
-nav.tabs a.on{color:var(--ink);border-bottom-color:var(--brand);font-weight:600}
-main{max-width:1040px;margin:0 auto;padding:16px}a{color:var(--accent)}
-.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px 16px;margin-bottom:10px}
-.row{display:flex;gap:12px;align-items:center;flex-wrap:wrap;text-decoration:none;color:inherit}
-.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px}
-.pill{font-size:12px;font-weight:600;border-radius:999px;padding:2px 9px;background:var(--line);color:var(--muted)}
-.pill.urgent{background:var(--urgent-bg);color:var(--urgent)}.pill.ok{background:var(--ok-bg);color:var(--ok)}.pill.warn{background:var(--warn-bg);color:var(--warn)}
-.muted{color:var(--muted)}h2{font-size:15px;margin:18px 0 8px}h3{font-size:14px;margin:12px 0 6px}
-dl{display:grid;grid-template-columns:max-content 1fr;gap:4px 14px;margin:0}dt{color:var(--muted)}dd{margin:0;overflow-wrap:anywhere}
-ul{margin:4px 0 0;padding-left:18px}table{width:100%;border-collapse:collapse;font-size:14px}th,td{text-align:left;padding:7px 8px;border-bottom:1px solid var(--line);vertical-align:top}th{color:var(--muted);font-weight:600}
-.scroll{overflow-x:auto}
-button,input,select,textarea{font:inherit}button{background:var(--brand);color:#fff;border:0;border-radius:8px;padding:7px 12px;cursor:pointer}
-button.secondary{background:var(--line);color:var(--ink)}button.link{background:none;color:var(--muted);padding:0;text-decoration:underline}
-input,select,textarea{width:100%;padding:8px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--ink)}
-.empty{text-align:center;padding:36px 16px}.stat{font-size:26px;font-weight:700}
-`;
+const CSS = shellCss(APP_BASE);
 
 /**
  * Content-Security-Policy for every staff page. Scripts only from this origin (no inline script,
@@ -367,6 +395,38 @@ const APP_JS = `(function () {
     var to = document.body.getAttribute('data-logoff-url');
     if (!ms || !to) return;
     setTimeout(function () { document.body.innerHTML = ''; window.location.replace(to); }, ms);
+  });
+  // Invitation page: the token travels in the URL fragment (never sent to a server); put it in the form and take it
+  // out of the address bar and history.
+  document.addEventListener('DOMContentLoaded', function () {
+    var t = document.getElementById('invite-token');
+    if (!t || t.value) return;
+    var h = (location.hash || '').replace(/^#/, '');
+    if (/^[A-Za-z0-9_-]{43}$/.test(h)) {
+      t.value = h;
+      history.replaceState(null, '', location.pathname);
+      var form0 = document.getElementById('invite-form');
+      var url = form0 && form0.getAttribute('data-check-url');
+      if (url) {
+        fetch(url, { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: 't=' + encodeURIComponent(h) })
+          .then(function (r) { return r.json().catch(function () { return { ok: false }; }); })
+          .then(function (j) {
+            if (j && j.ok) {
+              var g = document.getElementById('invite-greeting');
+              if (g) { g.textContent = 'Hello ' + j.name + '. Choose your password to continue.'; g.hidden = false; }
+            } else {
+              var ended = document.getElementById('invite-ended');
+              if (ended) ended.hidden = false;
+              form0.hidden = true;
+            }
+          })
+          .catch(function () { /* offline: the form still works and the server checks the link on submit */ });
+      }
+    } else {
+      var miss = document.getElementById('invite-missing'), form = document.getElementById('invite-form');
+      if (miss) miss.hidden = false;
+      if (form) form.hidden = true;
+    }
   });
   document.addEventListener('DOMContentLoaded', function () {
     var form = document.getElementById('intake-upload');
@@ -416,17 +476,17 @@ export function page(title: string, body: string, opts: { user?: string | null; 
         .join('')}</nav>`
     : '';
   const who = opts.user
-    ? `<span class="muted" style="font-size:13px">${esc(opts.user)}</span><form method="post" action="${APP_BASE}/logout" style="margin:0"><button class="link">Sign out</button></form>`
+    ? `<span class="who">${esc(opts.user)}</span><form method="post" action="${APP_BASE}/logout" style="margin:0"><button class="link">Sign out</button></form>`
     : '';
   const emergency =
     opts.user && userRole(opts.user) === 'emergency'
-      ? `<div style="background:var(--urgent-bg);color:var(--urgent);padding:8px 16px;font-weight:600">Emergency access session. Everything you open is logged and reviewed by the privacy officer. Sign out as soon as the emergency is handled.</div>`
+      ? `<div class="notice urgent">Emergency access session. Everything you open is logged and reviewed by the privacy officer. Sign out as soon as the emergency is handled.</div>`
       : '';
   // Signed-in pages log themselves off when the idle time is up (see APP_JS).
   const idle = opts.user ? ` data-idle-ms="${idleMinutes() * 60_000}" data-logoff-url="${APP_BASE}/login?timeout=1"` : '';
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>${esc(title)}</title><style>${CSS}</style><script src="${APP_BASE}/assets/drawbridge.js" defer></script></head><body${idle}>
-<header>${MARK}<h1>Drawbridge</h1><span class="muted" style="font-size:13px">A MOATiT Service · ${esc(clinicLabel())}</span><span class="sp"></span>${who}</header>
+<title>${esc(title)}</title><link rel="icon" href="${APP_BASE}/assets/favicon.svg" type="image/svg+xml"><style>${CSS}</style><script src="${APP_BASE}/assets/drawbridge.js" defer></script></head><body${idle}>
+<header><h1 class="vh">Drawbridge</h1><div class="brand">${LOCKUP_SVG}<span class="org">A MOATiT Service · ${esc(clinicLabel())}</span></div><span class="sp"></span>${who}</header>
 ${emergency}${opts.user ? statusBannerHtml() : ''}${tabs}<main>${body}</main></body></html>`;
 }
 
@@ -466,6 +526,118 @@ export function shellRouter(): Router {
   router.get('/assets/drawbridge.js', (_req, res) => {
     res.type('application/javascript').send(APP_JS);
   });
+  // Brand assets for every page, the sign-in page included: self-hosted fonts (CSP default-src 'self'), their OFL
+  // license, and the favicon. Fixed bytes with no patient data, so these three routes (and only these) may be cached:
+  // fonts and license for a year (a new font gets a new file name), the favicon for a week (it can change with the logo).
+  const FONT_CACHE = 'public, max-age=31536000, immutable';
+  router.get('/assets/fonts/LICENSE.txt', (_req, res) => {
+    res.setHeader('Cache-Control', FONT_CACHE);
+    res.type('text/plain').send(FONT_LICENSES);
+  });
+  router.get('/assets/fonts/:name.woff2', (req, res) => {
+    const font = brandFont(req.params.name);
+    if (!font) {
+      res.status(404).type('text/plain').send('Not found');
+      return;
+    }
+    res.setHeader('Cache-Control', FONT_CACHE);
+    res.type('font/woff2').send(font);
+  });
+  router.get('/assets/favicon.svg', (_req, res) => {
+    res.setHeader('Cache-Control', 'public, max-age=604800');
+    res.type('image/svg+xml').send(FAVICON_SVG);
+  });
+
+  // ---- Staff invitation (link from the email): choose a password, scan the QR code, enter the first code ----
+  const INVITE_ENDED =
+    '<div class="card signin"><h2 style="margin-top:0">Invitation</h2><p>This invitation link did not work. Links work once and expire after 24 hours. Ask your Drawbridge administrator for a new invitation.</p><p><a href="' +
+    APP_BASE +
+    '/login">Go to sign-in</a></p></div>';
+  const inviteForm = (token: string, error = ''): string =>
+    `<div class="card signin"><h2 style="margin-top:0">Set up your Drawbridge sign-in</h2>
+<p id="invite-missing" hidden style="color:var(--urgent)">This page needs the link from your invitation email. Open the link from the email again.</p>
+<div id="invite-ended" hidden><p style="color:var(--urgent)">This invitation link has already been used or has expired. Links work once, for 24 hours.</p><p>Ask your Drawbridge administrator to send you a new invitation, or <a href="${APP_BASE}/login">sign in</a> if you have already set up your account.</p></div>
+<p id="invite-greeting" hidden></p>
+${error ? `<p style="color:var(--urgent)">${esc(error)}</p>` : ''}
+<form id="invite-form" method="post" action="${APP_BASE}/invite" data-check-url="${APP_BASE}/invite/check"><input type="hidden" id="invite-token" name="t" value="${esc(token)}">
+<p><label>Choose a password<input name="p" type="password" autocomplete="new-password" minlength="12" maxlength="256" required></label></p>
+<p><label>Type it again<input name="p2" type="password" autocomplete="new-password" maxlength="256" required></label></p>
+<p class="muted" style="font-size:12px">At least 12 characters. A passphrase of unrelated words works well. Don’t reuse a password from anywhere else.</p>
+<button>Continue</button></form>
+<p class="muted" style="font-size:12px;margin-bottom:0">Next you’ll scan a QR code with an authenticator app on your phone.</p></div>`;
+  const qrStep = async (token: string, name: string, otpauth: string, error = ''): Promise<string> => {
+    const svg = await QRCode.toString(otpauth, { type: 'svg', errorCorrectionLevel: 'M', margin: 2, width: 240 });
+    return `<div class="card signin"><h2 style="margin-top:0">Scan with your authenticator</h2>
+<p>${esc(name)}, open your authenticator app (Microsoft Authenticator, Google Authenticator, 1Password or Authy), add an account and scan this code.</p>
+<p style="text-align:center"><img src="data:image/svg+xml;base64,${Buffer.from(svg).toString('base64')}" width="240" height="240" alt="QR code to scan with your authenticator app"></p>
+<p class="muted" style="font-size:12px">Scan it with your own phone only. Don’t photograph, screenshot or share it.</p>
+${error ? `<p style="color:var(--urgent)">${esc(error)}</p>` : ''}
+<form method="post" action="${APP_BASE}/invite/confirm"><input type="hidden" name="t" value="${esc(token)}">
+<p><label>6-digit code from the app<input name="otp" inputmode="numeric" autocomplete="one-time-code" maxlength="6" required></label></p>
+<button>Finish and sign in</button></form></div>`;
+  };
+  const inviteFailed = (req: Request, res: Response, code: string) => {
+    const ip = clientIp(req);
+    const locked = inviteThrottle.fail('invite', ip);
+    securityEvent('staff_invite_failed', { ip, code });
+    if (locked.ip) securityEvent('login_ip_locked', { ip, code: `INVITE_LOCKED_${loginWindowMs() / 60_000}_MIN` });
+    setTimeout(() => res.status(400).send(page('Invitation · Drawbridge', INVITE_ENDED)), 800);
+  };
+
+  router.get('/invite', (_req, res) => {
+    res.send(page('Set up your sign-in · Drawbridge', inviteForm('')));
+  });
+
+  // Checked when the page opens, so an ended link says so before anyone types a password. Answers only "valid, for
+  // <first name>" or "not valid"; wrong links count toward the same per-IP limit as the setup steps.
+  router.post('/invite/check', (req, res) => {
+    const ip = clientIp(req);
+    if (inviteThrottle.blocked('invite', ip)) return void setTimeout(() => res.status(429).json({ ok: false }), 800);
+    const who = staffAccounts.peek(req.body?.t);
+    if (!who) {
+      inviteThrottle.fail('invite', ip);
+      securityEvent('staff_invite_failed', { ip, code: 'LINK_CHECK' });
+      return void setTimeout(() => res.status(400).json({ ok: false }), 800);
+    }
+    res.json({ ok: true, name: who.name.split(/\s+/)[0] || who.name });
+  });
+
+  router.post('/invite', async (req, res) => {
+    const ip = clientIp(req);
+    if (inviteThrottle.blocked('invite', ip)) return inviteFailed(req, res, 'LOCKED');
+    const token = String(req.body?.t || '');
+    const r = staffAccounts.setPassword(token, req.body?.p, req.body?.p2);
+    if (!r.ok) {
+      if (r.fixable) return res.status(422).send(page('Set up your sign-in · Drawbridge', inviteForm(token, r.error)));
+      return inviteFailed(req, res, 'BAD_LINK');
+    }
+    res.send(page('Scan the QR code · Drawbridge', await qrStep(token, r.name, r.otpauth)));
+  });
+
+  router.post('/invite/confirm', async (req, res) => {
+    const ip = clientIp(req);
+    if (inviteThrottle.blocked('invite', ip)) return inviteFailed(req, res, 'LOCKED');
+    const token = String(req.body?.t || '');
+    const r = staffAccounts.confirm(token, req.body?.otp);
+    if (!r.ok) {
+      const again = r.ended ? null : staffAccounts.pendingOtpauth(token);
+      const who = staffAccounts.peek(token);
+      if (again && who) {
+        inviteThrottle.fail('invite', ip);
+        securityEvent('staff_invite_failed', { user: who.user, ip, code: 'BAD_TOTP' });
+        return res.status(422).send(page('Scan the QR code · Drawbridge', await qrStep(token, who.name, again, r.error)));
+      }
+      if (!r.ended && who) return res.status(422).send(page('Set up your sign-in · Drawbridge', inviteForm(token, r.error)));
+      return inviteFailed(req, res, r.ended ? 'INVITE_ENDED' : 'BAD_LINK');
+    }
+    // Activated: signed in now. The setup code is used up, like any sign-in code.
+    usedTotpStep.set(r.user, r.step);
+    usersCache = null;
+    securityEvent('staff_invite_accepted', { user: r.user, ip });
+    const issued = Math.max(Date.now(), revocations.validAfterFor(r.user) + 1);
+    setSessionCookie(res, { user: r.user, issued, last: issued });
+    res.redirect(APP_BASE);
+  });
 
   router.get('/login', (req, res) => {
     if (!loginConfigured()) {
@@ -492,7 +664,7 @@ export function shellRouter(): Router {
     res.send(
       page(
         'Sign in · Drawbridge',
-        `<div class="card" style="max-width:360px;margin:40px auto"><h2 style="margin-top:0">Sign in</h2>${failed}${timedOut}
+        `<div class="card signin"><h2 style="margin-top:0">Sign in</h2>${failed}${timedOut}
 <form method="post" action="${APP_BASE}/login"><input type="hidden" name="next" value="${esc(next)}">
 <p><label>Username<input name="u" autocomplete="username" required></label></p>
 <p><label>Password<input name="p" type="password" autocomplete="current-password" required></label></p>${otp}<button>Sign in</button></form>

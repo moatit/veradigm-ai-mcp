@@ -4,8 +4,8 @@ import * as path from 'path';
 /**
  * The one source for Drawbridge's HIPAA safeguards checklist.
  *
- * Used by the staff screen "HIPAA & Compliance" (plain language, for a clinic practice manager: `plain`, never
- * `technical` or `evidence`) and by the generated table in docs/drawbridge/HIPAA_TECHNICAL_SAFEGUARDS.md
+ * Used by the admin dashboard's "HIPAA & Compliance" page through docs/drawbridge/hipaa-safeguards.json (`plain` is
+ * the clinic-facing wording; `technical` and `evidence` are for MOATiT's own team) and by the generated table in docs/drawbridge/HIPAA_TECHNICAL_SAFEGUARDS.md
  * (`npm run docs:hipaa`; `npm run smoke:hipaa` fails when the document no longer matches this list or the code
  * moved under an evidence reference).
  *
@@ -182,9 +182,9 @@ export const SAFEGUARDS: Safeguard[] = [
     citation: '164.310(d)(2)(i)',
     section: 'Physical safeguards',
     requirement: 'Dispose of ePHI securely.',
-    plain: 'Drawbridge deletes its working copies on a schedule: call records and outreach lists after 30 days, received documents 30 days after they are filed, and patient details on filed document records after 90 days. Storage is encrypted, so destroying the encryption key erases everything for good.',
-    technical: 'Daily retention jobs (CALL_RECORDS_, OUTREACH_, INTAKE_ RETENTION_DAYS 30; INTAKE_RECORD_RETENTION_DAYS 90); crypto-erase of the encrypted volume at end of life.',
-    evidence: [E(STORE, 'purgeRecords(days: number): number {'), E('src/platform/retention.ts', 'export function startDailyRetention(')],
+    plain: 'Drawbridge deletes its working copies on a schedule: call records and outreach lists after 30 days, received documents 30 days after they are filed, patient details on filed document records after 90 days, and shadow-week copies that were never filed after 30 days (or at once when the shadow week ends). Storage is encrypted, so destroying the encryption key erases everything for good.',
+    technical: 'Daily retention jobs (CALL_RECORDS_, OUTREACH_, INTAKE_ RETENTION_DAYS 30; INTAKE_RECORD_RETENTION_DAYS 90; INTAKE_SHADOW_RETENTION_DAYS 30, and npm run intake:purge-shadow at go-live or switch-off); crypto-erase of the encrypted volume at end of life.',
+    evidence: [E(STORE, 'purgeRecords(days: number): number {'), E(STORE, 'purgeShadow(days: number): number {'), E('src/platform/retention.ts', 'export function startDailyRetention(')],
     status: 'FIXED',
   },
   {
@@ -267,7 +267,7 @@ export const SAFEGUARDS: Safeguard[] = [
     section: 'Technical safeguards',
     requirement: 'Encryption of stored ePHI.',
     plain: 'All Drawbridge data is kept on encrypted volumes (AES), and backups are encrypted too. Disk encryption is verified for every deployment before go-live.',
-    technical: 'Deployment: EBS encryption with KMS (infra owned by Kanhaiya; compute.tf root_block_device needs encrypted = true); data center: BitLocker or LUKS2. Files are written mode 0600 in 0700 directories.',
+    technical: 'Deployment: EBS encryption with KMS (infra owned by the infrastructure team; compute.tf root_block_device needs encrypted = true); data center: BitLocker or LUKS2. Files are written mode 0600 in 0700 directories.',
     evidence: [E(STORE, "fs.writeFileSync(tmp, data, { mode: 0o600 });")],
     status: 'DEPLOYMENT',
   },
@@ -414,10 +414,10 @@ export const LAST_SECURITY_CHECKS: Array<{ date: string; check: string; result: 
 
 export const SECURITY_CONTACT = { email: 'help@moatit.com', phone: '(208) 900-6628' };
 
-/** Badge on the clinic-facing page. */
+/** Status label and tag color for the checklist (exported as `status_label`). */
 export function statusBadge(s: SafeguardStatus): { label: string; kind: 'ok' | 'warn' | '' } {
   if (s === 'PASS' || s === 'FIXED') return { label: 'In place', kind: 'ok' };
-  if (s === 'DEPLOYMENT') return { label: 'Deployment', kind: 'warn' };
+  if (s === 'DEPLOYMENT') return { label: 'Deployment', kind: '' };
   return { label: 'Organizational', kind: '' };
 }
 
@@ -469,4 +469,36 @@ export function checklistInDoc(doc: string): string | null {
   const b = doc.indexOf(CHECKLIST_END);
   if (a < 0 || b < a) return null;
   return doc.slice(a + CHECKLIST_BEGIN.length, b).replace(/\r\n/g, '\n').trim();
+}
+
+/** docs/drawbridge/hipaa-safeguards.json: the full checklist for the admin dashboard (`npm run docs:hipaa` writes it). */
+export const CHECKLIST_JSON = 'docs/drawbridge/hipaa-safeguards.json';
+
+/**
+ * The full checklist as data, for the admin dashboard's HIPAA & Compliance page (the staff portal shows only
+ * "Your part"). Same source as the document, so the two never drift.
+ * `plain` is the clinic-facing wording; `technical` and `evidence` (file:line) are for MOATiT's own team only.
+ */
+export function checklistJson(root: string = process.cwd()): string {
+  const c = statusCounts();
+  const data = {
+    source: 'src/platform/modules/compliance/safeguards.ts (npm run docs:hipaa)',
+    counts: { total: SAFEGUARDS.length, in_place: c.PASS + c.FIXED, deployment: c.DEPLOYMENT, organizational: c.ORGANIZATIONAL, ...c },
+    safeguards: SAFEGUARDS.map((s, i) => ({
+      n: i + 1,
+      citation: s.citation,
+      section: s.section,
+      requirement: s.requirement,
+      plain: s.plain,
+      technical: s.technical,
+      evidence: s.evidence.map((e) => evidenceRef(e, root)),
+      status: s.status,
+      status_label: statusBadge(s.status).label,
+      in_place: s.status === 'PASS' || s.status === 'FIXED',
+    })),
+    organizational_safeguards: ORGANIZATIONAL_SAFEGUARDS,
+    last_security_checks: LAST_SECURITY_CHECKS,
+    contact: SECURITY_CONTACT,
+  };
+  return `${JSON.stringify(data, null, 2)}\n`;
 }
