@@ -1,0 +1,2487 @@
+{
+  "info": {
+    "name": "Drawbridge \u00b7 Veradigm certification (Oct 26, 2026)",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "description": "Every Unity action in the API Assessment (rev Oct 22), grouped as on page 7: Veradigm PM, then Veradigm EHR.\n\n1. Import the environment **Drawbridge-Certification** and fill in the four empty values (service user, service password, app name, EHR user and password) from the password manager. Never save them in this file.\n2. Run **1. Sign in**, then any folder. Requests chain: GetPatientDemographics saves the MRN for GetPatientByMRN, GetScheduleByPatientID saves an appointment ID, GetDocuments saves a document ID.\n3. Folders 5 and 8 are WRITES on the sandbox. Run them only when Veradigm QA asks.\n4. Finish with **10. Sign out**.\n\nSynthetic test patient: Teodoro Brightwater (PM 51389, Veradigm EHR 81069). No real patient data."
+  },
+  "item": [
+    {
+      "name": "1. Sign in (run first)",
+      "item": [
+        {
+          "name": "GetToken (PM)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "let t; try { t = pm.response.json(); } catch (e) { t = pm.response.text().replace(/\"/g, ''); }",
+                  "pm.test('Got a token', () => pm.expect(String(t)).to.match(/^[0-9a-f-]{30,}$/i));",
+                  "pm.environment.set('pm_token', String(t));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"Username\": \"{{ubiquity_id_pm}}{{svc_username}}\",\n  \"Password\": \"{{svc_password}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{unity_endpoint}}/json/GetToken",
+            "description": "Service login for Veradigm PM: Ubiquity ID + service user. Saves the token to {{pm_token}}.\n\nDo not repeat on failure: repeated failed sign-ins can lock the user."
+          }
+        },
+        {
+          "name": "GetUserAuthentication (PM)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.text();",
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.test('No Unity error', () => pm.expect(body).to.not.match(/Magic Error|\"Error\"\\s*:|not valid for this license|Access is denied|Invalid Token/i));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"Action\": \"GetUserAuthentication\",\n  \"Appname\": \"{{app_name}}\",\n  \"AppUserID\": \"{{ehr_username}}\",\n  \"PatientID\": \"\",\n  \"Token\": \"{{pm_token}}\",\n  \"Parameter1\": \"{{ehr_password}}\",\n  \"Parameter2\": \"\",\n  \"Parameter3\": \"\",\n  \"Parameter4\": \"\",\n  \"Parameter5\": \"\",\n  \"Parameter6\": \"\",\n  \"Data\": \"\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{unity_endpoint}}/json/MagicJson",
+            "description": "Required. Signs the dedicated Drawbridge user in on this token.\n\nTarget: Veradigm PM. Run **1. Sign in** first."
+          }
+        },
+        {
+          "name": "GetToken (EHR)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "let t; try { t = pm.response.json(); } catch (e) { t = pm.response.text().replace(/\"/g, ''); }",
+                  "pm.test('Got a token', () => pm.expect(String(t)).to.match(/^[0-9a-f-]{30,}$/i));",
+                  "pm.environment.set('ehr_token', String(t));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"Username\": \"{{ubiquity_id_ehr}}{{svc_username}}\",\n  \"Password\": \"{{svc_password}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{unity_endpoint}}/json/GetToken",
+            "description": "Service login for Veradigm EHR: Ubiquity ID + service user. Saves the token to {{ehr_token}}.\n\nDo not repeat on failure: repeated failed sign-ins can lock the user."
+          }
+        },
+        {
+          "name": "GetUserAuthentication (EHR)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.text();",
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.test('No Unity error', () => pm.expect(body).to.not.match(/Magic Error|\"Error\"\\s*:|not valid for this license|Access is denied|Invalid Token/i));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"Action\": \"GetUserAuthentication\",\n  \"Appname\": \"{{app_name}}\",\n  \"AppUserID\": \"{{ehr_username}}\",\n  \"PatientID\": \"\",\n  \"Token\": \"{{ehr_token}}\",\n  \"Parameter1\": \"{{ehr_password}}\",\n  \"Parameter2\": \"\",\n  \"Parameter3\": \"\",\n  \"Parameter4\": \"\",\n  \"Parameter5\": \"\",\n  \"Parameter6\": \"\",\n  \"Data\": \"\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{unity_endpoint}}/json/MagicJson",
+            "description": "Required. Signs the dedicated Drawbridge user in on this token.\n\nTarget: Veradigm EHR. Run **1. Sign in** first."
+          }
+        }
+      ],
+      "description": ""
+    },
+    {
+      "name": "2. Required: GetServerInfo and LastLogs",
+      "item": [
+        {
+          "name": "GetServerInfo (PM)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.text();",
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.test('No Unity error', () => pm.expect(body).to.not.match(/Magic Error|\"Error\"\\s*:|not valid for this license|Access is denied|Invalid Token/i));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"Action\": \"GetServerInfo\",\n  \"Appname\": \"{{app_name}}\",\n  \"AppUserID\": \"{{ehr_username}}\",\n  \"PatientID\": \"\",\n  \"Token\": \"{{pm_token}}\",\n  \"Parameter1\": \"\",\n  \"Parameter2\": \"\",\n  \"Parameter3\": \"\",\n  \"Parameter4\": \"\",\n  \"Parameter5\": \"\",\n  \"Parameter6\": \"\",\n  \"Data\": \"\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{unity_endpoint}}/json/MagicJson",
+            "description": "Required. Product, version and time zone.\n\nTarget: Veradigm PM. Run **1. Sign in** first."
+          }
+        },
+        {
+          "name": "LastLogs (PM)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.text();",
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.test('No Unity error', () => pm.expect(body).to.not.match(/Magic Error|\"Error\"\\s*:|not valid for this license|Access is denied|Invalid Token/i));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"Action\": \"LastLogs\",\n  \"Appname\": \"{{app_name}}\",\n  \"AppUserID\": \"{{ehr_username}}\",\n  \"PatientID\": \"\",\n  \"Token\": \"{{pm_token}}\",\n  \"Parameter1\": \"\",\n  \"Parameter2\": \"\",\n  \"Parameter3\": \"\",\n  \"Parameter4\": \"\",\n  \"Parameter5\": \"\",\n  \"Parameter6\": \"\",\n  \"Data\": \"\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{unity_endpoint}}/json/MagicJson",
+            "description": "Required. Troubleshooting information.\n\nTarget: Veradigm PM. Run **1. Sign in** first."
+          }
+        },
+        {
+          "name": "GetServerInfo (EHR)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.text();",
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.test('No Unity error', () => pm.expect(body).to.not.match(/Magic Error|\"Error\"\\s*:|not valid for this license|Access is denied|Invalid Token/i));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"Action\": \"GetServerInfo\",\n  \"Appname\": \"{{app_name}}\",\n  \"AppUserID\": \"{{ehr_username}}\",\n  \"PatientID\": \"\",\n  \"Token\": \"{{ehr_token}}\",\n  \"Parameter1\": \"\",\n  \"Parameter2\": \"\",\n  \"Parameter3\": \"\",\n  \"Parameter4\": \"\",\n  \"Parameter5\": \"\",\n  \"Parameter6\": \"\",\n  \"Data\": \"\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{unity_endpoint}}/json/MagicJson",
+            "description": "Required. Product, version and time zone.\n\nTarget: Veradigm EHR. Run **1. Sign in** first."
+          }
+        },
+        {
+          "name": "LastLogs (EHR)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.text();",
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.test('No Unity error', () => pm.expect(body).to.not.match(/Magic Error|\"Error\"\\s*:|not valid for this license|Access is denied|Invalid Token/i));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"Action\": \"LastLogs\",\n  \"Appname\": \"{{app_name}}\",\n  \"AppUserID\": \"{{ehr_username}}\",\n  \"PatientID\": \"\",\n  \"Token\": \"{{ehr_token}}\",\n  \"Parameter1\": \"\",\n  \"Parameter2\": \"\",\n  \"Parameter3\": \"\",\n  \"Parameter4\": \"\",\n  \"Parameter5\": \"\",\n  \"Parameter6\": \"\",\n  \"Data\": \"\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{unity_endpoint}}/json/MagicJson",
+            "description": "Required. Troubleshooting information.\n\nTarget: Veradigm EHR. Run **1. Sign in** first."
+          }
+        }
+      ],
+      "description": ""
+    },
+    {
+      "name": "3. Patient matching (PM to VEHR)",
+      "item": [
+        {
+          "name": "1. SearchPatients (PM)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.text();",
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.test('No Unity error', () => pm.expect(body).to.not.match(/Magic Error|\"Error\"\\s*:|not valid for this license|Access is denied|Invalid Token/i));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"Action\": \"SearchPatients\",\n  \"Appname\": \"{{app_name}}\",\n  \"AppUserID\": \"{{ehr_username}}\",\n  \"PatientID\": \"\",\n  \"Token\": \"{{pm_token}}\",\n  \"Parameter1\": \"{{search_text}}\",\n  \"Parameter2\": \"\",\n  \"Parameter3\": \"\",\n  \"Parameter4\": \"\",\n  \"Parameter5\": \"\",\n  \"Parameter6\": \"\",\n  \"Data\": \"\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{unity_endpoint}}/json/MagicJson",
+            "description": "Search by \"Last, First\"; the date of birth is checked in the results.\n\nTarget: Veradigm PM. Run **1. Sign in** first."
+          }
+        },
+        {
+          "name": "2. GetPatientDemographics (PM)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.text();",
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.test('No Unity error', () => pm.expect(body).to.not.match(/Magic Error|\"Error\"\\s*:|not valid for this license|Access is denied|Invalid Token/i));",
+                  "let j; try { j = pm.response.json(); } catch (e) { j = null; }",
+                  "const top = Array.isArray(j) ? j[0] : j;",
+                  "const rows = top && typeof top === 'object' ? (Object.values(top).find(Array.isArray) || []) : [];",
+                  "const r = rows.find(x => x['Patient_Number']) || null;",
+                  "if (r) { pm.environment.set('mrn', String(r['Patient_Number'])); }",
+                  "pm.test('mrn found', () => pm.expect(r, 'no row with Patient_Number').to.be.ok);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"Action\": \"GetPatientDemographics\",\n  \"Appname\": \"{{app_name}}\",\n  \"AppUserID\": \"{{ehr_username}}\",\n  \"PatientID\": \"{{pm_patient_id}}\",\n  \"Token\": \"{{pm_token}}\",\n  \"Parameter1\": \"\",\n  \"Parameter2\": \"\",\n  \"Parameter3\": \"\",\n  \"Parameter4\": \"\",\n  \"Parameter5\": \"\",\n  \"Parameter6\": \"\",\n  \"Data\": \"\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{unity_endpoint}}/json/MagicJson",
+            "description": "Patient_Number is the Veradigm EHR chart MRN (Patient_Med_Rec_No is a different number). Saves it to {{mrn}}.\n\nTarget: Veradigm PM. Run **1. Sign in** first."
+          }
+        },
+        {
+          "name": "3. GetPatientByMRN (EHR)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.text();",
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.test('No Unity error', () => pm.expect(body).to.not.match(/Magic Error|\"Error\"\\s*:|not valid for this license|Access is denied|Invalid Token/i));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"Action\": \"GetPatientByMRN\",\n  \"Appname\": \"{{app_name}}\",\n  \"AppUserID\": \"{{ehr_username}}\",\n  \"PatientID\": \"\",\n  \"Token\": \"{{ehr_token}}\",\n  \"Parameter1\": \"{{mrn}}\",\n  \"Parameter2\": \"\",\n  \"Parameter3\": \"\",\n  \"Parameter4\": \"\",\n  \"Parameter5\": \"\",\n  \"Parameter6\": \"\",\n  \"Data\": \"\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{unity_endpoint}}/json/MagicJson",
+            "description": "The chart for that MRN. One MRN can return more than one chart: Drawbridge accepts a chart only when exactly one has the same name and DOB as the PM patient.\n\nTarget: Veradigm EHR. Run **1. Sign in** first."
+          }
+        },
+        {
+          "name": "4. SearchPatients (EHR) - fallback",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.text();",
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.test('No Unity error', () => pm.expect(body).to.not.match(/Magic Error|\"Error\"\\s*:|not valid for this license|Access is denied|Invalid Token/i));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"Action\": \"SearchPatients\",\n  \"Appname\": \"{{app_name}}\",\n  \"AppUserID\": \"{{ehr_username}}\",\n  \"PatientID\": \"\",\n  \"Token\": \"{{ehr_token}}\",\n  \"Parameter1\": \"{{search_text}}\",\n  \"Parameter2\": \"\",\n  \"Parameter3\": \"\",\n  \"Parameter4\": \"\",\n  \"Parameter5\": \"\",\n  \"Parameter6\": \"\",\n  \"Data\": \"\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{unity_endpoint}}/json/MagicJson",
+            "description": "Fallback when no chart is found by MRN: paired by name and DOB, only when each system returns exactly one.\n\nTarget: Veradigm EHR. Run **1. Sign in** first."
+          }
+        }
+      ],
+      "description": ""
+    },
+    {
+      "name": "4. Veradigm PM reads",
+      "item": [
+        {
+          "name": "GetPatient (PM)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.text();",
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.test('No Unity error', () => pm.expect(body).to.not.match(/Magic Error|\"Error\"\\s*:|not valid for this license|Access is denied|Invalid Token/i));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"Action\": \"GetPatient\",\n  \"Appname\": \"{{app_name}}\",\n  \"AppUserID\": \"{{ehr_username}}\",\n  \"PatientID\": \"{{pm_patient_id}}\",\n  \"Token\": \"{{pm_token}}\",\n  \"Parameter1\": \"N\",\n  \"Parameter2\": \"\",\n  \"Parameter3\": \"\",\n  \"Parameter4\": \"\",\n  \"Parameter5\": \"\",\n  \"Parameter6\": \"\",\n  \"Data\": \"\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{unity_endpoint}}/json/MagicJson",
+            "description": "First name and phone for reminder/recall lists.\n\nTarget: Veradigm PM. Run **1. Sign in** first."
+          }
+        },
+        {
+          "name": "GetScheduleByPatientID",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.text();",
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.test('No Unity error', () => pm.expect(body).to.not.match(/Magic Error|\"Error\"\\s*:|not valid for this license|Access is denied|Invalid Token/i));",
+                  "let j; try { j = pm.response.json(); } catch (e) { j = null; }",
+                  "const top = Array.isArray(j) ? j[0] : j;",
+                  "const rows = top && typeof top === 'object' ? (Object.values(top).find(Array.isArray) || []) : [];",
+                  "const r = rows.find(x => x['Appointment_ID'] || x['AppointmentID']) || null;",
+                  "if (r) { pm.environment.set('appointment_id', String(r['Appointment_ID'] || r['AppointmentID'])); }",
+                  "pm.test('appointment_id found', () => pm.expect(r, 'no row with Appointment_ID').to.be.ok);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"Action\": \"GetScheduleByPatientID\",\n  \"Appname\": \"{{app_name}}\",\n  \"AppUserID\": \"{{ehr_username}}\",\n  \"PatientID\": \"{{pm_patient_id}}\",\n  \"Token\": \"{{pm_token}}\",\n  \"Parameter1\": \"\",\n  \"Parameter2\": \"\",\n  \"Parameter3\": \"\",\n  \"Parameter4\": \"\",\n  \"Parameter5\": \"\",\n  \"Parameter6\": \"\",\n  \"Data\": \"\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{unity_endpoint}}/json/MagicJson",
+            "description": "The patient's appointments. Saves an appointment ID to {{appointment_id}}.\n\nTarget: Veradigm PM. Run **1. Sign in** first."
+          }
+        },
+        {
+          "name": "GetAppointmentById",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.text();",
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.test('No Unity error', () => pm.expect(body).to.not.match(/Magic Error|\"Error\"\\s*:|not valid for this license|Access is denied|Invalid Token/i));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"Action\": \"GetAppointmentById\",\n  \"Appname\": \"{{app_name}}\",\n  \"AppUserID\": \"{{ehr_username}}\",\n  \"PatientID\": \"\",\n  \"Token\": \"{{pm_token}}\",\n  \"Parameter1\": \"{{appointment_id}}\",\n  \"Parameter2\": \"\",\n  \"Parameter3\": \"\",\n  \"Parameter4\": \"\",\n  \"Parameter5\": \"\",\n  \"Parameter6\": \"\",\n  \"Data\": \"\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{unity_endpoint}}/json/MagicJson",
+            "description": "Target: Veradigm PM. Run **1. Sign in** first."
+          }
+        },
+        {
+          "name": "GetResources",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.text();",
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.test('No Unity error', () => pm.expect(body).to.not.match(/Magic Error|\"Error\"\\s*:|not valid for this license|Access is denied|Invalid Token/i));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"Action\": \"GetResources\",\n  \"Appname\": \"{{app_name}}\",\n  \"AppUserID\": \"{{ehr_username}}\",\n  \"PatientID\": \"\",\n  \"Token\": \"{{pm_token}}\",\n  \"Parameter1\": \"\",\n  \"Parameter2\": \"\",\n  \"Parameter3\": \"\",\n  \"Parameter4\": \"\",\n  \"Parameter5\": \"\",\n  \"Parameter6\": \"\",\n  \"Data\": \"\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{unity_endpoint}}/json/MagicJson",
+            "description": "Providers/resources for scheduling.\n\nTarget: Veradigm PM. Run **1. Sign in** first."
+          }
+        },
+        {
+          "name": "GetAppointmentTypes",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.text();",
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.test('No Unity error', () => pm.expect(body).to.not.match(/Magic Error|\"Error\"\\s*:|not valid for this license|Access is denied|Invalid Token/i));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"Action\": \"GetAppointmentTypes\",\n  \"Appname\": \"{{app_name}}\",\n  \"AppUserID\": \"{{ehr_username}}\",\n  \"PatientID\": \"\",\n  \"Token\": \"{{pm_token}}\",\n  \"Parameter1\": \"\",\n  \"Parameter2\": \"\",\n  \"Parameter3\": \"\",\n  \"Parameter4\": \"\",\n  \"Parameter5\": \"\",\n  \"Parameter6\": \"\",\n  \"Data\": \"\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{unity_endpoint}}/json/MagicJson",
+            "description": "Target: Veradigm PM. Run **1. Sign in** first."
+          }
+        },
+        {
+          "name": "GetAppointmentCancellationReasons",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.text();",
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.test('No Unity error', () => pm.expect(body).to.not.match(/Magic Error|\"Error\"\\s*:|not valid for this license|Access is denied|Invalid Token/i));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"Action\": \"GetAppointmentCancellationReasons\",\n  \"Appname\": \"{{app_name}}\",\n  \"AppUserID\": \"{{ehr_username}}\",\n  \"PatientID\": \"\",\n  \"Token\": \"{{pm_token}}\",\n  \"Parameter1\": \"\",\n  \"Parameter2\": \"\",\n  \"Parameter3\": \"\",\n  \"Parameter4\": \"\",\n  \"Parameter5\": \"\",\n  \"Parameter6\": \"\",\n  \"Data\": \"\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{unity_endpoint}}/json/MagicJson",
+            "description": "Target: Veradigm PM. Run **1. Sign in** first."
+          }
+        },
+        {
+          "name": "GetAppointmentConfirmationResults",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.text();",
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.test('No Unity error', () => pm.expect(body).to.not.match(/Magic Error|\"Error\"\\s*:|not valid for this license|Access is denied|Invalid Token/i));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"Action\": \"GetAppointmentConfirmationResults\",\n  \"Appname\": \"{{app_name}}\",\n  \"AppUserID\": \"{{ehr_username}}\",\n  \"PatientID\": \"\",\n  \"Token\": \"{{pm_token}}\",\n  \"Parameter1\": \"\",\n  \"Parameter2\": \"\",\n  \"Parameter3\": \"\",\n  \"Parameter4\": \"\",\n  \"Parameter5\": \"\",\n  \"Parameter6\": \"\",\n  \"Data\": \"\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{unity_endpoint}}/json/MagicJson",
+            "description": "Target: Veradigm PM. Run **1. Sign in** first."
+          }
+        },
+        {
+          "name": "GetSchedulingLocations",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.text();",
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.test('No Unity error', () => pm.expect(body).to.not.match(/Magic Error|\"Error\"\\s*:|not valid for this license|Access is denied|Invalid Token/i));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"Action\": \"GetSchedulingLocations\",\n  \"Appname\": \"{{app_name}}\",\n  \"AppUserID\": \"{{ehr_username}}\",\n  \"PatientID\": \"\",\n  \"Token\": \"{{pm_token}}\",\n  \"Parameter1\": \"\",\n  \"Parameter2\": \"\",\n  \"Parameter3\": \"\",\n  \"Parameter4\": \"\",\n  \"Parameter5\": \"\",\n  \"Parameter6\": \"\",\n  \"Data\": \"\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{unity_endpoint}}/json/MagicJson",
+            "description": "Target: Veradigm PM. Run **1. Sign in** first."
+          }
+        },
+        {
+          "name": "GetSchedulingDepartments",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.text();",
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.test('No Unity error', () => pm.expect(body).to.not.match(/Magic Error|\"Error\"\\s*:|not valid for this license|Access is denied|Invalid Token/i));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"Action\": \"GetSchedulingDepartments\",\n  \"Appname\": \"{{app_name}}\",\n  \"AppUserID\": \"{{ehr_username}}\",\n  \"PatientID\": \"\",\n  \"Token\": \"{{pm_token}}\",\n  \"Parameter1\": \"\",\n  \"Parameter2\": \"\",\n  \"Parameter3\": \"\",\n  \"Parameter4\": \"\",\n  \"Parameter5\": \"\",\n  \"Parameter6\": \"\",\n  \"Data\": \"\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{unity_endpoint}}/json/MagicJson",
+            "description": "Target: Veradigm PM. Run **1. Sign in** first."
+          }
+        },
+        {
+          "name": "GetAvailableSchedule (open slots)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.text();",
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.test('No Unity error', () => pm.expect(body).to.not.match(/Magic Error|\"Error\"\\s*:|not valid for this license|Access is denied|Invalid Token/i));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"Action\": \"GetAvailableSchedule\",\n  \"Appname\": \"{{app_name}}\",\n  \"AppUserID\": \"{{ehr_username}}\",\n  \"PatientID\": \"\",\n  \"Token\": \"{{pm_token}}\",\n  \"Parameter1\": \"{{provider_abbr}}\",\n  \"Parameter2\": \"{{slot_start}}\",\n  \"Parameter3\": \"{{slot_end_exclusive}}\",\n  \"Parameter4\": \"\",\n  \"Parameter5\": \"\",\n  \"Parameter6\": \"\",\n  \"Data\": \"\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{unity_endpoint}}/json/MagicJson",
+            "description": "Target: Veradigm PM. Run **1. Sign in** first."
+          }
+        },
+        {
+          "name": "GetSchedule (day)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.text();",
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.test('No Unity error', () => pm.expect(body).to.not.match(/Magic Error|\"Error\"\\s*:|not valid for this license|Access is denied|Invalid Token/i));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"Action\": \"GetSchedule\",\n  \"Appname\": \"{{app_name}}\",\n  \"AppUserID\": \"{{ehr_username}}\",\n  \"PatientID\": \"\",\n  \"Token\": \"{{pm_token}}\",\n  \"Parameter1\": \"{{schedule_date}}\",\n  \"Parameter2\": \"\",\n  \"Parameter3\": \"\",\n  \"Parameter4\": \"\",\n  \"Parameter5\": \"\",\n  \"Parameter6\": \"\",\n  \"Data\": \"\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{unity_endpoint}}/json/MagicJson",
+            "description": "Day schedule for the staff huddle brief. Never used to look up one patient.\n\nTarget: Veradigm PM. Run **1. Sign in** first."
+          }
+        },
+        {
+          "name": "GetAppointmentsByChangeDTTM",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.text();",
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.test('No Unity error', () => pm.expect(body).to.not.match(/Magic Error|\"Error\"\\s*:|not valid for this license|Access is denied|Invalid Token/i));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"Action\": \"GetAppointmentsByChangeDTTM\",\n  \"Appname\": \"{{app_name}}\",\n  \"AppUserID\": \"{{ehr_username}}\",\n  \"PatientID\": \"\",\n  \"Token\": \"{{pm_token}}\",\n  \"Parameter1\": \"{{changed_since}} 00:00:00\",\n  \"Parameter2\": \"{{schedule_date}} 23:59:59\",\n  \"Parameter3\": \"\",\n  \"Parameter4\": \"\",\n  \"Parameter5\": \"\",\n  \"Parameter6\": \"\",\n  \"Data\": \"\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{unity_endpoint}}/json/MagicJson",
+            "description": "Target: Veradigm PM. Run **1. Sign in** first."
+          }
+        },
+        {
+          "name": "GetRecalls",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.text();",
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.test('No Unity error', () => pm.expect(body).to.not.match(/Magic Error|\"Error\"\\s*:|not valid for this license|Access is denied|Invalid Token/i));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"Action\": \"GetRecalls\",\n  \"Appname\": \"{{app_name}}\",\n  \"AppUserID\": \"{{ehr_username}}\",\n  \"PatientID\": \"{{pm_patient_id}}\",\n  \"Token\": \"{{pm_token}}\",\n  \"Parameter1\": \"\",\n  \"Parameter2\": \"\",\n  \"Parameter3\": \"\",\n  \"Parameter4\": \"\",\n  \"Parameter5\": \"\",\n  \"Parameter6\": \"\",\n  \"Data\": \"\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{unity_endpoint}}/json/MagicJson",
+            "description": "Target: Veradigm PM. Run **1. Sign in** first."
+          }
+        },
+        {
+          "name": "GetPatientAccountBalance",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.text();",
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.test('No Unity error', () => pm.expect(body).to.not.match(/Magic Error|\"Error\"\\s*:|not valid for this license|Access is denied|Invalid Token/i));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"Action\": \"GetPatientAccountBalance\",\n  \"Appname\": \"{{app_name}}\",\n  \"AppUserID\": \"{{ehr_username}}\",\n  \"PatientID\": \"{{pm_patient_id}}\",\n  \"Token\": \"{{pm_token}}\",\n  \"Parameter1\": \"\",\n  \"Parameter2\": \"\",\n  \"Parameter3\": \"\",\n  \"Parameter4\": \"\",\n  \"Parameter5\": \"\",\n  \"Parameter6\": \"\",\n  \"Data\": \"\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{unity_endpoint}}/json/MagicJson",
+            "description": "Target: Veradigm PM. Run **1. Sign in** first."
+          }
+        },
+        {
+          "name": "GetPatientPolicy",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.text();",
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.test('No Unity error', () => pm.expect(body).to.not.match(/Magic Error|\"Error\"\\s*:|not valid for this license|Access is denied|Invalid Token/i));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"Action\": \"GetPatientPolicy\",\n  \"Appname\": \"{{app_name}}\",\n  \"AppUserID\": \"{{ehr_username}}\",\n  \"PatientID\": \"{{pm_patient_id}}\",\n  \"Token\": \"{{pm_token}}\",\n  \"Parameter1\": \"\",\n  \"Parameter2\": \"\",\n  \"Parameter3\": \"\",\n  \"Parameter4\": \"\",\n  \"Parameter5\": \"\",\n  \"Parameter6\": \"\",\n  \"Data\": \"\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{unity_endpoint}}/json/MagicJson",
+            "description": "Target: Veradigm PM. Run **1. Sign in** first."
+          }
+        }
+      ],
+      "description": ""
+    },
+    {
+      "name": "5. Veradigm PM writes (WRITE)",
+      "item": [
+        {
+          "name": "SaveAppointment (WRITE)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.text();",
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.test('No Unity error', () => pm.expect(body).to.not.match(/Magic Error|\"Error\"\\s*:|not valid for this license|Access is denied|Invalid Token/i));",
+                  "let j; try { j = pm.response.json(); } catch (e) { j = null; }",
+                  "const top = Array.isArray(j) ? j[0] : j;",
+                  "const rows = top && typeof top === 'object' ? (Object.values(top).find(Array.isArray) || []) : [];",
+                  "const r = rows.find(x => x['Appointment_ID'] || x['AppointmentID'] || x['ID']) || null;",
+                  "if (r) { pm.environment.set('appointment_id', String(r['Appointment_ID'] || r['AppointmentID'] || r['ID'])); }",
+                  "pm.test('appointment_id found', () => pm.expect(r, 'no row with Appointment_ID').to.be.ok);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"Action\": \"SaveAppointment\",\n  \"Appname\": \"{{app_name}}\",\n  \"AppUserID\": \"{{ehr_username}}\",\n  \"PatientID\": \"{{pm_patient_id}}\",\n  \"Token\": \"{{pm_token}}\",\n  \"Parameter1\": \"<appt><appointmentDateTime>{{appt_datetime}}</appointmentDateTime><appointmentDuration>15</appointmentDuration><appointmentType>{{appt_type}}</appointmentType><schedulingLocation>{{sched_location}}</schedulingLocation><schedulingDepartment>{{sched_department}}</schedulingDepartment><resource>{{provider_abbr}}</resource><comments>Drawbridge sandbox test</comments><schedulingLocationID>{{sched_location_id}}</schedulingLocationID><schedulingDepartmentID>{{sched_department_id}}</schedulingDepartmentID></appt>\",\n  \"Parameter2\": \"\",\n  \"Parameter3\": \"\",\n  \"Parameter4\": \"\",\n  \"Parameter5\": \"\",\n  \"Parameter6\": \"\",\n  \"Data\": \"\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{unity_endpoint}}/json/MagicJson",
+            "description": "Books {{appt_datetime}} with {{provider_abbr}}. Pick an open slot from GetAvailableSchedule first. Saves the new ID to {{appointment_id}}.\n\n**WRITE on the sandbox. Run only when Veradigm QA asks, on synthetic test patients.**\n\nTarget: Veradigm PM. Run **1. Sign in** first."
+          }
+        },
+        {
+          "name": "SetAppointmentStatus - confirm (WRITE)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.text();",
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.test('No Unity error', () => pm.expect(body).to.not.match(/Magic Error|\"Error\"\\s*:|not valid for this license|Access is denied|Invalid Token/i));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"Action\": \"SetAppointmentStatus\",\n  \"Appname\": \"{{app_name}}\",\n  \"AppUserID\": \"{{ehr_username}}\",\n  \"PatientID\": \"{{pm_patient_id}}\",\n  \"Token\": \"{{pm_token}}\",\n  \"Parameter1\": \"{{appointment_id}}\",\n  \"Parameter2\": \"C\",\n  \"Parameter3\": \"\",\n  \"Parameter4\": \"{{clinic_hhmm}}\",\n  \"Parameter5\": \"{{confirmation_result_id}}\",\n  \"Parameter6\": \"\",\n  \"Data\": \"\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{unity_endpoint}}/json/MagicJson",
+            "description": "**WRITE on the sandbox. Run only when Veradigm QA asks, on synthetic test patients.**\n\nTarget: Veradigm PM. Run **1. Sign in** first."
+          }
+        },
+        {
+          "name": "SetAppointmentStatus - cancel (WRITE)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.text();",
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.test('No Unity error', () => pm.expect(body).to.not.match(/Magic Error|\"Error\"\\s*:|not valid for this license|Access is denied|Invalid Token/i));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"Action\": \"SetAppointmentStatus\",\n  \"Appname\": \"{{app_name}}\",\n  \"AppUserID\": \"{{ehr_username}}\",\n  \"PatientID\": \"{{pm_patient_id}}\",\n  \"Token\": \"{{pm_token}}\",\n  \"Parameter1\": \"{{appointment_id}}\",\n  \"Parameter2\": \"X\",\n  \"Parameter3\": \"\",\n  \"Parameter4\": \"{{clinic_hhmm}}\",\n  \"Parameter5\": \"\",\n  \"Parameter6\": \"{{cancel_reason_id}}\",\n  \"Data\": \"\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{unity_endpoint}}/json/MagicJson",
+            "description": "**WRITE on the sandbox. Run only when Veradigm QA asks, on synthetic test patients.**\n\nTarget: Veradigm PM. Run **1. Sign in** first."
+          }
+        }
+      ],
+      "description": ""
+    },
+    {
+      "name": "6. Veradigm EHR reads",
+      "item": [
+        {
+          "name": "GetPatient (EHR)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.text();",
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.test('No Unity error', () => pm.expect(body).to.not.match(/Magic Error|\"Error\"\\s*:|not valid for this license|Access is denied|Invalid Token/i));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"Action\": \"GetPatient\",\n  \"Appname\": \"{{app_name}}\",\n  \"AppUserID\": \"{{ehr_username}}\",\n  \"PatientID\": \"{{ehr_patient_id}}\",\n  \"Token\": \"{{ehr_token}}\",\n  \"Parameter1\": \"N\",\n  \"Parameter2\": \"\",\n  \"Parameter3\": \"\",\n  \"Parameter4\": \"\",\n  \"Parameter5\": \"\",\n  \"Parameter6\": \"\",\n  \"Data\": \"\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{unity_endpoint}}/json/MagicJson",
+            "description": "Target: Veradigm EHR. Run **1. Sign in** first."
+          }
+        },
+        {
+          "name": "GetClinicalSummary - problems",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.text();",
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.test('No Unity error', () => pm.expect(body).to.not.match(/Magic Error|\"Error\"\\s*:|not valid for this license|Access is denied|Invalid Token/i));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"Action\": \"GetClinicalSummary\",\n  \"Appname\": \"{{app_name}}\",\n  \"AppUserID\": \"{{ehr_username}}\",\n  \"PatientID\": \"{{ehr_patient_id}}\",\n  \"Token\": \"{{ehr_token}}\",\n  \"Parameter1\": \"problems\",\n  \"Parameter2\": \"\",\n  \"Parameter3\": \"\",\n  \"Parameter4\": \"\",\n  \"Parameter5\": \"\",\n  \"Parameter6\": \"\",\n  \"Data\": \"\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{unity_endpoint}}/json/MagicJson",
+            "description": "Target: Veradigm EHR. Run **1. Sign in** first."
+          }
+        },
+        {
+          "name": "GetClinicalSummary - medications",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.text();",
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.test('No Unity error', () => pm.expect(body).to.not.match(/Magic Error|\"Error\"\\s*:|not valid for this license|Access is denied|Invalid Token/i));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"Action\": \"GetClinicalSummary\",\n  \"Appname\": \"{{app_name}}\",\n  \"AppUserID\": \"{{ehr_username}}\",\n  \"PatientID\": \"{{ehr_patient_id}}\",\n  \"Token\": \"{{ehr_token}}\",\n  \"Parameter1\": \"medications\",\n  \"Parameter2\": \"\",\n  \"Parameter3\": \"\",\n  \"Parameter4\": \"\",\n  \"Parameter5\": \"\",\n  \"Parameter6\": \"\",\n  \"Data\": \"\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{unity_endpoint}}/json/MagicJson",
+            "description": "Target: Veradigm EHR. Run **1. Sign in** first."
+          }
+        },
+        {
+          "name": "GetClinicalSummary - allergies",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.text();",
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.test('No Unity error', () => pm.expect(body).to.not.match(/Magic Error|\"Error\"\\s*:|not valid for this license|Access is denied|Invalid Token/i));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"Action\": \"GetClinicalSummary\",\n  \"Appname\": \"{{app_name}}\",\n  \"AppUserID\": \"{{ehr_username}}\",\n  \"PatientID\": \"{{ehr_patient_id}}\",\n  \"Token\": \"{{ehr_token}}\",\n  \"Parameter1\": \"allergies\",\n  \"Parameter2\": \"\",\n  \"Parameter3\": \"\",\n  \"Parameter4\": \"\",\n  \"Parameter5\": \"\",\n  \"Parameter6\": \"\",\n  \"Data\": \"\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{unity_endpoint}}/json/MagicJson",
+            "description": "Target: Veradigm EHR. Run **1. Sign in** first."
+          }
+        },
+        {
+          "name": "GetClinicalSummary - results",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.text();",
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.test('No Unity error', () => pm.expect(body).to.not.match(/Magic Error|\"Error\"\\s*:|not valid for this license|Access is denied|Invalid Token/i));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"Action\": \"GetClinicalSummary\",\n  \"Appname\": \"{{app_name}}\",\n  \"AppUserID\": \"{{ehr_username}}\",\n  \"PatientID\": \"{{ehr_patient_id}}\",\n  \"Token\": \"{{ehr_token}}\",\n  \"Parameter1\": \"results\",\n  \"Parameter2\": \"\",\n  \"Parameter3\": \"\",\n  \"Parameter4\": \"\",\n  \"Parameter5\": \"\",\n  \"Parameter6\": \"\",\n  \"Data\": \"\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{unity_endpoint}}/json/MagicJson",
+            "description": "Target: Veradigm EHR. Run **1. Sign in** first."
+          }
+        },
+        {
+          "name": "GetLocation",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.text();",
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.test('No Unity error', () => pm.expect(body).to.not.match(/Magic Error|\"Error\"\\s*:|not valid for this license|Access is denied|Invalid Token/i));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"Action\": \"GetLocation\",\n  \"Appname\": \"{{app_name}}\",\n  \"AppUserID\": \"{{ehr_username}}\",\n  \"PatientID\": \"\",\n  \"Token\": \"{{ehr_token}}\",\n  \"Parameter1\": \"\",\n  \"Parameter2\": \"\",\n  \"Parameter3\": \"\",\n  \"Parameter4\": \"\",\n  \"Parameter5\": \"\",\n  \"Parameter6\": \"\",\n  \"Data\": \"\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{unity_endpoint}}/json/MagicJson",
+            "description": "Target: Veradigm EHR. Run **1. Sign in** first."
+          }
+        },
+        {
+          "name": "GetProviders",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.text();",
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.test('No Unity error', () => pm.expect(body).to.not.match(/Magic Error|\"Error\"\\s*:|not valid for this license|Access is denied|Invalid Token/i));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"Action\": \"GetProviders\",\n  \"Appname\": \"{{app_name}}\",\n  \"AppUserID\": \"{{ehr_username}}\",\n  \"PatientID\": \"\",\n  \"Token\": \"{{ehr_token}}\",\n  \"Parameter1\": \"\",\n  \"Parameter2\": \"\",\n  \"Parameter3\": \"\",\n  \"Parameter4\": \"\",\n  \"Parameter5\": \"\",\n  \"Parameter6\": \"\",\n  \"Data\": \"\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{unity_endpoint}}/json/MagicJson",
+            "description": "Target: Veradigm EHR. Run **1. Sign in** first."
+          }
+        },
+        {
+          "name": "GetDocumentType",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.text();",
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.test('No Unity error', () => pm.expect(body).to.not.match(/Magic Error|\"Error\"\\s*:|not valid for this license|Access is denied|Invalid Token/i));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"Action\": \"GetDocumentType\",\n  \"Appname\": \"{{app_name}}\",\n  \"AppUserID\": \"{{ehr_username}}\",\n  \"PatientID\": \"\",\n  \"Token\": \"{{ehr_token}}\",\n  \"Parameter1\": \"\",\n  \"Parameter2\": \"\",\n  \"Parameter3\": \"\",\n  \"Parameter4\": \"\",\n  \"Parameter5\": \"\",\n  \"Parameter6\": \"\",\n  \"Data\": \"\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{unity_endpoint}}/json/MagicJson",
+            "description": "Target: Veradigm EHR. Run **1. Sign in** first."
+          }
+        },
+        {
+          "name": "GetDocumentsByDocumentType",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.text();",
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.test('No Unity error', () => pm.expect(body).to.not.match(/Magic Error|\"Error\"\\s*:|not valid for this license|Access is denied|Invalid Token/i));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"Action\": \"GetDocumentsByDocumentType\",\n  \"Appname\": \"{{app_name}}\",\n  \"AppUserID\": \"{{ehr_username}}\",\n  \"PatientID\": \"\",\n  \"Token\": \"{{ehr_token}}\",\n  \"Parameter1\": \"{{doc_type}}\",\n  \"Parameter2\": \"\",\n  \"Parameter3\": \"{{changed_since}}\",\n  \"Parameter4\": \"{{schedule_date}}\",\n  \"Parameter5\": \"\",\n  \"Parameter6\": \"\",\n  \"Data\": \"\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{unity_endpoint}}/json/MagicJson",
+            "description": "Shadow mode (read-only): documents of one type over a date range.\n\nTarget: Veradigm EHR. Run **1. Sign in** first."
+          }
+        },
+        {
+          "name": "GetDocuments",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.text();",
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.test('No Unity error', () => pm.expect(body).to.not.match(/Magic Error|\"Error\"\\s*:|not valid for this license|Access is denied|Invalid Token/i));",
+                  "let j; try { j = pm.response.json(); } catch (e) { j = null; }",
+                  "const top = Array.isArray(j) ? j[0] : j;",
+                  "const rows = top && typeof top === 'object' ? (Object.values(top).find(Array.isArray) || []) : [];",
+                  "const r = rows.find(x => x['DocumentID'] || x['DocumentId'] || x['ID']) || null;",
+                  "if (r) { pm.environment.set('document_id', String(r['DocumentID'] || r['DocumentId'] || r['ID'])); }",
+                  "pm.test('document_id found', () => pm.expect(r, 'no row with DocumentID').to.be.ok);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"Action\": \"GetDocuments\",\n  \"Appname\": \"{{app_name}}\",\n  \"AppUserID\": \"{{ehr_username}}\",\n  \"PatientID\": \"{{ehr_patient_id}}\",\n  \"Token\": \"{{ehr_token}}\",\n  \"Parameter1\": \"\",\n  \"Parameter2\": \"\",\n  \"Parameter3\": \"\",\n  \"Parameter4\": \"\",\n  \"Parameter5\": \"\",\n  \"Parameter6\": \"\",\n  \"Data\": \"\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{unity_endpoint}}/json/MagicJson",
+            "description": "Shadow mode (read-only): the patient's documents. Saves a document ID to {{document_id}}.\n\nTarget: Veradigm EHR. Run **1. Sign in** first."
+          }
+        },
+        {
+          "name": "GetDocumentImage",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.text();",
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.test('No Unity error', () => pm.expect(body).to.not.match(/Magic Error|\"Error\"\\s*:|not valid for this license|Access is denied|Invalid Token/i));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"Action\": \"GetDocumentImage\",\n  \"Appname\": \"{{app_name}}\",\n  \"AppUserID\": \"{{ehr_username}}\",\n  \"PatientID\": \"{{ehr_patient_id}}\",\n  \"Token\": \"{{ehr_token}}\",\n  \"Parameter1\": \"{{document_id}}\",\n  \"Parameter2\": \"Scan\",\n  \"Parameter3\": \"PDF\",\n  \"Parameter4\": \"N\",\n  \"Parameter5\": \"\",\n  \"Parameter6\": \"\",\n  \"Data\": \"\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{unity_endpoint}}/json/MagicJson",
+            "description": "Shadow mode (read-only): the image of a filed document.\n\nTarget: Veradigm EHR. Run **1. Sign in** first."
+          }
+        }
+      ],
+      "description": ""
+    },
+    {
+      "name": "7. Declared, not used in release 1.0",
+      "item": [
+        {
+          "name": "GetPractitioners (PM)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.text();",
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.test('No Unity error', () => pm.expect(body).to.not.match(/Magic Error|\"Error\"\\s*:|not valid for this license|Access is denied|Invalid Token/i));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"Action\": \"GetPractitioners\",\n  \"Appname\": \"{{app_name}}\",\n  \"AppUserID\": \"{{ehr_username}}\",\n  \"PatientID\": \"\",\n  \"Token\": \"{{pm_token}}\",\n  \"Parameter1\": \"\",\n  \"Parameter2\": \"\",\n  \"Parameter3\": \"\",\n  \"Parameter4\": \"\",\n  \"Parameter5\": \"\",\n  \"Parameter6\": \"\",\n  \"Data\": \"\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{unity_endpoint}}/json/MagicJson",
+            "description": "Declared for certification, not used in release 1.0.\n\nTarget: Veradigm PM. Run **1. Sign in** first."
+          }
+        },
+        {
+          "name": "GetFirstAvailableAppointments (PM)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.text();",
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.test('No Unity error', () => pm.expect(body).to.not.match(/Magic Error|\"Error\"\\s*:|not valid for this license|Access is denied|Invalid Token/i));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"Action\": \"GetFirstAvailableAppointments\",\n  \"Appname\": \"{{app_name}}\",\n  \"AppUserID\": \"{{ehr_username}}\",\n  \"PatientID\": \"\",\n  \"Token\": \"{{pm_token}}\",\n  \"Parameter1\": \"\",\n  \"Parameter2\": \"\",\n  \"Parameter3\": \"\",\n  \"Parameter4\": \"\",\n  \"Parameter5\": \"\",\n  \"Parameter6\": \"\",\n  \"Data\": \"\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{unity_endpoint}}/json/MagicJson",
+            "description": "Declared for certification, not used in release 1.0.\n\nTarget: Veradigm PM. Run **1. Sign in** first."
+          }
+        },
+        {
+          "name": "GetAllAvailableAppointments (PM)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.text();",
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.test('No Unity error', () => pm.expect(body).to.not.match(/Magic Error|\"Error\"\\s*:|not valid for this license|Access is denied|Invalid Token/i));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"Action\": \"GetAllAvailableAppointments\",\n  \"Appname\": \"{{app_name}}\",\n  \"AppUserID\": \"{{ehr_username}}\",\n  \"PatientID\": \"\",\n  \"Token\": \"{{pm_token}}\",\n  \"Parameter1\": \"\",\n  \"Parameter2\": \"\",\n  \"Parameter3\": \"\",\n  \"Parameter4\": \"\",\n  \"Parameter5\": \"\",\n  \"Parameter6\": \"\",\n  \"Data\": \"\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{unity_endpoint}}/json/MagicJson",
+            "description": "Declared for certification, not used in release 1.0.\n\nTarget: Veradigm PM. Run **1. Sign in** first."
+          }
+        },
+        {
+          "name": "GetCoverageTypes (PM)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.text();",
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.test('No Unity error', () => pm.expect(body).to.not.match(/Magic Error|\"Error\"\\s*:|not valid for this license|Access is denied|Invalid Token/i));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"Action\": \"GetCoverageTypes\",\n  \"Appname\": \"{{app_name}}\",\n  \"AppUserID\": \"{{ehr_username}}\",\n  \"PatientID\": \"\",\n  \"Token\": \"{{pm_token}}\",\n  \"Parameter1\": \"\",\n  \"Parameter2\": \"\",\n  \"Parameter3\": \"\",\n  \"Parameter4\": \"\",\n  \"Parameter5\": \"\",\n  \"Parameter6\": \"\",\n  \"Data\": \"\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{unity_endpoint}}/json/MagicJson",
+            "description": "Declared for certification, not used in release 1.0.\n\nTarget: Veradigm PM. Run **1. Sign in** first."
+          }
+        },
+        {
+          "name": "GetPatientAilments (PM)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.text();",
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.test('No Unity error', () => pm.expect(body).to.not.match(/Magic Error|\"Error\"\\s*:|not valid for this license|Access is denied|Invalid Token/i));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"Action\": \"GetPatientAilments\",\n  \"Appname\": \"{{app_name}}\",\n  \"AppUserID\": \"{{ehr_username}}\",\n  \"PatientID\": \"{{pm_patient_id}}\",\n  \"Token\": \"{{pm_token}}\",\n  \"Parameter1\": \"\",\n  \"Parameter2\": \"\",\n  \"Parameter3\": \"\",\n  \"Parameter4\": \"\",\n  \"Parameter5\": \"\",\n  \"Parameter6\": \"\",\n  \"Data\": \"\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{unity_endpoint}}/json/MagicJson",
+            "description": "Declared for certification, not used in release 1.0. Sandbox Oct 26, 2026: returns \"Action is not valid for this license\" (same on Veradigm EHR). Ask Veradigm QA to enable it or drop it from the declared list.\n\nTarget: Veradigm PM. Run **1. Sign in** first."
+          }
+        },
+        {
+          "name": "GetDictionary (EHR)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.text();",
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.test('No Unity error', () => pm.expect(body).to.not.match(/Magic Error|\"Error\"\\s*:|not valid for this license|Access is denied|Invalid Token/i));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"Action\": \"GetDictionary\",\n  \"Appname\": \"{{app_name}}\",\n  \"AppUserID\": \"{{ehr_username}}\",\n  \"PatientID\": \"\",\n  \"Token\": \"{{ehr_token}}\",\n  \"Parameter1\": \"MSGTYPE\",\n  \"Parameter2\": \"\",\n  \"Parameter3\": \"\",\n  \"Parameter4\": \"\",\n  \"Parameter5\": \"\",\n  \"Parameter6\": \"\",\n  \"Data\": \"\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{unity_endpoint}}/json/MagicJson",
+            "description": "Code lists. Veradigm's install guide: run with MSGTYPE for the SaveTask TaskType values, and with SCAN_DOCUMENTTYPE for the SaveScanDocument document types (one-time onboarding step at each clinic). Sandbox Oct 27, 2026: MSGTYPE returns 31 rows, SCAN_DOCUMENTTYPE 128 rows. An unknown dictionary name returns a misleading \"login credentials are incorrect\" or \"does not exist\" error.\n\nTarget: Veradigm EHR. Run **1. Sign in** first."
+          }
+        },
+        {
+          "name": "GetTaskList (EHR)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.text();",
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.test('No Unity error', () => pm.expect(body).to.not.match(/Magic Error|\"Error\"\\s*:|not valid for this license|Access is denied|Invalid Token/i));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"Action\": \"GetTaskList\",\n  \"Appname\": \"{{app_name}}\",\n  \"AppUserID\": \"{{ehr_username}}\",\n  \"PatientID\": \"\",\n  \"Token\": \"{{ehr_token}}\",\n  \"Parameter1\": \"\",\n  \"Parameter2\": \"\",\n  \"Parameter3\": \"\",\n  \"Parameter4\": \"\",\n  \"Parameter5\": \"\",\n  \"Parameter6\": \"\",\n  \"Data\": \"\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{unity_endpoint}}/json/MagicJson",
+            "description": "Declared for certification, not used in release 1.0.\n\nTarget: Veradigm EHR. Run **1. Sign in** first."
+          }
+        },
+        {
+          "name": "GetEncounterListForPatient (EHR)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.text();",
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.test('No Unity error', () => pm.expect(body).to.not.match(/Magic Error|\"Error\"\\s*:|not valid for this license|Access is denied|Invalid Token/i));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"Action\": \"GetEncounterListForPatient\",\n  \"Appname\": \"{{app_name}}\",\n  \"AppUserID\": \"{{ehr_username}}\",\n  \"PatientID\": \"{{ehr_patient_id}}\",\n  \"Token\": \"{{ehr_token}}\",\n  \"Parameter1\": \"\",\n  \"Parameter2\": \"\",\n  \"Parameter3\": \"\",\n  \"Parameter4\": \"\",\n  \"Parameter5\": \"\",\n  \"Parameter6\": \"\",\n  \"Data\": \"\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{unity_endpoint}}/json/MagicJson",
+            "description": "Declared for certification, not used in release 1.0.\n\nTarget: Veradigm EHR. Run **1. Sign in** first."
+          }
+        }
+      ],
+      "description": "Declared for certification, not used in release 1.0. GetTask needs a task ID from GetTaskList. SetPatientAccessReason is declared but not included: it records an access reason in the chart's audit and release 1.0 transfers restricted patients to staff instead."
+    },
+    {
+      "name": "8. Veradigm EHR writes (WRITE)",
+      "item": [
+        {
+          "name": "SaveTask - staff task (WRITE)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.text();",
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.test('No Unity error', () => pm.expect(body).to.not.match(/Magic Error|\"Error\"\\s*:|not valid for this license|Access is denied|Invalid Token/i));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"Action\": \"SaveTask\",\n  \"Appname\": \"{{app_name}}\",\n  \"AppUserID\": \"{{ehr_username}}\",\n  \"PatientID\": \"{{ehr_patient_id}}\",\n  \"Token\": \"{{ehr_token}}\",\n  \"Parameter1\": \"Call Patient\",\n  \"Parameter2\": \"{{task_target}}\",\n  \"Parameter3\": \"\",\n  \"Parameter4\": \"Drawbridge sandbox test task, please ignore\",\n  \"Parameter5\": \"Drawbridge test\",\n  \"Parameter6\": \"\",\n  \"Data\": \"\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{unity_endpoint}}/json/MagicJson",
+            "description": "**WRITE on the sandbox. Run only when Veradigm QA asks, on synthetic test patients.**\n\nTarget: Veradigm EHR. Run **1. Sign in** first."
+          }
+        },
+        {
+          "name": "SaveScanDocument (WRITE)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.text();",
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.test('No Unity error', () => pm.expect(body).to.not.match(/Magic Error|\"Error\"\\s*:|not valid for this license|Access is denied|Invalid Token/i));",
+                  "let j; try { j = pm.response.json(); } catch (e) { j = null; }",
+                  "const top = Array.isArray(j) ? j[0] : j;",
+                  "const rows = top && typeof top === 'object' ? (Object.values(top).find(Array.isArray) || []) : [];",
+                  "const r = rows.find(x => x['DocumentID'] || x['DocumentId'] || x['ID']) || null;",
+                  "if (r) { pm.environment.set('document_id', String(r['DocumentID'] || r['DocumentId'] || r['ID'])); }",
+                  "pm.test('document_id found', () => pm.expect(r, 'no row with DocumentID').to.be.ok);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"Action\": \"SaveScanDocument\",\n  \"Appname\": \"{{app_name}}\",\n  \"AppUserID\": \"{{ehr_username}}\",\n  \"PatientID\": \"{{ehr_patient_id}}\",\n  \"Token\": \"{{ehr_token}}\",\n  \"Parameter1\": \"{{doc_type}}\",\n  \"Parameter2\": \"drawbridge-postman-test.pdf\",\n  \"Parameter3\": \"<docattributes><transID>0</transID><clinicaldate>{{doc_date}}</clinicaldate><indexsource>None</indexsource><doctitle>Drawbridge Postman test</doctitle><docstatus>2</docstatus></docattributes>\",\n  \"Parameter4\": \"\",\n  \"Parameter5\": \"\",\n  \"Parameter6\": \"\",\n  \"Data\": \"{{doc_base64}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{unity_endpoint}}/json/MagicJson",
+            "description": "Staff-side document filing only; the phone agent never files documents. Saves the new ID to {{document_id}}.\n\n**WRITE on the sandbox. Run only when Veradigm QA asks, on synthetic test patients.**\n\nTarget: Veradigm EHR. Run **1. Sign in** first."
+          }
+        },
+        {
+          "name": "SaveTask - review task for the document (WRITE)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.text();",
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.test('No Unity error', () => pm.expect(body).to.not.match(/Magic Error|\"Error\"\\s*:|not valid for this license|Access is denied|Invalid Token/i));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"Action\": \"SaveTask\",\n  \"Appname\": \"{{app_name}}\",\n  \"AppUserID\": \"{{ehr_username}}\",\n  \"PatientID\": \"{{ehr_patient_id}}\",\n  \"Token\": \"{{ehr_token}}\",\n  \"Parameter1\": \"Review\",\n  \"Parameter2\": \"{{review_user}}\",\n  \"Parameter3\": \"{{document_id}}\",\n  \"Parameter4\": \"Drawbridge Postman test document\",\n  \"Parameter5\": \"<taskdata><taskpriority>RoutineNA</taskpriority><subject>Drawbridge test</subject><sourceprovider></sourceprovider></taskdata>\",\n  \"Parameter6\": \"\",\n  \"Data\": \"\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{unity_endpoint}}/json/MagicJson",
+            "description": "**WRITE on the sandbox. Run only when Veradigm QA asks, on synthetic test patients.**\n\nTarget: Veradigm EHR. Run **1. Sign in** first."
+          }
+        }
+      ],
+      "description": ""
+    },
+    {
+      "name": "9. Drawbridge on AWS",
+      "item": [
+        {
+          "name": "Health",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('healthy', () => pm.expect(pm.response.json().status).to.eql('healthy'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": "{{drawbridge_url}}/health"
+          }
+        },
+        {
+          "name": "List tools",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-drawbridge-key",
+                "value": "{{drawbridge_tool_key}}"
+              }
+            ],
+            "url": "{{drawbridge_url}}/tools",
+            "description": "Needs the tool key."
+          }
+        },
+        {
+          "name": "1. Verify patient (search)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Not a tool failure', () => pm.expect(pm.response.text()).to.not.match(/\"success\"\\s*:\\s*false/));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "x-drawbridge-key",
+                "value": "{{drawbridge_agent_key}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"unity_search_patients\",\n  \"args\": {\n    \"lastName\": \"{{patient_last}}\",\n    \"firstName\": \"{{patient_first}}\",\n    \"dateOfBirth\": \"{{patient_dob}}\"\n  },\n  \"call\": {\n    \"call_id\": \"postman-{{call_suffix}}\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{drawbridge_url}}/api/retell",
+            "description": "Verifies the caller the way the phone agent does (Veradigm PM and EHR, MRN matching). Same call ID across requests: the patient is verified once per call."
+          }
+        },
+        {
+          "name": "2. Patient appointments",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Not a tool failure', () => pm.expect(pm.response.text()).to.not.match(/\"success\"\\s*:\\s*false/));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "x-drawbridge-key",
+                "value": "{{drawbridge_agent_key}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"unity_get_patient_appointments\",\n  \"args\": {\n    \"patientId\": \"{{pm_patient_id}}\"\n  },\n  \"call\": {\n    \"call_id\": \"postman-{{call_suffix}}\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{drawbridge_url}}/api/retell",
+            "description": "Upcoming appointments of the verified patient. Same call ID across requests: the patient is verified once per call."
+          }
+        },
+        {
+          "name": "3. Account balance",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Not a tool failure', () => pm.expect(pm.response.text()).to.not.match(/\"success\"\\s*:\\s*false/));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "x-drawbridge-key",
+                "value": "{{drawbridge_agent_key}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"unity_get_account_balance\",\n  \"args\": {\n    \"patientId\": \"{{pm_patient_id}}\"\n  },\n  \"call\": {\n    \"call_id\": \"postman-{{call_suffix}}\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{drawbridge_url}}/api/retell",
+            "description": "Balance of the verified patient. Same call ID across requests: the patient is verified once per call."
+          }
+        },
+        {
+          "name": "4. Insurance policy",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Not a tool failure', () => pm.expect(pm.response.text()).to.not.match(/\"success\"\\s*:\\s*false/));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "x-drawbridge-key",
+                "value": "{{drawbridge_agent_key}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"unity_get_insurance_policy\",\n  \"args\": {\n    \"patientId\": \"{{pm_patient_id}}\"\n  },\n  \"call\": {\n    \"call_id\": \"postman-{{call_suffix}}\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{drawbridge_url}}/api/retell",
+            "description": "Insurance on file for the verified patient. Same call ID across requests: the patient is verified once per call."
+          }
+        }
+      ],
+      "description": "The phone agent's route on AWS. Header x-drawbridge-key: the agent key (tool key for /tools). Run 'Verify patient' first in the same call."
+    },
+    {
+      "name": "10. Sign out",
+      "item": [
+        {
+          "name": "RetireToken (PM)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.environment.unset('pm_token');"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"Token\": \"{{pm_token}}\",\n  \"Appname\": \"{{app_name}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{unity_endpoint}}/json/RetireToken",
+            "description": "Ends the session at the end of testing."
+          }
+        },
+        {
+          "name": "RetireToken (EHR)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.environment.unset('ehr_token');"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"Token\": \"{{ehr_token}}\",\n  \"Appname\": \"{{app_name}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{unity_endpoint}}/json/RetireToken",
+            "description": "Ends the session at the end of testing."
+          }
+        }
+      ],
+      "description": ""
+    }
+  ],
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "const pad = n => String(n).padStart(2, '0');",
+          "const d = new Date(); const mdy = x => `${pad(x.getMonth() + 1)}/${pad(x.getDate())}/${x.getFullYear()}`;",
+          "if (!pm.environment.get('schedule_date')) pm.environment.set('schedule_date', mdy(d));",
+          "if (!pm.environment.get('changed_since')) { const s = new Date(d); s.setDate(s.getDate() - 7); pm.environment.set('changed_since', mdy(s)); }",
+          "if (!pm.environment.get('call_suffix')) pm.environment.set('call_suffix', String(Date.now()));"
+        ]
+      }
+    }
+  ]
+}

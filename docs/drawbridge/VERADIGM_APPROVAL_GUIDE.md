@@ -1,6 +1,8 @@
 # Getting Drawbridge approved by Veradigm
 
-Owner: **Musab** (Veradigm approvals). Claude prepares the technical material and keeps this file current. Status as of **Oct 11, 2026**.
+Owner: **Musab** (Veradigm approvals). Claude prepares the technical material and keeps this file current. Status as of **Oct 27, 2026**.
+
+> **Track A is done: Drawbridge is certified (Oct 27, 2026).** Veradigm certified **`MOATiT.Drawbridge.ProdApp`** with Veradigm® PM (Unity Born-on-Date 9/01/2026) and Veradigm® EHR (Unity Born-on-Date 10/06/2026). Certificate, Implementation Guide and Client Activation Process came with Lena Wilser's email "Congratulations - You're Certified! (MOATiT, LLC)". Next: client activation for IKI, tracked in `IKI_GO_LIVE_CHECKLIST.md`. The Track A sections below are kept as history.
 
 Drawbridge talks to Veradigm two ways, and each needs its own approval:
 
@@ -43,6 +45,8 @@ Sources: developer.veradigm.com (Certification Process Overview, Client Activati
 - [ ] Unity service credentials removed from `postman/` on `main` and rotated.
 
 ### Client activation (after certification), Idaho Kidney Institute
+
+Current step-by-step list: `IKI_GO_LIVE_CHECKLIST.md`.
 Checklist from the client:
 - [ ] Signed MOATiT ↔ IKI service agreement (Veradigm requires an active contract).
 - [ ] IKI's **CDH account number** (from their Veradigm Central account).
